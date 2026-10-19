@@ -1,0 +1,995 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Программа Узбека</title>
+<style>
+:root{
+  --bg:#141518; --panel:#1b1d22; --panel2:#23262d; --line:#2e3239; --text:#e6e7ea; --muted:#8c9099;
+  --accent:#f7a531; --accent2:#ffbe5c; --ok:#4cc38a; --warn:#f2c94c; --bad:#ef5d5d; --blue:#5aa9ff; --violet:#a78bfa;
+  --r:10px; font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; font-size:14px;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);display:flex;flex-direction:column;user-select:none;-webkit-user-select:none}
+input,textarea,.selectable,.mono,td{user-select:text;-webkit-user-select:text}
+button{font:inherit;color:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer;white-space:nowrap}
+button:hover{border-color:#4a4f58}
+button.primary{background:var(--accent);color:#1a1205;border-color:var(--accent);font-weight:600}
+button.primary:hover{background:var(--accent2)}
+button.danger{background:#3a1a1a;border-color:#6b2a2a;color:#ffb0b0}
+button.ghost{background:transparent;border-color:transparent;color:var(--muted)}
+button.ghost:hover{color:var(--text)}
+button.sm{padding:4px 9px;font-size:12px}
+button:disabled{opacity:.45;cursor:default}
+input,textarea,select{font:inherit;color:var(--text);background:#111215;border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%}
+textarea{resize:vertical;min-height:60px}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent)}
+label{display:block;color:var(--muted);font-size:12px;margin:10px 0 4px}
+a{color:var(--blue);cursor:pointer}
+header{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+.logo{font-weight:800;letter-spacing:.2px;display:flex;align-items:center;gap:8px}
+.logo .mark{width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,#f7a531,#e0662c);display:grid;place-items:center;color:#1a1205;font-size:13px}
+.spacer{flex:1}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:99px;background:var(--panel2);border:1px solid var(--line);font-size:12px;color:var(--muted)}
+.wrap{flex:1;display:flex;min-height:0}
+aside{width:260px;border-right:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column}
+aside .list{flex:1;overflow:auto;padding:8px}
+.pitem{padding:9px 10px;border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:8px}
+.pitem:hover{background:var(--panel2)}
+.pitem.sel{background:#2a2d34}
+.pitem .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.badge{font-size:11px;border-radius:99px;padding:1px 6px;background:#3a2c12;color:var(--accent2)}
+.badge.v{background:#2a2346;color:#c9b8ff}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.dot.ok{background:var(--ok)} .dot.me{background:var(--accent)} .dot.other{background:var(--bad)}
+aside .bottom{padding:10px;display:grid;gap:6px;border-top:1px solid var(--line)}
+main{flex:1;overflow:auto;padding:20px 26px}
+h1{font-size:22px;margin:0}
+h3{margin:18px 0 8px;font-size:15px}
+.muted{color:var(--muted)} .small{font-size:12px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin:12px 0}
+.banner{display:flex;align-items:center;gap:12px;border-radius:var(--r);padding:12px 16px;border:1px solid var(--line);background:var(--panel)}
+.banner.me{border-color:#6b4a16;background:#2a2112}
+.banner.other{border-color:#6b2a2a;background:#2a1616}
+.banner.free{border-color:#244b37;background:#13241b}
+.banner .big{font-size:16px;font-weight:600}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.actions button{padding:10px 16px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-top:18px;overflow-x:auto}
+.tab{padding:9px 14px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap}
+.tab.sel{color:var(--text);border-color:var(--accent)}
+.tab .cnt{font-size:11px;background:var(--panel2);border-radius:99px;padding:1px 7px;margin-left:5px}
+.tab .cnt.bad{background:#5a2323;color:#ffb0b0}
+.tab .cnt.hot{background:#3a2c12;color:var(--accent2)}
+table{width:100%;border-collapse:collapse;margin-top:8px}
+th{text-align:left;color:var(--muted);font-weight:500;font-size:12px;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:7px 8px;border-bottom:1px solid #24272d;vertical-align:top}
+tr:hover td{background:#191b1f}
+.tag{display:inline-block;font-size:11px;padding:1px 7px;border-radius:5px;background:var(--panel2);color:var(--muted);white-space:nowrap}
+.tag.ok{background:#173326;color:#7fe0b0}.tag.bad{background:#3a1a1a;color:#ff9b9b}.tag.warn{background:#3a3115;color:#f5d77e}.tag.blue{background:#16283d;color:#9cc9ff}.tag.v{background:#2a2346;color:#c9b8ff}
+.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+.ellip{max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:10}
+.modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px;width:min(640px,94vw);max-height:88vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.modal h2{margin:0 0 6px;font-size:18px}
+.log{background:#0e0f11;border:1px solid var(--line);border-radius:8px;padding:10px;height:260px;overflow:auto;white-space:pre-wrap;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#c8cad0}
+.err{white-space:pre-wrap}
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;color:var(--muted);gap:10px}
+.warnbox{border-left:3px solid var(--warn);background:#24210f;padding:8px 12px;border-radius:6px;margin:6px 0}
+.badbox{border-left:3px solid var(--bad);background:#2a1616;padding:8px 12px;border-radius:6px;margin:6px 0;color:#ffc4c4}
+.okbox{border-left:3px solid var(--ok);background:#13241b;padding:8px 12px;border-radius:6px;margin:6px 0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.switch{display:flex;align-items:center;gap:8px;margin:8px 0;cursor:pointer;color:var(--text);font-size:14px}
+.switch input{width:auto}
+.toast{position:fixed;bottom:18px;right:18px;background:var(--panel2);border:1px solid var(--line);padding:10px 14px;border-radius:10px;z-index:30;max-width:380px;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+.top{display:grid;grid-template-columns:1fr 360px;gap:14px;margin-top:14px}
+.preview{border:1px dashed #3a3f48;border-radius:var(--r);padding:12px 14px;background:var(--panel);transition:.15s}
+.preview.drag{border-color:var(--accent);background:#2a2112}
+.preview audio{width:100%;height:36px;margin:6px 0}
+.stage{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:99px;background:#2a2346;color:#d6c9ff;font-size:12px;font-weight:600}
+.cm{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid #24272d}
+.cm .av{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:700;flex:none;color:#1a1205}
+.cm .body{flex:1;min-width:0}
+.cm .text{white-space:pre-wrap;word-wrap:break-word;margin-top:3px;user-select:text;-webkit-user-select:text}
+.cm.done .text{text-decoration:line-through;color:var(--muted)}
+.cm input[type=checkbox]{width:18px;height:18px;margin-top:6px;accent-color:var(--ok)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;border-radius:0;background:transparent;color:var(--muted)}
+.seg button.on{background:var(--panel2);color:var(--text)}
+.tasks{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;gap:8px;z-index:25;width:360px;max-width:calc(100vw - 32px)}
+.task{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+.task.ok{border-color:#2f6b4c}.task.err{border-color:#7a2f2f;background:#2a1717}
+.task .t{display:flex;align-items:center;gap:8px;font-weight:600}
+.task .s{color:var(--muted);font-size:12px;margin-top:4px;min-height:16px}
+.task .bar{height:5px;border-radius:9px;background:#33373f;margin-top:8px;overflow:hidden}
+.task .bar i{display:block;height:100%;background:var(--accent);border-radius:9px;transition:width .3s}
+.task .bar.ind i{width:35%!important;animation:ind 1.2s ease-in-out infinite}
+@keyframes ind{0%{margin-left:-35%}100%{margin-left:100%}}
+.spin{width:14px;height:14px;border:2px solid #555;border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite;flex:none}
+@keyframes sp{to{transform:rotate(360deg)}}
+.details{white-space:pre-wrap;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:#b9bcc4;background:#121316;border-radius:6px;padding:8px;margin-top:8px;max-height:180px;overflow:auto}
+.ghead{display:flex;align-items:center;gap:6px;padding:7px 8px;border-radius:8px;cursor:pointer;color:var(--muted);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+.ghead:hover{background:var(--panel2);color:var(--text)}
+.ghead .gn{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ghead .more,.pitem .more{opacity:0;padding:0 4px;border-radius:5px}
+.ghead:hover .more,.pitem:hover .more{opacity:1}
+.ghead .more:hover,.pitem .more:hover{background:#3a3f48}
+.gbody{margin-left:10px;border-left:1px solid #2c3037;padding-left:4px}
+.drop{outline:2px dashed var(--accent);outline-offset:-2px;background:#2a2112!important}
+.menu{position:fixed;z-index:40;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:4px;min-width:200px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.menu div{padding:7px 10px;border-radius:6px;cursor:pointer}
+.menu div:hover{background:#343842}
+.menu .sep{height:1px;background:var(--line);margin:4px 0;padding:0}
+.invite{margin:8px;border:1px solid #6b4a16;background:#2a2112;border-radius:10px;padding:10px;font-size:13px}
+.lookup{font-size:12px;margin-top:4px;min-height:16px}
+.act{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid #24272d;font-size:13px}
+.act .tm{color:var(--muted);white-space:nowrap;font-size:12px;width:92px;flex:none}
+.stabs{display:flex;gap:4px;padding:8px 8px 0}
+.stab{flex:1;text-align:center;padding:7px 6px;border-radius:8px;cursor:pointer;color:var(--muted);font-size:13px}
+.stab.sel{background:var(--panel2);color:var(--text)}
+.stab .badge{margin-left:4px}
+.avail{padding:10px;border-radius:10px;border:1px solid var(--line);margin:6px 0;background:#1f2127}
+.avail .an{font-weight:600}
+.flpchoice{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid #24272d}
+@media (max-width:980px){.top{grid-template-columns:1fr}}
+@media (max-width:760px){aside{width:200px}.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><span class="mark">♪</span>Программа Узбека</div>
+  <span class="chip" id="who">—</span>
+  <span class="spacer"></span>
+  <span class="chip" id="toolsChip" style="display:none"></span>
+  <button class="ghost" onclick="openJournal()">📜 Журнал</button>
+  <button class="ghost" onclick="openSettings()">⚙ Настройки</button>
+  <button class="ghost" id="quitBtn" title="Закрыть" onclick="quitApp()" style="display:none">⏻</button>
+</header>
+<div class="wrap">
+  <aside>
+    <div id="invites"></div>
+    <div class="stabs"><div class="stab sel" id="st_my" onclick="sideTab('my')">Мои проекты</div><div class="stab" id="st_av" onclick="sideTab('av')">Доступные<span class="badge" id="avcnt" style="display:none"></span></div></div>
+    <div class="list" id="plist"></div>
+    <div class="list" id="alist" style="display:none"></div>
+    <div class="bottom">
+      <div class="row" style="flex-wrap:nowrap;gap:6px"><button style="flex:1" onclick="addProject()">＋ Добавить проект</button><button title="Новая папка в списке" onclick="newGroup()">📁＋</button></div>
+      <button onclick="cloneDialog()">⤓ Скачать проект по ссылке</button>
+    </div>
+  </aside>
+  <main id="main"></main>
+</div>
+<div id="modals"></div>
+<div class="tasks" id="tasks"></div>
+
+<script>
+const TOKEN = "__FLSYNC_TOKEN__";
+const STAGES = ["Идея","Набросок","Аранжировка","Запись","Сведение","Мастеринг","Готово"];
+let S = {state:null, sel:null, proj:null, analysis:null, history:null, comments:null, preview:null, previewErr:null, previewProgress:null,
+         tab:'changes', showService:false, notes:{}, invites:[], shownReq:{}, trashSel:{}, ckind:'note', cfilter:'all'};
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtSize = n => n==null?'':n<1024?n+' Б':n<1048576?(n/1024).toFixed(0)+' КБ':n<1073741824?(n/1048576).toFixed(1)+' МБ':(n/1073741824).toFixed(2)+' ГБ';
+const fmtTime = t => new Date(t*1000).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+const enc = encodeURIComponent;
+const color = name => { let h=0; for(const c of name||'') h=(h*31+c.charCodeAt(0))%360; return `hsl(${h} 70% 62%)` };
+
+async function api(path, body){
+  const opt = {method: body===undefined?'GET':'POST', headers:{'X-FLSync':TOKEN}};
+  if (body!==undefined){opt.body=JSON.stringify(body);opt.headers['Content-Type']='application/json'}
+  const r = await fetch(path,opt); const j = await r.json().catch(()=>({error:'bad response'}));
+  if(!r.ok) throw new Error(j.error||r.statusText); return j;
+}
+function toast(msg, ms=3500){const d=document.createElement('div');d.className='toast';d.innerHTML=msg;document.body.appendChild(d);setTimeout(()=>d.remove(),ms);return d}
+setInterval(()=>api('/api/ping',{}).catch(()=>{}),20000); api('/api/ping',{}).catch(()=>{});
+
+// External links open in the system browser (inside the app window they would go nowhere)
+document.addEventListener('click', e=>{
+  const a=e.target.closest('a[href]'); if(!a) return;
+  const h=a.getAttribute('href'); if(/^https?:\/\//.test(h)){ e.preventDefault(); api('/api/openurl',{url:h}).catch(()=>{}) }
+});
+
+// ---------- dialogs (own ones: WKWebView ignores alert/confirm/prompt) ----------
+function modal(html, onclose){
+  const bg=document.createElement('div');bg.className='modal-bg';
+  bg.innerHTML=`<div class="modal">${html}</div>`;
+  bg.close=()=>{bg.remove(); onclose&&onclose()};
+  bg.addEventListener('mousedown',e=>{if(e.target===bg && !bg.busy && !bg.sticky) bg.close()});
+  $('#modals').appendChild(bg); return bg;
+}
+function uiAlert(msg, title='Ошибка'){ return new Promise(res=>{ const m=modal(`<h2>${esc(title)}</h2><div class="err">${esc(msg)}</div><div class="row" style="justify-content:flex-end;margin-top:14px"><button class="primary" id="ok">Понятно</button></div>`, res); m.querySelector('#ok').onclick=()=>m.close(); m.querySelector('#ok').focus() }) }
+function uiConfirm(msg, {title='Точно?', ok='Да', danger=false}={}){ return new Promise(res=>{ let v=false; const m=modal(`<h2>${esc(title)}</h2><div>${msg}</div><div class="row" style="justify-content:flex-end;margin-top:14px"><button id="no">Отмена</button><button class="${danger?'danger':'primary'}" id="yes">${esc(ok)}</button></div>`, ()=>res(v)); m.querySelector('#no').onclick=()=>m.close(); m.querySelector('#yes').onclick=()=>{v=true;m.close()} }) }
+function uiPrompt(title, {label='', value='', placeholder=''}={}){ return new Promise(res=>{ let v=null; const m=modal(`<h2>${esc(title)}</h2>${label?`<label>${esc(label)}</label>`:''}<input id="pv" value="${esc(value)}" placeholder="${esc(placeholder)}"><div class="row" style="justify-content:flex-end;margin-top:14px"><button id="no">Отмена</button><button class="primary" id="yes">OK</button></div>`, ()=>res(v)); const i=m.querySelector('#pv'); i.focus(); const go=()=>{v=i.value;m.close()}; m.querySelector('#yes').onclick=go; i.onkeydown=e=>{if(e.key==='Enter')go()}; m.querySelector('#no').onclick=()=>m.close() }) }
+const fail = e => uiAlert(e.message||String(e));
+
+// ---------- jobs ----------
+// ---------- tasks: small cards with plain words and a progress bar ----------
+function taskCard(title){
+  const el=document.createElement('div'); el.className='task';
+  el.innerHTML=`<div class="t"><span class="spin"></span><span class="tt">${esc(title)}</span></div><div class="s">Начинаю…</div><div class="bar ind"><i style="width:0"></i></div>`;
+  $('#tasks').appendChild(el); return el;
+}
+function paintTask(el, j){
+  const last=(j.steps||[])[(j.steps||[]).length-1]||'';
+  const p=j.progress;
+  el.querySelector('.s').textContent = p ? p.label + (p.pct>=0?` — ${p.pct}%`:'') : (last||'Работаю…');
+  const bar=el.querySelector('.bar');
+  if(p && p.pct>=0){ bar.classList.remove('ind'); bar.querySelector('i').style.width=p.pct+'%' } else bar.classList.add('ind');
+}
+function finishTask(el, j){
+  const bar=el.querySelector('.bar'); bar.remove();
+  const tt=el.querySelector('.t');
+  if(j.error){
+    el.classList.add('err');
+    tt.innerHTML=`<span>⚠</span><span class="tt">${esc(j.title)} — не получилось</span><span class="spacer"></span><button class="ghost sm" onclick="this.closest('.task').remove()">✕</button>`;
+    el.querySelector('.s').innerHTML=`<div style="color:#ffc4c4;font-size:13px;margin-top:2px">${esc(j.error)}</div>`+(j.details?`<a class="small muted" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">Подробности для знающих</a><div class="details" hidden>${esc(j.details)}</div>`:'');
+  } else {
+    el.classList.add('ok');
+    tt.innerHTML=`<span style="color:var(--ok)">✓</span><span class="tt">${esc(j.title)}</span>`;
+    const st=(j.steps||[]).filter(x=>!/^✓/.test(x)).slice(-3);
+    el.querySelector('.s').innerHTML = st.length? st.map(x=>`<div>${esc(x)}</div>`).join('') : 'Готово';
+    setTimeout(()=>{ el.style.transition='opacity .4s'; el.style.opacity=0; setTimeout(()=>el.remove(),400) }, st.some(x=>x.startsWith('⚠'))?9000:3500);
+  }
+}
+async function followJob(id, title, onDone){
+  const el=taskCard(title);
+  for(;;){
+    let j; try{ j=await api('/api/job?id='+id) }catch(e){ await new Promise(r=>setTimeout(r,1000)); continue }
+    if(title!==j.title) el.querySelector('.tt').textContent=j.title;
+    if(!j.done){ paintTask(el,j); await new Promise(r=>setTimeout(r,400)); continue }
+    finishTask(el,j);
+    const r=j.result||{};
+    if(!j.error && r.conflicts && r.conflicts.length) uiAlert(`Версия с сервера осталась под исходным именем, твоя сохранена рядом:\n\n${r.conflicts.map(c=>'• '+c).join('\n')}\n\nОткрой обе в FL Studio и перенеси нужное.`,'Вы оба поменяли один и тот же проект');
+    onDone && onDone(j); refreshAll(); return j;
+  }
+}
+async function runJob(path, body, {title, onDone}={}){
+  let job; try{ job = await api(path, body) }catch(e){ fail(e); return null }
+  return followJob(job.id, title||job.title, onDone);
+}
+// job without a modal (progress shown inline)
+async function silentJob(path, body, onTick){
+  const job = await api(path, body);
+  for(;;){ const j = await api('/api/job?id='+job.id); onTick && onTick(j); if(j.done){ if(j.error) throw new Error(j.error); return j } await new Promise(r=>setTimeout(r,400)) }
+}
+
+// ---------- state ----------
+async function refreshAll(){
+  S.state = await api('/api/state');
+  const st=S.state, c=st.config;
+  $('#who').innerHTML = c.userName ? `👤 ${esc(c.userName)}${c.githubLogin?` <span style="opacity:.7">· GitHub @${esc(c.githubLogin)}</span>`:''}` : 'не зарегистрирован';
+  $('#who').style.cursor='pointer'; $('#who').onclick=()=>openRegister(false);
+  $('#quitBtn').style.display = st.windowed ? 'none' : '';
+  const t=st.tools, tc=$('#toolsChip');
+  if(!t.gitOk||!t.lfsOk){ tc.style.display=''; tc.innerHTML=`<span style="color:var(--warn)">⚠ ${!t.gitOk?'нет git':'нет git-lfs'}</span> <a onclick="installTools()">установить</a>` } else tc.style.display='none';
+  renderList(); renderInvites();
+  if(S.side==='av') loadAvailable(true); else if(st.hasToken && !S.avail) api('/api/available').then(a=>{ S.avail=a||[]; renderAvailable() }).catch(()=>{});
+  if(S.sel) await loadProject(S.sel); else renderMain();
+  if((!c.userName || !c.githubLogin) && !S.askedName){ S.askedName=true; openRegister(true) }
+}
+function projItem(p){
+  let cls='', tip='';
+  if(p.lock){ cls = p.lock.user===S.state.me?'me':'other'; tip = 'в работе у '+p.lock.user }
+  else if(p.isRepo){ cls='ok'; tip='свободен' }
+  const n=S.notes[p.path]||{};
+  const badges=(n.unread?`<span class="badge" title="новые комментарии">💬 ${n.unread}</span>`:'')+
+    ((n.incoming||[]).length?`<span class="badge v" title="просят плагин">🔌 ${n.incoming.length}</span>`:'')+
+    ((n.ready||[]).length?`<span class="badge v" title="плагин готов к установке">⬇ ${n.ready.length}</span>`:'')+
+    (n.behind>0?`<span class="badge" title="на сервере новое">⤓</span>`:'');
+  return `<div class="pitem ${S.sel===p.path?'sel':''}" draggable="true" data-path="${esc(p.path)}" title="${esc(p.path)}" onclick="selectProject('${enc(p.path)}')">
+    <span class="dot ${cls}" title="${esc(tip)}"></span><span class="n">${esc(p.name)}</span>${badges}${p.exists?'':'<span class="tag bad">нет папки</span>'}
+    <span class="more" onclick="event.stopPropagation();projMenu(event,'${enc(p.path)}')">⋯</span></div>`;
+}
+function renderList(){
+  const ps=S.state?.projects||[], groups=S.state?.groups||[];
+  const ids=new Set(groups.map(g=>g.id));
+  let h=groups.map(g=>{
+    const inG=ps.filter(p=>p.group===g.id);
+    return `<div class="ghead" data-group="${g.id}" onclick="toggleGroup('${g.id}',${!g.collapsed})"><span>${g.collapsed?'▸':'▾'}</span><span>📁</span><span class="gn">${esc(g.name)}</span><span class="muted">${inG.length}</span><span class="more" onclick="event.stopPropagation();groupMenu(event,'${g.id}')">⋯</span></div>
+      ${g.collapsed?'':`<div class="gbody" data-group="${g.id}">${inG.map(projItem).join('')||'<div class="muted small" style="padding:6px 10px">перетащи сюда проект</div>'}</div>`}`}).join('');
+  const top=ps.filter(p=>!p.group||!ids.has(p.group));
+  h+=`<div data-group="" class="topzone" style="min-height:${groups.length?24:0}px">${top.map(projItem).join('')}</div>`;
+  if(!ps.length) h=`<div class="muted small" style="padding:10px">Проектов пока нет. Добавь папку с .flp или прими приглашение друга.</div>`+ (groups.length?h:'');
+  $('#plist').innerHTML=h;
+  // drag & drop projects between folders
+  document.querySelectorAll('.pitem[draggable]').forEach(el=>el.ondragstart=e=>{ e.dataTransfer.setData('text/x-project', el.dataset.path); e.dataTransfer.effectAllowed='move' });
+  document.querySelectorAll('[data-group]').forEach(z=>{
+    z.ondragover=e=>{ if([...e.dataTransfer.types].includes('text/x-project')){ e.preventDefault(); z.classList.add('drop') } };
+    z.ondragleave=()=>z.classList.remove('drop');
+    z.ondrop=e=>{ e.preventDefault(); z.classList.remove('drop'); const p=e.dataTransfer.getData('text/x-project'); if(p) moveProject(p, z.dataset.group) };
+  });
+}
+async function moveProject(path, group){ try{ await api('/api/projects/move',{path,group}); await refreshAll() }catch(e){ fail(e) } }
+async function toggleGroup(id, collapsed){ await api('/api/groups/update',{id,collapsed}).catch(()=>{}); refreshAll() }
+async function newGroup(){ const n=await uiPrompt('Новая папка в списке',{label:'Название',placeholder:'напр. «Альбом 2027» или «Биты на продажу»'}); if(!n||!n.trim()) return; try{ await api('/api/groups/create',{name:n}); refreshAll() }catch(e){ fail(e) } }
+function popMenu(ev, items){
+  document.querySelectorAll('.menu').forEach(m=>m.remove());
+  const m=document.createElement('div'); m.className='menu';
+  m.innerHTML=items.map((it,i)=>it==='-'?'<div class="sep"></div>':`<div data-i="${i}">${it[0]}</div>`).join('');
+  document.body.appendChild(m);
+  const r=m.getBoundingClientRect();
+  m.style.left=Math.min(ev.clientX, innerWidth-r.width-8)+'px'; m.style.top=Math.min(ev.clientY, innerHeight-r.height-8)+'px';
+  m.onclick=e=>{ const d=e.target.closest('[data-i]'); if(!d) return; m.remove(); items[+d.dataset.i][1]() };
+  setTimeout(()=>document.addEventListener('mousedown', function h(e){ if(!m.contains(e.target)){ m.remove(); document.removeEventListener('mousedown',h) } }),0);
+}
+function groupMenu(ev,id){
+  const g=(S.state.groups||[]).find(x=>x.id===id);
+  popMenu(ev,[['✎ Переименовать', async()=>{ const n=await uiPrompt('Переименовать папку',{value:g.name}); if(n&&n.trim()){ await api('/api/groups/update',{id,name:n}); refreshAll() } }],
+    ['🗑 Удалить папку (проекты останутся)', async()=>{ if(await uiConfirm(`Удалить папку «${esc(g.name)}» из списка? Проекты из неё переместятся наверх, файлы не трогаются.`,{ok:'Удалить'})){ await api('/api/groups/delete',{id}); refreshAll() } }]]);
+}
+function projMenu(ev,encPath){
+  const path=decodeURIComponent(encPath);
+  const groups=S.state.groups||[], cur=(S.state.projects||[]).find(p=>p.path===path)?.group||'';
+  const items=groups.filter(g=>g.id!==cur).map(g=>[`📁 Переместить в «${esc(g.name)}»`, ()=>moveProject(path,g.id)]);
+  if(cur) items.push(['⤴ Убрать из папки', ()=>moveProject(path,'')]);
+  items.push(['📁＋ В новую папку…', async()=>{ const n=await uiPrompt('Новая папка в списке',{label:'Название'}); if(n&&n.trim()){ const g=await api('/api/groups/create',{name:n}); moveProject(path,g.id) } }]);
+  items.push('-', ['📂 Открыть в Finder/Проводнике', ()=>api('/api/project/open',{path})], ['✕ Убрать из списка', async()=>{ if(await uiConfirm('Убрать проект из списка? Файлы не удаляются.',{ok:'Убрать'})){ await api('/api/projects/remove',{path}); if(S.sel===path) S.sel=null; refreshAll() } }]);
+  popMenu(ev, items);
+}
+async function selectProject(e){ PLAYER.pause(); PLAYER.removeAttribute('src'); PLAYER.dataset.src=''; S.sel=decodeURIComponent(e); S.analysis=null; S.history=null; S.comments=null; S.preview=null; S.previewErr=null; renderList(); await loadProject(S.sel); loadPreview(); if(S.tab==='talk') loadComments(true) }
+async function loadProject(path){
+  try{ S.proj = await api('/api/project?path='+enc(path)) }catch(e){ S.proj=null }
+  renderMain();
+  api('/api/project/analysis?path='+enc(path)).then(a=>{ if(S.sel===path){ S.analysis=a; renderMain() } }).catch(()=>{});
+  if(S.tab==='history') loadHistory();
+  if(S.comments===null) loadComments(false);
+}
+async function loadHistory(){ S.history = await api('/api/project/history?path='+enc(S.sel)).catch(()=>[]); renderMain() }
+async function loadComments(fetch){
+  const path=S.sel; if(!path) return;
+  try{ const c = await api('/api/project/comments?path='+enc(path)+(fetch?'&fetch=1':'')); if(S.sel===path){ S.comments=c; renderMain() } }catch(e){}
+  if(S.tab==='talk') api('/api/project/seen',{path}).then(pollNotes).catch(()=>{});
+}
+async function loadPreview(){
+  const path=S.sel; if(!path||!S.proj?.isRepo||!S.proj?.remote) return;
+  try{
+    const p = await api('/api/project/preview?path='+enc(path)); if(S.sel!==path) return;
+    S.preview=p; S.previewErr=null; renderPreview();
+    if(p.asset && !p.cached){
+      S.previewProgress='скачиваю…'; renderPreview();
+      await silentJob('/api/project/preview/fetch',{path}, j=>{ S.previewProgress=j.progress?(j.progress.label+(j.progress.pct>=0?' — '+j.progress.pct+'%':'')):'скачиваю…'; renderPreview() });
+      S.previewProgress=null; S.preview.cached=true; renderPreview();
+    }
+  }catch(e){ S.previewErr=e.message; S.previewProgress=null; renderPreview() }
+}
+
+// ---------- notifications ----------
+async function pollNotes(){
+  let r; try{ r = await api('/api/notifications') }catch(e){ return }
+  S.notes=r.projects||{}; S.invites=r.invites||[];
+  renderList(); renderInvites();
+  for(const [path,n] of Object.entries(S.notes)){
+    for(const q of n.incoming||[]) if(!S.shownReq[q.id]){ S.shownReq[q.id]=1; askPermission(path,q) }
+    for(const q of n.ready||[]) if(!S.shownReq['ready'+q.id]){ S.shownReq['ready'+q.id]=1; offerInstall(path,q) }
+  }
+  for(const inv of S.invites) if(!S.shownReq['inv'+inv.id]){ S.shownReq['inv'+inv.id]=1; acceptInvite(inv.id) }
+  const n=S.notes[S.sel];
+  if(n && S.proj && n.behind!==S.proj.behind && !document.querySelector('.modal-bg')) loadProject(S.sel);
+  if(n && S.tab==='talk' && n.unread) loadComments(false);
+}
+function renderInvites(){
+  const el=$('#invites'); if(!el) return;
+  el.innerHTML=(S.invites||[]).map(i=>`<div class="invite">📨 <b>${esc(i.inviterNick||('@'+i.inviter))}</b> приглашает в проект «${esc(i.name)}»<div style="margin-top:6px"><button class="sm primary" onclick="acceptInvite(${i.id})">Принять и скачать</button></div></div>`).join('');
+}
+// ---------- "Доступные": projects on GitHub you can download ----------
+function sideTab(t){
+  S.side=t; $('#st_my').classList.toggle('sel',t==='my'); $('#st_av').classList.toggle('sel',t==='av');
+  $('#plist').style.display=t==='my'?'':'none'; $('#alist').style.display=t==='av'?'':'none';
+  if(t==='av') loadAvailable();
+}
+async function loadAvailable(silent){
+  const el=$('#alist');
+  if(!S.state?.hasToken){ el.innerHTML='<div class="muted small" style="padding:10px">Войди со своим GitHub-токеном, и здесь появятся проекты, в которых ты участвуешь.</div>'; return }
+  if(!silent) el.innerHTML='<div class="muted small" style="padding:10px">Смотрю, что есть на GitHub…</div>';
+  try{ S.avail=(await api('/api/available'))||[] }catch(e){ el.innerHTML=`<div class="badbox small" style="margin:8px">${esc(e.message)}</div>`; return }
+  renderAvailable();
+}
+function renderAvailable(){
+  const el=$('#alist'), all=S.avail||[];
+  const list=all.filter(a=>a.isApp||S.showAllRepos);
+  const groups=Object.fromEntries((S.state.groups||[]).map(g=>[g.id,g.name]));
+  const cnt=all.filter(a=>a.isApp).length, badge=$('#avcnt'); badge.textContent=cnt; badge.style.display=cnt?'':'none';
+  el.innerHTML=`<div class="muted small" style="padding:4px 4px 6px">Проекты на GitHub, где ты владелец или участник, которых ещё нет на этом компьютере.</div>`+
+    (list.length?list.map(a=>`<div class="avail"><div class="an">${esc(a.name)}</div>
+      <div class="muted small">${a.mine?'твой проект':'от '+esc(a.ownerNick||('@'+a.owner))}${a.pushed?' · обновлён '+new Date(a.pushed).toLocaleDateString('ru-RU'):''}${a.sizeKb?' · '+fmtSize(a.sizeKb*1024):''}${a.group&&groups[a.group]?' · 📁 '+esc(groups[a.group]):''}${a.isApp?'':' · <span class="tag">обычный репозиторий</span>'}</div>
+      <div style="margin-top:6px"><button class="sm primary" onclick="downloadAvailable('${enc(a.fullName)}')">⤓ Скачать</button></div></div>`).join('')
+    :`<div class="muted small" style="padding:10px">${all.length?'Проектов программы для скачивания нет.':'Здесь пусто: всё уже скачано или тебя ещё никуда не позвали.'}</div>`)+
+    `<label class="switch small" style="padding:4px"><input type="checkbox" ${S.showAllRepos?'checked':''} onchange="S.showAllRepos=this.checked;renderAvailable()"> показывать все мои репозитории</label>
+     <div style="padding:4px"><a class="small" onclick="loadAvailable()">↻ обновить</a></div>`;
+}
+function downloadAvailable(encName){
+  const a=(S.avail||[]).find(x=>x.fullName===decodeURIComponent(encName)); if(!a) return;
+  const def=S.state?.config?.lastParent||'';
+  const m=modal(`<h2>⤓ Скачать «${esc(a.name)}»</h2><div class="muted small">${a.mine?'Твой проект':'Проект '+esc(a.ownerNick||('@'+a.owner))} с GitHub. Аудио докачается автоматически.</div>
+    <label>Куда скачать (папка, в которой появится папка проекта)</label><div class="row" style="flex-wrap:nowrap"><input id="cp" value="${esc(def)}" placeholder="напр. Музыка/Проекты"><button id="pick">Выбрать…</button></div>
+    <div class="row" style="justify-content:flex-end;margin-top:14px"><button id="no">Отмена</button><button class="primary" id="go">Скачать</button></div>`);
+  m.querySelector('#no').onclick=()=>m.close();
+  m.querySelector('#pick').onclick=async()=>{const r=await api('/api/pickfolder',{}).catch(()=>({}));if(r.path)m.querySelector('#cp').value=r.path};
+  m.querySelector('#go').onclick=async()=>{ const parent=m.querySelector('#cp').value.trim(); if(!parent) return uiAlert('Выбери папку'); m.close();
+    const j=await runJob('/api/available/clone',{cloneUrl:a.cloneUrl,name:a.name,parent,group:a.group||''},{title:'Скачиваю «'+a.name+'»'});
+    if(j&&!j.error&&j.result&&j.result.path){ S.sel=j.result.path; S.comments=null; S.preview=null; sideTab('my'); await refreshAll(); loadPreview() } loadAvailable(true) };
+}
+// ---------- participants of a project ----------
+async function participantsDialog(){
+  const path=S.sel;
+  const m=modal(`<div class="row" style="justify-content:space-between"><h2>👥 Участники проекта</h2><button class="ghost sm" id="x">✕</button></div>
+    <div id="plistp" class="muted small">Загружаю…</div>
+    <label>Позвать в проект — ник в программе или GitHub-логин</label>
+    <div class="row" style="flex-wrap:nowrap"><input id="pn" placeholder="ник друга"><button class="primary" id="pinv">Пригласить</button></div><div class="lookup" id="plk"></div>
+    <div class="muted small" style="margin-top:8px">Приглашённый увидит приглашение у себя в программе (или во вкладке «Доступные»). Убирать участников может владелец проекта.</div>`);
+  m.querySelector('#x').onclick=()=>m.close();
+  bindLookup(m.querySelector('#pn'), m.querySelector('#plk'));
+  const load=async()=>{
+    let ps; try{ ps=await api('/api/project/participants?path='+enc(path)) }catch(e){ m.querySelector('#plistp').innerHTML=`<div class="badbox">${esc(e.message)}</div>`; return }
+    m.querySelector('#plistp').innerHTML=ps.map(x=>`<div class="row" style="gap:8px;padding:6px 0;border-bottom:1px solid #24272d;color:var(--text)">
+      <span style="width:26px;height:26px;border-radius:50%;display:inline-grid;place-items:center;background:${color(x.nick||x.login)};color:#1a1205;font-weight:700">${esc((x.nick||x.login)[0].toUpperCase())}</span>
+      <div style="flex:1"><b>${esc(x.nick||x.login)}</b>${x.me?' <span class="muted small">(ты)</span>':''} <span class="muted small">GitHub @${esc(x.login)}</span><div>${x.admin?'<span class="tag">владелец</span> ':''}${x.pending?'<span class="tag warn">приглашён, ещё не принял</span> ':''}${!x.nick?'<span class="tag">не зарегистрирован в программе</span>':''}</div></div>
+      ${!x.admin&&!x.me?`<button class="sm ghost" data-l="${esc(x.login)}" data-n="${esc(x.nick||x.login)}" data-i="${x.inviteId||0}">${x.pending?'отменить приглашение':'убрать'}</button>`:''}</div>`).join('');
+    m.querySelectorAll('button[data-l]').forEach(b=>b.onclick=async()=>{
+      if(!await uiConfirm(`${b.dataset.i!=='0'?'Отменить приглашение для':'Убрать из проекта'} <b>${esc(b.dataset.n)}</b>?${b.dataset.i!=='0'?'':' Файлы у него останутся, но получать и отправлять изменения он больше не сможет.'}`,{ok:'Да',danger:true})) return;
+      try{ await api('/api/project/remove-participant',{path,login:b.dataset.l,inviteId:+b.dataset.i,name:b.dataset.n}); load() }catch(e){ fail(e) } });
+  };
+  m.querySelector('#pinv').onclick=async()=>{ const nick=m.querySelector('#pn').value.trim(); if(!nick) return;
+    try{ const u=await api('/api/project/invite',{path,nick}); toast(`Приглашение отправлено: ${esc(u.nick)}`); m.querySelector('#pn').value=''; m.querySelector('#plk').innerHTML=''; load() }catch(e){ fail(e) } };
+  load();
+}
+function acceptInvite(id){
+  const inv=(S.invites||[]).find(x=>x.id===id); if(!inv) return;
+  const def=S.state?.config?.lastParent||'';
+  const m=modal(`<h2>📨 Приглашение в проект</h2>
+    <div><b>${esc(inv.inviterNick||('@'+inv.inviter))}</b> приглашает тебя в проект <b>«${esc(inv.name)}»</b>${inv.inviterNick?` <span class="muted small">(GitHub @${esc(inv.inviter)})</span>`:''}.</div>
+    <label>Куда скачать (папка, в которой появится папка проекта)</label><div class="row" style="flex-wrap:nowrap"><input id="cp" value="${esc(def)}" placeholder="напр. Музыка/Проекты"><button id="pick">Выбрать…</button></div>
+    <div class="row" style="justify-content:flex-end;margin-top:14px"><button id="later" class="ghost">Позже</button><button class="primary" id="go">Принять и скачать</button></div>`);
+  m.querySelector('#later').onclick=()=>m.close();
+  m.querySelector('#pick').onclick=async()=>{const r=await api('/api/pickfolder',{}).catch(()=>({}));if(r.path)m.querySelector('#cp').value=r.path};
+  m.querySelector('#go').onclick=async()=>{ const parent=m.querySelector('#cp').value.trim(); if(!parent) return uiAlert('Выбери папку, куда скачать проект'); m.close();
+    const j=await runJob('/api/invitations/accept',{id:inv.id,cloneUrl:inv.cloneUrl,parent},{title:'Скачиваю «'+inv.name+'»'});
+    if(j&&j.result&&j.result.path){ S.sel=j.result.path; S.comments=null; S.preview=null; await refreshAll(); loadPreview() } pollNotes() };
+}
+async function openJournal(){
+  const m=modal(`<div class="row" style="justify-content:space-between"><h2>📜 Журнал</h2><button class="ghost sm" id="x">✕</button></div><div class="muted small">Что происходило: отправки, получения, приглашения, плагины.</div><div id="acts" style="margin-top:8px">Загружаю…</div>`);
+  m.querySelector('#x').onclick=()=>m.close();
+  const list=await api('/api/activity').catch(()=>[]);
+  const ic={ok:'✓',error:'⚠',info:'•'}, col={ok:'var(--ok)',error:'var(--bad)',info:'var(--blue)'};
+  m.querySelector('#acts').innerHTML=list.length?list.slice(0,200).map(a=>`<div class="act"><span class="tm">${fmtTime(a.time)}</span><span style="color:${col[a.kind]}">${ic[a.kind]||'•'}</span><span style="flex:1">${a.project?`<b>${esc(a.project)}</b> — `:''}${esc(a.text)}</span></div>`).join(''):'<p class="muted">Пока пусто.</p>';
+}
+setInterval(pollNotes, 6000);
+function projName(path){ return (S.state?.projects||[]).find(p=>p.path===path)?.name || path }
+async function askPermission(path, r){
+  const m=modal(`<h2>🔌 ${esc(r.from)} просит плагин</h2>
+    <div class="card" style="margin:8px 0"><b style="font-size:16px">${esc(r.plugin)}</b> <span class="tag">${esc(r.format)}</span>${r.vendor?` <span class="muted">${esc(r.vendor)}</span>`:''}<div class="muted small">проект «${esc(projName(path))}» · у ${esc(r.from)} ${esc(r.fromOs)}</div></div>
+    <div id="insp" class="muted small">Проверяю, что можно отправить…</div>
+    <div class="warnbox small" style="margin-top:10px">⚖ Передавай только бесплатные плагины или те, на которые у ${esc(r.from)} есть своя лицензия. Библиотеки сэмплов и активация не копируются.</div>
+    <label class="switch small"><input type="checkbox" id="trust"> Разрешать ${esc(r.from)} без вопросов (когда плагин подходит как есть)</label>
+    <label>Причина отказа (если отказываешь)</label><input id="why" placeholder="напр.: он платный, купи на сайте">
+    <div class="row" style="justify-content:flex-end;margin-top:14px"><button id="later" class="ghost">Позже</button><button id="no" class="danger">Отклонить</button><button id="yes" class="primary" disabled>Разрешить и отправить</button></div>`);
+  m.sticky=true;
+  m.querySelector('#later').onclick=()=>m.close();
+  m.querySelector('#no').onclick=async()=>{ try{ await api('/api/plugin/decline',{path,id:r.id,reason:m.querySelector('#why').value}); m.close(); toast('Запрос отклонён'); pollNotes() }catch(e){ fail(e) } };
+  let insp; try{ insp=await api('/api/plugin/inspect?path='+enc(path)+'&id='+enc(r.id)) }catch(e){ m.querySelector('#insp').innerHTML=`<div class="badbox">${esc(e.message)}</div>`; return }
+  const opts=[];
+  if(insp.compatible) opts.push({v:'', t:`Сам плагин${insp.version?' (версия '+esc(insp.version)+')':''} — ${fmtSize(insp.size)}`, d:esc(insp.reason)});
+  for(const c of insp.installers||[]) opts.push({v:c.path, t:`Установщик ${esc(c.name)} — ${fmtSize(c.size)}`, d:'нашёл в «Загрузках»/на рабочем столе'});
+  opts.push({v:'__pick__', t:'Выбрать файл установщика…', d:`например, скачанный с сайта производителя для ${esc(r.fromOs)}`});
+  m.querySelector('#insp').innerHTML=`${insp.compatible?'':`<div class="warnbox small" style="color:var(--text)">${esc(insp.reason)}</div>`}
+    <div style="margin-top:6px;color:var(--text)"><b>Что отправить:</b>${opts.map((o,i)=>`<label class="switch" style="align-items:flex-start"><input type="radio" name="what" value="${esc(o.v)}" ${i===0?'checked':''} style="margin-top:3px"><span>${o.t}<div class="muted small">${o.d}</div></span></label>`).join('')}</div>`;
+  const yes=m.querySelector('#yes'); yes.disabled=false;
+  yes.onclick=async()=>{
+    let file=m.querySelector('input[name=what]:checked').value;
+    if(file==='__pick__'){ const p=await api('/api/pickanyfile',{}).catch(()=>({})); if(!p.path) return; file=p.path }
+    const trust=m.querySelector('#trust').checked;
+    m.close(); await runJob('/api/plugin/approve',{path,id:r.id,file,trust},{title:'Отправляю '+r.plugin+' для '+r.from}); pollNotes();
+  };
+}
+function offerInstall(path, r){
+  const inst=r.kind==='installer';
+  const m=modal(`<h2>⬇ ${esc(r.to)} прислал ${inst?'установщик':'плагин'}</h2><div><b>${esc(r.plugin)}</b> <span class="tag">${esc(r.format)}</span> ${r.note?`<span class="muted">${esc(r.note)}</span>`:''} · ${fmtSize(r.size)}</div>
+    <div class="muted small" style="margin-top:8px">${inst?`Файл «${esc(r.fileName)}» сохранится в «Загрузки» и запустится — пройди установку как обычно.`:'Закрой FL Studio перед установкой, если он открыт.'} После установки в FL: Options → Manage plugins → Find installed plugins.</div>
+    <div class="row" style="justify-content:flex-end;margin-top:14px"><button id="later" class="ghost">Позже</button><button id="yes" class="primary">${inst?'Скачать и запустить':'Установить'}</button></div>`);
+  m.querySelector('#later').onclick=()=>m.close();
+  m.querySelector('#yes').onclick=async()=>{ m.close(); await runJob('/api/plugin/install',{path,id:r.id},{title:(inst?'Скачиваю установщик ':'Устанавливаю ')+r.plugin}); pollNotes(); S.analysis=null; if(S.sel) loadProject(S.sel) };
+}
+// ---------- main view ----------
+function renderMain(){
+  const m=$('#main');
+  if(!S.sel||!S.proj){ m.innerHTML=`<div class="empty"><div style="font-size:42px">🎛</div><div style="font-size:18px;color:var(--text)">Выбери или добавь проект</div>
+    <div>Один проект = одна папка с .flp и всем аудио.<br>Внутри неё появится git-репозиторий.</div></div>`; return }
+  const p=S.proj;
+  if(!p.exists){ m.innerHTML=`<h1>${esc(p.name)}</h1><div class="badbox">Папка не найдена: ${esc(p.path)}</div><button onclick="removeProject()">Убрать из списка</button>`; return }
+  if(!p.isRepo) return renderSetup();
+  if(!p.adopted) return renderAdopt();
+  const a=S.analysis?.analysis, plugins=S.analysis?.plugins||[];
+  const missing=(a?.samples||[]).filter(s=>s.status==='missing');
+  const external=(a?.samples||[]).filter(s=>s.status==='external');
+  const pluginProblems=plugins.filter(r=>r.problem);
+  const visibleChanges=(p.changes||[]).filter(c=>S.showService||!c.hidden);
+  const lock=p.lock, mine=lock&&lock.user===p.me;
+  const st=S.comments?.status;
+  const openTodos=(S.comments?.comments||[]).filter(c=>c.kind==='todo'&&!c.done).length;
+  const unread=S.notes[S.sel]?.unread||0;
+  let banner;
+  if(!lock) banner=`<div class="banner free"><div style="font-size:24px">🟢</div><div><div class="big">Проект свободен</div><div class="muted small">Нажми «Взять в работу» перед тем как открывать его в FL — друг увидит, что ты им занят.</div></div></div>`;
+  else if(mine) banner=`<div class="banner me"><div style="font-size:24px">🎧</div><div><div class="big">Проект в работе у тебя</div><div class="muted small">с ${fmtTime(lock.since)}. Закончил — «Отправить» с галочкой «освободить».</div></div></div>`;
+  else banner=`<div class="banner other"><div style="font-size:24px">⛔</div><div><div class="big">Сейчас работает ${esc(lock.user)} (${esc(lock.os)})</div><div class="muted small">с ${fmtTime(lock.since)}. Если откроешь и сохранишь проект сейчас — получится конфликт (ничего не потеряется, но придётся сводить вручную).</div></div></div>`;
+  const sync = p.ahead<0 ? 'на сервере ещё ничего нет' : (p.behind? `<b style="color:var(--accent)">на сервере новое: ${p.behind}</b>`:'с сервером совпадает') + (p.ahead>0?` · не отправлено коммитов: ${p.ahead}`:'');
+  const tabs=[['changes','Изменения',visibleChanges.length,''],['talk','Обсуждение',unread||openTodos||null,unread?'hot':''],['samples','Сэмплы',(a?.samples||[]).length,missing.length?'bad':''],['plugins','Плагины',plugins.length,pluginProblems.length?'bad':''],['history','История',null,''],['settings','Настройки',null,'']];
+  m.innerHTML=`
+    <div class="row"><h1>${esc(p.name)}</h1>${st?.stage?`<span class="stage" title="${esc(st.text||'')}">● ${esc(st.stage)}</span>`:''}<span class="spacer"></span>
+      ${p.remote?`<button class="ghost" onclick="participantsDialog()">👥 Участники</button>`:''}<button class="ghost" onclick="api('/api/project/open',{path:S.sel})">📂 Открыть папку</button></div>
+    <div class="muted small mono ellip" title="${esc(p.path)}">${esc(p.path)}</div>
+    <div class="muted small" style="margin-top:4px">${p.remote?('⇅ '+esc(p.remote.replace(/https:\/\/[^@]*@/,'https://'))):'<span style="color:var(--warn)">сервер не указан — открой «Настройки» проекта</span>'} · ${sync}${p.lastSync?' · проверено '+p.lastSync:''}</div>
+    ${st?.text?`<div class="muted small" style="margin-top:6px">📌 ${esc(st.text)} <span class="muted">— ${esc(st.by)}, ${fmtTime(st.time)}</span></div>`:''}
+    <div class="top"><div>${banner}
+      <div class="actions">
+        <button onclick="receive()">⤓ Получить</button>
+        ${mine?'':`<button onclick="takeLock(${!!(lock&&!mine)})">🔒 Взять в работу</button>`}
+        <button class="primary" onclick="sendDialog()">⤒ Отправить${visibleChanges.length?' ('+visibleChanges.length+')':''}</button>
+        ${mine?`<button class="ghost" onclick="unlock()">Освободить без отправки</button>`:''}
+      </div></div>
+      <div class="preview" id="preview"></div></div>
+    ${layoutBanners(p)}
+    ${missing.length?`<div class="badbox">⚠ Не найдено сэмплов: ${missing.length}. Они пропадут в FL — смотри вкладку «Сэмплы».</div>`:''}
+    ${external.length?`<div class="warnbox">Сэмплов вне папки проекта: ${external.length} — при отправке они скопируются в <b>Audio/</b>.</div>`:''}
+    ${pluginProblems.length?`<div class="warnbox">Проблемы с плагинами: ${pluginProblems.length} — смотри вкладку «Плагины».</div>`:''}
+    <div class="tabs">${tabs.map(([k,n,c,cls])=>`<div class="tab ${S.tab===k?'sel':''}" onclick="setTab('${k}')">${n}${c!=null?`<span class="cnt ${cls}">${c}</span>`:''}</div>`).join('')}</div>
+    <div id="tabbody">${renderTab()}</div>`;
+  renderPreview();
+  bindPreviewDrop();
+  const il=$('#invNick'); if(il) bindLookup(il,$('#invLook'));
+}
+function setTab(t){ S.tab=t; if(t==='history'&&!S.history) loadHistory(); if(t==='talk') loadComments(true); if(t==='settings') S.parts=null; renderMain(); if(t==='settings') loadParticipants() }
+function layoutBanners(p){
+  let h='';
+  if((p.extraFlps||[]).length) h+=`<div class="warnbox">📂 В папке проекта лежит несколько проектов FL: ${p.extraFlps.map(x=>'<b>'+esc(x)+'</b>').join(', ')}. Так их легко перепутать, а у друга всё смешается. <button class="sm" style="margin-left:6px" onclick="splitDialog()">Разобрать по папкам…</button></div>`;
+  if(p.rootAudio>0) h+=`<div class="warnbox">🎵 В корне проекта лежит аудио (${p.rootAudio}). Аудио должно жить в папке <b>Audio/</b> — перенесу и поправлю пути в .flp (закрой проект в FL). <button class="sm" style="margin-left:6px" onclick="runJob('/api/project/organize',{path:S.sel},{title:'Навожу порядок в папке'})">Перенести в Audio/</button></div>`;
+  return h;
+}
+function splitDialog(){
+  const p=S.proj, list=p.extraFlps||[], main=p.mainFlp||list[0];
+  const m=modal(`<h2>Разобрать проекты по папкам</h2>
+    <div class="muted small">Один проект = одна папка. Выбери главный проект этой папки, а для остальных — что с ними сделать. Аудио, которое нужно только вынесенному проекту, переедет вместе с ним; общее — скопируется. <b>Закрой эти проекты в FL Studio.</b></div>
+    <div style="margin-top:10px">${list.map((f,i)=>`<div class="flpchoice"><div><b>${esc(f)}</b></div>
+      <select data-f="${esc(f)}" style="width:auto">
+        <option value="main" ${f===main?'selected':''}>⭐ главный проект этой папки</option>
+        <option value="extract" ${f!==main?'selected':''}>📂 вынести в отдельный проект</option>
+        <option value="keep">📄 это версия — оставить здесь</option></select></div>`).join('')}</div>
+    <div class="muted small" style="margin-top:8px">Новые проекты появятся рядом: ${esc(p.path.replace(/[\\/][^\\/]+$/,''))}/&lt;имя проекта&gt; и сразу добавятся в список.</div>
+    <div class="row" style="justify-content:flex-end;margin-top:14px"><button id="no">Отмена</button><button class="primary" id="go">Разобрать</button></div>`);
+  m.querySelector('#no').onclick=()=>m.close();
+  m.querySelector('#go').onclick=async()=>{
+    const sel=[...m.querySelectorAll('select')], mains=sel.filter(x=>x.value==='main');
+    if(mains.length!==1) return uiAlert('Главным может быть ровно один проект');
+    const extract=sel.filter(x=>x.value==='extract').map(x=>x.dataset.f), keep=sel.filter(x=>x.value==='keep').map(x=>x.dataset.f);
+    m.close(); await runJob('/api/project/split',{path:S.sel,extract,keep},{title:'Разделяю проекты'});
+  };
+}
+async function loadParticipants(){
+  const path=S.sel; if(!path||!S.proj?.remote) return;
+  try{ S.parts=await api('/api/project/participants?path='+enc(path)) }catch(e){ S.parts={error:e.message} }
+  if(S.sel===path && S.tab==='settings'){ const el=$('#parts'); if(el) el.innerHTML=partsHtml() }
+}
+function partsHtml(){
+  const ps=S.parts;
+  if(!ps) return '<div class="muted small">Загружаю…</div>';
+  if(ps.error) return `<div class="muted small">${esc(ps.error)}</div>`;
+  return ps.map(x=>`<div class="row" style="gap:6px;padding:3px 0"><span class="av" style="width:22px;height:22px;border-radius:50%;display:inline-grid;place-items:center;background:${color(x.nick||x.login)};color:#1a1205;font-size:11px;font-weight:700">${esc((x.nick||x.login)[0].toUpperCase())}</span>
+    <b>${esc(x.nick||'—')}</b> <span class="muted small">GitHub @${esc(x.login)}</span>${x.admin?' <span class="tag">владелец</span>':''}${x.pending?' <span class="tag warn">приглашён, ещё не принял</span>':''}${!x.nick?' <span class="tag">не зарегистрирован в программе</span>':''}</div>`).join('');
+}
+async function inviteNick(){
+  const nick=$('#invNick').value.trim(); if(!nick) return;
+  try{ const u=await api('/api/project/invite',{path:S.sel,nick}); toast(`Приглашение отправлено: ${esc(u.nick)} (@${esc(u.login)})`); $('#invNick').value=''; loadParticipants() }catch(e){ fail(e) }
+}
+function bindLookup(input, out){
+  let t; input.addEventListener('input',()=>{ clearTimeout(t); const v=input.value.split(/[,;]/).map(x=>x.trim()).filter(Boolean);
+    if(!v.length){ out.innerHTML=''; return }
+    t=setTimeout(async()=>{ const res=await Promise.all(v.map(n=>api('/api/lookup?nick='+enc(n)).then(u=>u.registered?`<span style="color:var(--ok)">✓ ${esc(u.nick)} → GitHub @${esc(u.login)}</span>`:`<span style="color:var(--warn)">✓ GitHub @${esc(u.login)} — ещё не в программе, приглашение придёт на GitHub</span>`).catch(e=>`<span style="color:var(--bad)">✗ ${esc(n)}: ${esc(e.message)}</span>`)));
+      out.innerHTML=res.join('<br>') },450) });
+}
+function renderAdopt(){
+  const p=S.proj;
+  $('#main').innerHTML=`<h1>${esc(p.name)}</h1><div class="muted small mono">${esc(p.path)}</div>${layoutBanners(p)}
+    <div class="card"><h3 style="margin-top:0">🔗 В этой папке уже есть git-репозиторий</h3><div id="adopt" class="muted">Смотрю, что в нём…</div></div>`;
+  const path=p.path;
+  api('/api/project/adopt-info?path='+enc(path)).then(i=>{
+    if(S.sel!==path) return;
+    $('#adopt').innerHTML=`<div style="color:var(--text)">
+      ${i.hasFlsync?'<div class="okbox">Это проект «Программы Узбека» — просто подключу его на этом компьютере.</div>':'<div class="muted small">Обычный git-репозиторий. Подключу как есть: история, сервер и участники сохранятся, добавятся только служебные файлы программы (PLUGINS.txt, .flsync/).</div>'}
+      <table style="margin-top:8px"><tr><td class="muted">Сервер</td><td class="mono">${i.remote?esc(i.remote.replace(/https:\/\/[^@]*@/,'https://')):'<span style="color:var(--warn)">не указан — укажешь после подключения</span>'}</td></tr>
+      <tr><td class="muted">Ветка</td><td>${esc(i.branch)}</td></tr>
+      <tr><td class="muted">История</td><td>${i.commits} коммит(ов)${i.lastCommit?` · последний: ${esc(i.lastCommit)} — ${esc(i.lastAuthor)}`:''}</td></tr>
+      <tr><td class="muted">Не отправлено</td><td>${i.dirty?`<span style="color:var(--warn)">${i.dirty} изменённых файлов</span>`:'ничего'}</td></tr>
+      ${i.remote?`<tr><td class="muted">На сервере</td><td>${i.fetchError?`<span style="color:var(--bad)">${esc(i.fetchError)}</span>`:i.behind>0?`<b style="color:var(--accent)">новое: ${i.behind}</b> — после подключения нажми «Получить»`:'совпадает'}</td></tr>`:''}
+      <tr><td class="muted">Участники</td><td>${i.participants&&i.participants.length?i.participants.map(x=>`<div><b>${esc(x.nick||'—')}</b> <span class="muted small">@${esc(x.login)}</span>${x.admin?' <span class="tag">владелец</span>':''}${x.pending?' <span class="tag warn">приглашён</span>':''}${!x.nick?' <span class="tag">не в программе</span>':''}</div>`).join(''):`<span class="muted small">${esc(i.participantsError||(i.github?'нужен GitHub-токен':'список виден только для проектов на GitHub'))}</span>`}</td></tr></table>
+      ${(i.nonLfsAudio||[]).length?`<div class="warnbox small">⚠ ${i.nonLfsAudio.length} аудиофайлов уже лежат в истории git без LFS (${i.nonLfsAudio.slice(0,3).map(esc).join(', ')}${i.nonLfsAudio.length>3?'…':''}). Они останутся как есть; новые и изменённые аудио пойдут через LFS.</div>`:''}
+      <div class="row" style="margin-top:12px"><button class="primary" onclick="adopt()">Подключить как есть</button><button class="ghost" onclick="removeProject()">Не подключать, убрать из списка</button></div></div>`;
+  }).catch(e=>{ $('#adopt').innerHTML=`<div class="badbox">${esc(e.message)}</div>` });
+}
+async function adopt(){ await runJob('/api/project/adopt',{path:S.sel},{title:'Подключаю репозиторий'}) }
+// ---------- preview player ----------
+// one persistent <audio>: it is moved between re-renders so playback never stops
+const PLAYER=document.createElement('audio'); PLAYER.controls=true; PLAYER.preload='metadata';
+function renderPreview(){
+  const el=$('#preview'); if(!el) return;
+  const p=S.preview;
+  let h=`<div class="row" style="justify-content:space-between"><b>🎧 Превью трека</b><span class="row" style="gap:6px">
+    <button class="sm" onclick="pickPreview()">${p?.asset?'Заменить':'Загрузить'}</button>${p?.asset?`<button class="sm ghost" title="Удалить превью" onclick="deletePreview()">🗑</button>`:''}</span></div>`;
+  let showPlayer=false;
+  if(S.previewErr) h+=`<div class="muted small" style="margin-top:6px">${esc(S.previewErr)}</div>`;
+  else if(!p) h+=`<div class="muted small" style="margin-top:6px">Загружаю…</div>`;
+  else if(!p.asset) h+=`<div class="muted small" style="margin-top:6px">Пока пусто. Перетащи сюда mp3, flac или wav — у проекта всегда один трек, новый заменяет старый.</div>`;
+  else {
+    const a=p.asset;
+    if(p.cached && !S.previewProgress){ h+=`<div id="playerSlot"></div>`; showPlayer=true;
+      const src=`/media/preview?path=${enc(S.sel)}&k=${TOKEN}&v=${a.id}`;
+      if(PLAYER.dataset.src!==src){ PLAYER.dataset.src=src; PLAYER.src=src } }
+    else h+=`<div class="muted small" style="margin:12px 0">⏳ ${esc(S.previewProgress||'скачиваю…')}</div>`;
+    h+=`<div class="muted small ellip" title="${esc(p.fileName)}">${esc(p.fileName)} · ${esc(p.by)} · ${fmtSize(a.size)} · ${a.updated_at?new Date(a.updated_at).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):''}</div>`;
+  }
+  el.innerHTML=h;
+  if(showPlayer) el.querySelector('#playerSlot').appendChild(PLAYER);
+  else if(!PLAYER.paused) PLAYER.pause();
+}
+function bindPreviewDrop(){
+  const el=$('#preview'); if(!el) return;
+  el.ondragover=e=>{e.preventDefault(); el.classList.add('drag')};
+  el.ondragleave=()=>el.classList.remove('drag');
+  el.ondrop=async e=>{
+    e.preventDefault(); el.classList.remove('drag');
+    const f=e.dataTransfer.files[0]; if(!f) return;
+    if(!/\.(mp3|flac|wav)$/i.test(f.name)) return uiAlert('Можно только mp3, flac или wav');
+    if(!await uiConfirm(`Заменить превью на «${esc(f.name)}» (${fmtSize(f.size)})? Старое удалится.`,{ok:'Заменить'})) return;
+    try{
+      const r=await fetch('/api/project/preview/upload-raw?path='+enc(S.sel)+'&name='+enc(f.name),{method:'POST',headers:{'X-FLSync':TOKEN},body:f});
+      const job=await r.json(); if(!r.ok) throw new Error(job.error);
+      await watchExisting(job.id,'Загрузка превью');
+    }catch(e){ fail(e) }
+  };
+}
+async function watchExisting(id, title){ const j=await followJob(id,title); if(j&&!j.error){ S.preview=null; loadPreview() } }
+async function pickPreview(){
+  const r=await api('/api/pickfile',{}).catch(()=>({path:''})); if(!r.path) return;
+  await runJob('/api/project/preview/upload',{path:S.sel,file:r.path},{title:'Загрузка превью'}); S.preview=null; loadPreview();
+}
+async function deletePreview(){ if(!await uiConfirm('Удалить превью трека у обоих?',{ok:'Удалить',danger:true})) return; try{ await api('/api/project/preview/delete',{path:S.sel}); S.preview=null; loadPreview() }catch(e){ fail(e) } }
+
+// ---------- tabs ----------
+function renderTab(){
+  const p=S.proj, a=S.analysis?.analysis;
+  if(S.tab==='changes'){
+    const ch=(p.changes||[]).filter(c=>S.showService||!c.hidden);
+    const kinds={untracked:['новый','blue'],added:['новый','blue'],modified:['изменён','warn'],deleted:['удалён','bad'],conflict:['конфликт','bad']};
+    return `<div class="row" style="margin-top:10px"><span class="muted small">Что уйдёт при следующей отправке${a?` · неиспользуемых аудио не отправляется: ${(a.audio||[]).filter(x=>x.ignored).length}`:''}</span><span class="spacer"></span>
+      <label class="switch small"><input type="checkbox" ${S.showService?'checked':''} onchange="S.showService=this.checked;renderMain()"> служебные файлы</label></div>
+      ${ch.length?`<table><tr><th>Файл</th><th>Статус</th><th style="text-align:right">Размер</th></tr>${ch.map(c=>`<tr><td class="mono">${c.isFlp?'🎼 ':''}${esc(c.path)}</td><td><span class="tag ${kinds[c.kind]?.[1]||''}">${kinds[c.kind]?.[0]||c.kind}</span></td><td style="text-align:right" class="muted">${fmtSize(c.size)}</td></tr>`).join('')}</table>`
+      :`<div class="okbox" style="margin-top:12px">Локальных изменений нет.</div>`}`;
+  }
+  if(S.tab==='talk') return renderTalk();
+  if(S.tab==='samples'){
+    if(!a) return `<p class="muted">Анализирую .flp…</p>`;
+    const st={project:['в проекте','ok'],external:['снаружи → скопируется','warn'],factory:['из библиотеки FL','blue'],missing:['НЕ НАЙДЕН','bad']};
+    const unused=(a.audio||[]).filter(x=>!x.used);
+    return `<h3>Используются в проекте (${a.samples.length})</h3>
+      <div class="muted small">Ищутся в каналах, аудиоклипах и внутри плагинов (Slicex, DirectWave, FPC…). Совпадение по имени файла.</div>
+      ${a.samples.length?`<table><tr><th>Файл</th><th>Статус</th><th>Где лежит</th></tr>${a.samples.map(s=>`<tr><td>${esc(s.name)}${s.embedded?' <span class="tag" title="найден внутри данных плагина">в плагине</span>':''}</td><td><span class="tag ${st[s.status][1]}">${st[s.status][0]}</span></td><td class="mono muted ellip" title="${esc(s.original)}">${esc(s.local||s.original)}</td></tr>`).join('')}</table>`:'<p class="muted">Сэмплов нет.</p>'}
+      <div class="row" style="margin-top:10px"><button onclick="runJob('/api/project/prepare',{path:S.sel},{title:'Собрать сэмплы в папку проекта'})">Собрать внешние сэмплы сейчас</button>
+      <button onclick="runJob('/api/project/relink',{path:S.sel})">Направить пути в .flp на папку проекта</button></div>
+      <h3>Аудио в папке, которое проект не использует (${unused.length})</h3>
+      <div class="muted small">Старые дубли, неудачные записи, рендеры. По умолчанию такие файлы не отправляются; «Отправлять» — отправить всё равно. Ненужное можно выделить и удалить в корзину.</div>
+      ${unused.length?`<div class="row" style="margin-top:8px"><label class="switch small" style="margin:0"><input type="checkbox" onchange="selAllUnused(this.checked)"> выделить всё</label><span class="spacer"></span>
+        <button class="sm danger" ${Object.values(S.trashSel).some(Boolean)?'':'disabled'} onclick="trashSelected()">🗑 В корзину (${Object.values(S.trashSel).filter(Boolean).length})</button></div>
+        <table><tr><th></th><th>Отправлять</th><th>Файл</th><th style="text-align:right">Размер</th></tr>${unused.map(f=>`<tr><td><input type="checkbox" style="width:auto" ${S.trashSel[f.rel]?'checked':''} onchange="S.trashSel[decodeURIComponent('${enc(f.rel)}')]=this.checked;renderMain()"></td>
+        <td>${f.tracked?'<span class="tag" title="уже на сервере">уже на сервере</span>':`<input type="checkbox" style="width:auto" ${!f.ignored?'checked':''} onchange="toggleInclude('${enc(f.rel)}',this.checked)">`}</td><td class="mono">${esc(f.rel)}</td><td style="text-align:right" class="muted">${fmtSize(f.size)}</td></tr>`).join('')}</table>`:'<p class="muted">Лишнего аудио нет 👌</p>'}`;
+  }
+  if(S.tab==='plugins') return renderPlugins();
+  if(S.tab==='history'){
+    if(!S.history) return `<p class="muted">Загружаю…</p>`;
+    if(!S.history.length) return `<p class="muted">Коммитов пока нет.</p>`;
+    const other=c=>(c.files||[]).filter(f=>!/\.flp$/i.test(f)&&!f.startsWith('.flsync/')&&f!=='PLUGINS.txt').length;
+    return `<table><tr><th>Когда</th><th>Кто</th><th>Что</th><th>Файлы</th></tr>${S.history.map(c=>`<tr><td class="muted" style="white-space:nowrap">${fmtTime(c.time)}</td><td>${esc(c.author)}</td><td>${esc(c.subject)}</td>
+      <td>${(c.files||[]).filter(f=>/\.flp$/i.test(f)).map(f=>`<div class="row" style="gap:6px"><span class="mono">${esc(f)}</span><button class="ghost sm" title="Сохранить эту версию рядом копией" onclick="restore('${c.hash}','${enc(f)}')">↺ достать копию</button></div>`).join('')}
+      ${other(c)?`<span class="muted small">+ ${other(c)} файл(ов)</span>`:''}</td></tr>`).join('')}</table>`;
+  }
+  if(S.tab==='settings'){
+    const sh=p.shared;
+    return `<div class="grid2"><div class="card"><h3 style="margin-top:0">Общие правила (одинаковые у вас обоих)</h3>
+      <label class="switch"><input type="checkbox" id="s_ign" ${sh.ignoreUnused?'checked':''}> Не отправлять неиспользуемое аудио</label>
+      <label class="switch"><input type="checkbox" id="s_col" ${sh.collectSamples?'checked':''}> Копировать внешние сэмплы в Audio/</label>
+      <label class="switch"><input type="checkbox" id="s_org" ${sh.organizeAudio?'checked':''}> Держать аудио в папке Audio/ (корень — только .flp и служебное)</label>
+      <label>Всегда отправлять (папки с «/» на конце, по одной в строке)</label><textarea id="s_inc" placeholder="Stems/&#10;Vocals/take3.wav">${esc((sh.alwaysInclude||[]).join('\n'))}</textarea>
+      <label>Расширения для Git LFS</label><input id="s_lfs" value="${esc((sh.lfsExtensions||[]).join(', '))}">
+      <div style="margin-top:12px"><button class="primary" onclick="saveShared()">Сохранить</button></div></div>
+      <div class="card"><h3 style="margin-top:0">Этот компьютер</h3>
+      <label class="switch"><input type="checkbox" ${p.relinkOnReceive?'checked':''} onchange="api('/api/project/settings',{path:S.sel,relinkOnReceive:this.checked}).then(()=>toast('Сохранено'))"> После получения направлять пути сэмплов в .flp на папку проекта</label>
+      <div class="muted small">Резервная копия .flp перед правкой лежит в .flsync-local/backup.</div>
+      <label>Сервер (git remote)</label><input id="s_remote" value="${esc(p.remote)}" placeholder="https://github.com/you/track.git">
+      <div style="margin-top:8px"><button onclick="api('/api/project/settings',{path:S.sel,remote:$('#s_remote').value}).then(()=>{toast('Сохранено');refreshAll()}).catch(fail)">Сохранить адрес</button></div>
+      <h3>Участники</h3><div id="parts">${partsHtml()}</div>
+      ${p.remote?`<label>Пригласить по нику в программе</label><div class="row" style="flex-wrap:nowrap"><input id="invNick" placeholder="ник друга" onkeydown="if(event.key==='Enter')inviteNick()"><button onclick="inviteNick()">Пригласить</button></div><div class="lookup" id="invLook"></div>`:''}
+      <div style="margin-top:16px"><button class="ghost" onclick="removeProject()">Убрать проект из списка</button><div class="muted small">Файлы и репозиторий останутся на месте.</div></div></div></div>`;
+  }
+  return '';
+}
+
+function renderTalk(){
+  const c=S.comments;
+  if(!c) return `<p class="muted">Загружаю…</p>`;
+  const st=c.status||{};
+  let list=c.comments||[];
+  if(S.cfilter==='todo') list=list.filter(x=>x.kind==='todo'&&!x.done);
+  const todoCnt=(c.comments||[]).filter(x=>x.kind==='todo'&&!x.done).length;
+  return `<div class="grid2" style="margin-top:12px;grid-template-columns:2fr 1fr">
+    <div>
+      <div class="card" style="margin-top:0">
+        <div class="row" style="justify-content:space-between"><div class="seg"><button class="${S.ckind==='note'?'on':''}" onclick="S.ckind='note';renderMain()">💬 Заметка</button><button class="${S.ckind==='todo'?'on':''}" onclick="S.ckind='todo';renderMain()">☐ Задача</button></div>
+        <span class="muted small">⌘/Ctrl + Enter — отправить</span></div>
+        <textarea id="ctext" style="margin-top:8px" placeholder="${S.ckind==='todo'?'Что нужно сделать: «дописать бридж», «перезаписать вокал во 2 куплете»…':'Что сейчас с проектом, идеи, что попробовать…'}" onkeydown="if((event.metaKey||event.ctrlKey)&&event.key==='Enter')postComment()"></textarea>
+        <div class="row" style="justify-content:flex-end;margin-top:8px"><button class="primary" id="cpost" onclick="postComment()">Отправить</button></div>
+      </div>
+      <div class="row"><div class="seg"><button class="${S.cfilter==='all'?'on':''}" onclick="S.cfilter='all';renderMain()">Всё</button><button class="${S.cfilter==='todo'?'on':''}" onclick="S.cfilter='todo';renderMain()">Открытые задачи (${todoCnt})</button></div>
+        <span class="spacer"></span><button class="ghost sm" onclick="loadComments(true)">↻ обновить</button></div>
+      ${list.length?list.map(x=>`<div class="cm ${x.done?'done':''}">
+        ${x.kind==='todo'?`<input type="checkbox" ${x.done?'checked':''} title="${x.done?'Сделано '+esc(x.doneBy):'Отметить выполненной'}" onchange="toggleTodo('${x.id}',this.checked)">`:`<div class="av" style="background:${color(x.author)}">${esc((x.author||'?')[0].toUpperCase())}</div>`}
+        <div class="body"><div class="small"><b>${esc(x.author)}</b> <span class="muted">${fmtTime(x.time)}</span> ${x.kind==='todo'?`<span class="tag ${x.done?'ok':'warn'}">${x.done?'сделано · '+esc(x.doneBy):'задача'}</span>`:''}
+          ${x.author===c.me?`<a class="muted small" style="float:right" onclick="delComment('${x.id}')">удалить</a>`:''}</div>
+          <div class="text">${esc(x.text)}</div></div></div>`).join(''):`<p class="muted">${S.cfilter==='todo'?'Открытых задач нет 🎉':'Пока тихо. Напиши, что сейчас с треком и что нужно доделать.'}</p>`}
+    </div>
+    <div><div class="card" style="margin-top:0"><b>📌 Состояние проекта</b>
+      <label>Этап</label><select id="sstage">${['',...STAGES].map(s=>`<option ${s===st.stage?'selected':''} value="${esc(s)}">${s||'— не указан —'}</option>`).join('')}</select>
+      <label>Коротко</label><textarea id="stext" placeholder="напр.: «дроп готов, нужен бридж и вокал»">${esc(st.text||'')}</textarea>
+      <div class="row" style="justify-content:space-between;margin-top:8px"><span class="muted small">${st.by?`обновил ${esc(st.by)}, ${fmtTime(st.time)}`:''}</span><button onclick="saveStatus()">Сохранить</button></div></div>
+      <div class="muted small">Комментарии и статус уходят на сервер сразу и не трогают файлы проекта — можно писать, даже когда трек открыт в FL.</div></div>
+  </div>`;
+}
+async function postComment(){
+  const t=$('#ctext').value.trim(); if(!t) return;
+  $('#cpost').disabled=true;
+  try{ await api('/api/project/comment',{path:S.sel,kind:S.ckind,text:t}); $('#ctext').value=''; await loadComments(false) }catch(e){ fail(e) }
+  const b=$('#cpost'); if(b) b.disabled=false;
+}
+async function toggleTodo(id, done){ try{ await api('/api/project/comment/update',{path:S.sel,id,done}); loadComments(false) }catch(e){ fail(e); loadComments(false) } }
+async function delComment(id){ if(!await uiConfirm('Удалить комментарий?',{ok:'Удалить',danger:true})) return; try{ await api('/api/project/comment/update',{path:S.sel,id,delete:true}); loadComments(false) }catch(e){ fail(e) } }
+async function saveStatus(){ try{ await api('/api/project/status',{path:S.sel,stage:$('#sstage').value,text:$('#stext').value}); toast('Статус обновлён'); loadComments(false) }catch(e){ fail(e) } }
+
+function renderPlugins(){
+  if(!S.analysis) return `<p class="muted">Сканирую плагины… (первый раз может занять до минуты)</p>`;
+  const rows=S.analysis.plugins, me=S.state.me;
+  const reqs=S.comments?.requests||[];
+  const machines=S.proj.machines||[];
+  const osOf=u=>(machines.find(m=>m.user===u)||{}).os || (u===me?S.state.os:'?');
+  const stTag={ok:'ok',missing:'bad','other-format':'warn',unknown:''};
+  const stName={ok:'есть',missing:'нет','other-format':'другой формат',unknown:'?'};
+  const users=[...new Set(rows.flatMap(r=>r.machines.map(m=>m.user)))];
+  const myReq=name=>reqs.find(r=>r.from===me&&r.plugin.toLowerCase()===name.toLowerCase()&&['pending','approved'].includes(r.status));
+  const cell=(r,u)=>{
+    const m=r.machines.find(x=>x.user===u)||{state:'unknown'};
+    let h=`<span class="tag ${stTag[m.state]}">${stName[m.state]}${m.version?' '+esc(m.version):''}</span>${m.note&&m.state!=='unknown'?`<div class="muted small">${esc(m.note)}</div>`:''}`;
+    if(u===me && m.state!=='ok' && r.format!=='FL'){
+      const q=myReq(r.name);
+      if(q) h+=`<div style="margin-top:4px">${q.status==='approved'?`<button class="sm primary" onclick="installReq('${q.id}')">⬇ Установить</button>`:`<span class="tag v">запрошен у ${esc(q.to)}</span> <a class="small muted" onclick="cancelReq('${q.id}')">отменить</a>`}</div>`;
+      else{
+        const owners=(r.machines||[]).filter(x=>x.user!==me&&x.state==='ok');
+        for(const o of owners){
+          const same=osOf(o.user)===S.state.os;
+          h+=`<div style="margin-top:4px"><button class="sm" onclick="requestPlugin('${enc(r.name)}','${r.format}','${enc(r.vendor||'')}','${enc(o.user)}')">🔌 Скачать у ${esc(o.user)}</button>${same?'':`<div class="muted small" title="Файлы плагинов Mac и Windows разные">у него ${esc(osOf(o.user))} — пришлёт версию для твоей системы или установщик</div>`}</div>`;
+        }
+      }
+    }
+    return h;
+  };
+  const rs={pending:['ждёт ответа','warn'],approved:['отправлен','blue'],declined:['отказ','bad'],installed:['установлен','ok'],failed:['ошибка','bad'],cancelled:['отменён','']};
+  return `<div class="muted small" style="margin:10px 0">Список собирается из .flp и записывается в <b>PLUGINS.txt</b> в корне проекта. Каждый участник при отправке публикует, какие плагины (и каких версий) стоят у него.
+      ${S.analysis.machines<2?'<br><span style="color:var(--warn)">Пока известен только твой компьютер — данные друга появятся после его первой отправки.</span>':''}</div>
+    <div class="row"><button onclick="rescan()">↻ Пересканировать мои плагины</button><a class="small" onclick="openSettings()">где я ищу плагины →</a></div>
+    ${rows.length?`<table><tr><th>Плагин</th><th>Формат</th>${users.map(u=>`<th>${esc(u)}${u===me?' (ты)':''}</th>`).join('')}<th>Где взять</th></tr>
+    ${rows.map(r=>`<tr><td><b>${esc(r.name)}</b>${r.vendor?`<div class="muted small">${esc(r.vendor)}</div>`:''}${r.problem?`<div class="small" style="color:var(--warn)">⚠ ${esc(r.problem)}</div>`:''}</td>
+      <td><span class="tag">${esc(r.format)}</span></td>${users.map(u=>`<td>${cell(r,u)}</td>`).join('')}
+      <td>${r.link?`<a href="${esc(r.link)}">ссылка</a>`:''} <a class="small muted" onclick="editLink('${enc(r.name)}','${enc(r.link||'')}','${enc(r.linkNote||'')}')">${r.link?'✎':'+ ссылка'}</a>${r.linkNote?`<div class="muted small">${esc(r.linkNote)}</div>`:''}</td></tr>`).join('')}</table>`:'<p class="muted">Плагинов не найдено.</p>'}
+    ${reqs.length?`<h3>Запросы плагинов</h3><table><tr><th>Когда</th><th>Плагин</th><th>Кто → у кого</th><th>Статус</th><th></th></tr>${reqs.slice(0,30).map(r=>`<tr><td class="muted">${fmtTime(r.created)}</td><td>${esc(r.plugin)} <span class="tag">${esc(r.format)}</span></td><td>${esc(r.from)} → ${esc(r.to)}</td>
+      <td><span class="tag ${rs[r.status]?.[1]||''}">${rs[r.status]?.[0]||r.status}</span>${r.note?`<div class="muted small">${esc(r.note)}</div>`:''}</td>
+      <td>${r.to===me&&r.status==='pending'?`<button class="sm primary" onclick="reviewReq('${r.id}')">Ответить</button>`:''}${r.from===me&&r.status==='approved'?`<button class="sm primary" onclick="installReq('${r.id}')">⬇ Установить</button>`:''}</td></tr>`).join('')}</table>`:''}
+    <div class="card small muted">💡 Между одинаковыми системами плагин переносится и ставится сам. Между Mac и Windows — если в пакете плагина есть версия для обеих систем (так бывает у VST3), иначе друг пришлёт установщик, и программа его запустит. Библиотеки сэмплов и лицензии не переносятся. Mac ↔ Windows: используй VST3, AU на Windows не существует.</div>`;
+}
+async function requestPlugin(n,f,v,to){
+  n=decodeURIComponent(n); to=decodeURIComponent(to);
+  if(!await uiConfirm(`Скачать плагин <b>${esc(n)}</b> с компьютера <b>${esc(to)}</b>? У него всплывёт запрос — без его разрешения ничего не передаётся. Когда он разрешит, у тебя появится кнопка «Установить».`,{ok:'Отправить запрос',title:'Плагин от друга'})) return;
+  try{ await api('/api/plugin/request',{path:S.sel,name:n,format:f,vendor:decodeURIComponent(v),to}); toast('Запрос отправлен — '+esc(to)+' увидит его в программе'); loadComments(false) }catch(e){ fail(e) }
+}
+async function cancelReq(id){ try{ await api('/api/plugin/cancel',{path:S.sel,id}); loadComments(false) }catch(e){ fail(e) } }
+function reviewReq(id){ const r=(S.comments?.requests||[]).find(x=>x.id===id); if(r) askPermission(S.sel,r) }
+function installReq(id){ const r=(S.comments?.requests||[]).find(x=>x.id===id); if(r) offerInstall(S.sel,r) }
+
+// ---------- setup of a folder that is not a repo yet ----------
+function renderSetup(){
+  const p=S.proj, hasTok=S.state.hasToken;
+  $('#main').innerHTML=`<h1>${esc(p.name)}</h1><div class="muted small mono">${esc(p.path)}</div>${layoutBanners(p)}
+  <div class="card"><h3 style="margin-top:0">Подключить проект к синхронизации</h3>
+    <p class="muted">В папке создастся git-репозиторий. Аудио пойдёт через Git LFS, .flp — обычным git (с историей версий).</p>
+    <div class="grid2">
+    <div><b>Вариант 1. Создать новый приватный репозиторий на GitHub</b>
+      ${hasTok?'':`<div class="warnbox small">Нужен GitHub-токен — добавь его в ⚙ Настройках.</div>`}
+      <label>Название репозитория</label><input id="g_name" value="${esc(p.name)}">
+      <label>Ники друзей в программе (через запятую)</label><input id="g_inv" placeholder="friend">
+      <div class="lookup" id="g_look"></div>
+      <div style="margin-top:10px"><button class="primary" ${hasTok?'':'disabled'} onclick="createAndInit()">Создать и отправить</button></div></div>
+    <div><b>Вариант 2. Уже есть репозиторий</b>
+      <label>Ссылка на репозиторий (HTTPS)</label><input id="g_url" placeholder="https://github.com/you/track.git">
+      <div style="margin-top:10px"><button onclick="initWith($('#g_url').value)">Подключить и отправить</button></div>
+      <div class="muted small" style="margin-top:8px">Подойдёт и свой сервер (Gitea/Forgejo на VPS) — главное, чтобы он поддерживал Git LFS. Превью и передача плагинов пока работают только с GitHub.</div></div></div></div>
+  <div class="card small muted">💡 Если друг уже позвал тебя в свой проект — приглашение появится слева сверху, принимать и скачивать его нужно там, а не подключать эту папку.</div>`;
+  const gi=$('#g_inv'); if(gi) bindLookup(gi,$('#g_look'));
+}
+async function createAndInit(){
+  const j = await runJob('/api/github/create',{name:$('#g_name').value, invite:$('#g_inv').value});
+  if(j&&!j.error&&j.result) await initWith(j.result.cloneUrl);
+}
+async function initWith(url){
+  if(!url.trim()) return uiAlert('Вставь ссылку на репозиторий');
+  await runJob('/api/project/init',{path:S.sel, remote:url.trim(), push:true},{title:'Подключение и первая отправка'});
+}
+
+// ---------- actions ----------
+async function receive(){ await runJob('/api/project/receive',{path:S.sel},{title:'Получение изменений'}) }
+async function takeLock(force){
+  if(force && !await uiConfirm(`Проект сейчас у <b>${esc(S.proj.lock.user)}</b>. Забрать принудительно? Его работа не пропадёт, но вы можете получить конфликт.`,{ok:'Забрать',danger:true})) return;
+  await runJob('/api/project/lock',{path:S.sel, force:!!force},{title:'Беру проект в работу'});
+}
+async function unlock(){ await runJob('/api/project/unlock',{path:S.sel},{title:'Освобождаю проект'}) }
+function sendDialog(){
+  const p=S.proj, mine=p.lock&&p.lock.user===p.me;
+  const a=S.analysis?.analysis, missing=(a?.samples||[]).filter(s=>s.status==='missing');
+  const flps=(p.changes||[]).filter(c=>c.isFlp);
+  const m=modal(`<h2>Отправить изменения</h2>
+    <div class="muted small">Перед отправкой: внешние сэмплы скопируются в Audio/, обновится PLUGINS.txt. <b>Сохрани проект в FL (Ctrl/⌘+S)</b>.</div>
+    ${p.lock&&!mine?`<div class="badbox small">Проект сейчас у ${esc(p.lock.user)}. Отправка может создать конфликт.</div>`:''}
+    ${missing.length?`<div class="warnbox small">Не найдено сэмплов: ${missing.length} — у друга их тоже не будет.</div>`:''}
+    <label>Что сделал</label><textarea id="msg" placeholder="Напр.: «добавил бас и переделал дроп»"></textarea>
+    <label class="switch"><input type="checkbox" id="rel" ${mine?'checked':''}> Освободить проект (друг сможет взять его в работу)</label>
+    <div class="muted small">${flps.length?'Проекты: '+flps.map(f=>esc(f.path)).join(', '):''}</div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button id="cancel">Отмена</button><button class="primary" id="go">⤒ Отправить</button></div>`);
+  m.querySelector('#msg').focus();
+  m.querySelector('#cancel').onclick=()=>m.close();
+  m.querySelector('#go').onclick=async()=>{const msg=m.querySelector('#msg').value, rel=m.querySelector('#rel').checked; m.close(); await runJob('/api/project/send',{path:S.sel,message:msg,release:rel},{title:'Отправка'})};
+}
+async function restore(hash, f){ await runJob('/api/project/restore',{path:S.sel,hash,file:decodeURIComponent(f)},{title:'Достаю старую версию'}) }
+function selAllUnused(v){ S.trashSel={}; if(v) for(const f of (S.analysis?.analysis?.audio||[]).filter(x=>!x.used)) S.trashSel[f.rel]=true; renderMain() }
+async function trashSelected(){
+  const files=Object.entries(S.trashSel).filter(([,v])=>v).map(([k])=>k); if(!files.length) return;
+  const audio=S.analysis?.analysis?.audio||[], onServer=audio.filter(x=>files.includes(x.rel)&&x.tracked).length;
+  if(!await uiConfirm(`Удалить в корзину ${files.length} файл(ов)? Проект их не использует.${onServer?`<div class="warnbox small" style="margin-top:8px">${onServer} из них уже на сервере — после твоей отправки они удалятся и у друга.</div>`:''}`,{ok:'В корзину',danger:true,title:'Удаление неиспользуемого аудио'})) return;
+  try{ const n=await api('/api/project/trash',{path:S.sel,files}); toast(`Удалено в корзину: ${n}`); S.trashSel={}; S.analysis=null; loadProject(S.sel) }catch(e){ fail(e); S.analysis=null; loadProject(S.sel) }
+}
+async function toggleInclude(f, inc){ await api('/api/project/include',{path:S.sel,file:decodeURIComponent(f),include:inc}); loadProject(S.sel) }
+async function rescan(){ toast('Сканирую…'); await api('/api/rescan',{}); S.analysis=null; loadProject(S.sel) }
+function editLink(n,u,no){
+  n=decodeURIComponent(n);
+  const m=modal(`<h2>Где взять «${esc(n)}»</h2><div class="muted small">Ссылка сохранится в проекте и будет видна другу (и в PLUGINS.txt).</div>
+    <label>Ссылка</label><input id="lu" value="${esc(decodeURIComponent(u))}" placeholder="https://…"><label>Заметка</label><input id="ln" value="${esc(decodeURIComponent(no))}" placeholder="бесплатный / версия 1.36 / лежит на диске">
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button id="ok" class="primary">Сохранить</button></div>`);
+  m.querySelector('#ok').onclick=async()=>{await api('/api/project/catalog',{Path:S.sel,Name:n,URL:m.querySelector('#lu').value,Note:m.querySelector('#ln').value});m.close();S.analysis=null;loadProject(S.sel)};
+}
+async function saveShared(){
+  const sh={ignoreUnused:$('#s_ign').checked, collectSamples:$('#s_col').checked, organizeAudio:$('#s_org').checked,
+    alwaysInclude:$('#s_inc').value.split('\n').map(s=>s.trim()).filter(Boolean),
+    lfsExtensions:$('#s_lfs').value.split(/[,\s]+/).map(s=>s.replace(/^\./,'').trim()).filter(Boolean)};
+  try{ await api('/api/project/settings',{path:S.sel,shared:sh}); toast('Сохранено — правила уйдут другу со следующей отправкой') }catch(e){ return fail(e) }
+  S.analysis=null; loadProject(S.sel);
+}
+async function addProject(){
+  const r = await api('/api/pickfolder',{}).catch(()=>({path:''}));
+  let path=r.path;
+  if(!path) path = await uiPrompt('Папка проекта',{label:'Путь к папке, где лежит .flp',placeholder:'/Users/me/Music/Трек'});
+  if(!path) return;
+  try{ await api('/api/projects/add',{path}); S.sel=path; S.analysis=null; S.comments=null; S.preview=null; await refreshAll(); loadPreview() }catch(e){ fail(e) }
+}
+async function removeProject(){ if(!await uiConfirm('Убрать проект из списка? Файлы не удаляются.',{ok:'Убрать'})) return; await api('/api/projects/remove',{path:S.sel}); S.sel=null; refreshAll() }
+function cloneDialog(){
+  const m=modal(`<h2>Скачать проект по ссылке</h2><div class="muted small">Ссылку на репозиторий даёт тот, кто создал проект. Если репозиторий приватный — сначала прими приглашение на GitHub и добавь свой токен в ⚙ Настройках.</div>
+    <label>Ссылка</label><input id="cu" placeholder="https://github.com/friend/track.git">
+    <label>Куда положить (папка-родитель)</label><div class="row" style="flex-wrap:nowrap"><input id="cp" placeholder="напр. Документы/FL Projects"><button id="pick">Выбрать…</button></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="primary" id="go">⤓ Скачать</button></div>`);
+  m.querySelector('#pick').onclick=async()=>{const r=await api('/api/pickfolder',{}).catch(()=>({}));if(r.path)m.querySelector('#cp').value=r.path};
+  m.querySelector('#go').onclick=async()=>{const url=m.querySelector('#cu').value.trim(),parent=m.querySelector('#cp').value.trim(); if(!url||!parent)return uiAlert('Заполни оба поля'); m.close();
+    const j=await runJob('/api/project/clone',{url,parent},{title:'Скачиваю проект'}); if(j&&j.result&&j.result.path){S.sel=j.result.path;S.comments=null;S.preview=null;await refreshAll();loadPreview()}};
+}
+async function openSettings(){
+  const c=S.state.config, t=S.state.tools;
+  const m=modal(`<div class="row" style="justify-content:space-between"><h2>Настройки</h2><button class="ghost sm" id="x">✕</button></div>
+    <h3>Профиль</h3>
+    <div class="row"><div><b style="font-size:16px">${esc(c.userName||'—')}</b> <span class="muted">· GitHub @${esc(c.githubLogin||'?')}</span>
+      ${c.registered?'<span class="tag ok">в справочнике ников</span>':'<span class="tag warn">не в справочнике</span>'}</div><span class="spacer"></span><button class="sm" id="reg">Изменить ник / токен</button></div>
+    ${(c.trustedRequesters||[]).length?`<h3>Плагины без вопросов</h3><div class="muted small">Этим людям совместимые плагины отправляются автоматически.</div>${c.trustedRequesters.map(n=>`<div class="row" style="padding:3px 0">${esc(n)} <a class="small muted" onclick="untrust('${enc(n)}',this)">убрать</a></div>`).join('')}`:''}
+    <h3>Где ищу плагины</h3>
+    <div class="muted small">Папки берутся из базы плагинов FL Studio (там все папки, которые ты добавлял в FL), из настроек FL, системного пути VST и стандартных мест.</div>
+    <div id="pfolders" class="small" style="margin-top:6px">Сканирую…</div>
+    <label>Свои папки (по одной в строке)</label><textarea id="pd" placeholder="D:\\VST">${esc((c.extraPluginDirs||[]).join('\n'))}</textarea>
+    <h3>Компоненты</h3>
+    <div class="small">${t.gitOk?'✅ '+esc(t.git):'❌ git не найден'}<br>${t.lfsOk?'✅ '+esc(t.lfs):'❌ git-lfs не найден'}</div>
+    ${(!t.gitOk||!t.lfsOk)?`<div style="margin-top:8px"><button onclick="installTools()">Установить автоматически</button></div>`:''}
+    <div class="card small muted">💡 Один раз в FL Studio: <i>Options → File settings → Browser extra search folders</i> — добавь папку, где лежат все проекты. И в каждом проекте: <i>Project → General settings → Data folder</i> = папка <b>Audio</b> проекта, тогда записи сразу будут падать туда.</div>
+    <div class="muted small">Версия ${esc(S.state.version)} · справочник ников: ${esc(S.state.registry||'не задан')} · настройки: <span class="mono">${esc(S.state.configDir)}</span></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button id="cancel">Отмена</button><button class="primary" id="ok">Сохранить</button></div>`);
+  m.querySelector('#x').onclick=m.querySelector('#cancel').onclick=()=>m.close();
+  m.querySelector('#reg').onclick=()=>{ m.close(); openRegister(false) };
+  api('/api/pluginfolders').then(f=>renderFolders(m.querySelector('#pfolders'),f)).catch(()=>{});
+  m.querySelector('#ok').onclick=async()=>{
+    await api('/api/settings',{extraPluginDirs:m.querySelector('#pd').value.split('\n').map(s=>s.trim()).filter(Boolean)}); m.close(); refreshAll();
+  };
+}
+function openLogin(){
+  const c=S.state.config;
+  const m=modal(`<h2>Вход в аккаунт</h2>
+    <div class="muted small">Достаточно GitHub-токена. Ник, папки списка проектов, доверенные друзья и список твоих проектов подтянутся с GitHub, а проекты появятся во вкладке «Доступные».</div>
+    <label>GitHub-токен</label><input id="tk" type="password" placeholder="ghp_…">
+    <div class="muted small">Можно создать новый токен: <a href="https://github.com/settings/tokens/new?scopes=repo&description=Programma%20Uzbeka">страница создания</a> (Tokens (classic), галочка repo).</div>
+    <details style="margin-top:8px" ${S.state.registryDefault?'':'open'}><summary class="muted small" style="cursor:pointer">Справочник ников</summary>
+      <div class="muted small" style="margin-top:6px">${S.state.registryDefault?'Встроен в программу.':'GitHub-логин того, кто поставил программу первым (если первый — ты, оставь пустым).'}</div>
+      <input id="rg" value="${esc(c.registry||'')}" placeholder="${esc(S.state.registryDefault||'GitHub-логин первого')}"></details>
+    <div class="row" style="justify-content:space-between;margin-top:14px"><a class="small" id="toReg">Я тут впервые — регистрация</a><button class="primary" id="ok">Войти</button></div>`);
+  m.sticky=!S.state.config.userName;
+  m.querySelector('#toReg').onclick=()=>{ m.close(); openRegister(true) };
+  m.querySelector('#ok').onclick=async()=>{
+    const token=m.querySelector('#tk').value.trim(); if(!token) return uiAlert('Вставь GitHub-токен');
+    const btn=m.querySelector('#ok'); btn.disabled=true; btn.textContent='Вхожу…';
+    try{
+      const r=await api('/api/login',{token,registry:m.querySelector('#rg').value.trim()});
+      m.close(); await refreshAll();
+      if(!r.nick){ await uiAlert(`GitHub @${r.login} подключён, но ник в программе для него ещё не заведён. Придумай ник.`,'Почти готово'); openRegister(true); return }
+      await uiAlert(r.hasProfile?`Привет, ${r.nick}! Настройки перенесены${r.device?' с «'+r.device+'»':''}. Твоих проектов в аккаунте: ${r.projects} — скачать их можно во вкладке «Доступные».`:`Привет, ${r.nick}! Проекты, где ты участвуешь, — во вкладке «Доступные».`,'Вход выполнен');
+      sideTab('av');
+    }catch(e){ btn.disabled=false; btn.textContent='Войти'; fail(e) }
+  };
+}
+async function untrust(n,a){ await api('/api/plugin/untrust',{nick:decodeURIComponent(n)}); a.parentElement.remove(); refreshAll() }
+function openRegister(first){
+  const c=S.state.config;
+  const m=modal(`<h2>${first?'Привет! Давай зарегистрируемся':'Профиль'}</h2>
+    ${first?`<div class="okbox small">Уже пользовался программой на другом компьютере? <a id="toLogin">Войти в свой аккаунт</a> — подтянутся ник, папки и список проектов.</div>`:''}
+    <div class="muted small">Друзья будут звать тебя в проекты по <b>нику в программе</b>, а не по GitHub-логину.</div>
+    <label>Ник в программе</label><input id="un" value="${esc(c.userName||'')}" placeholder="напр. tetramino">
+    <label>GitHub-токен ${S.state.hasToken?'(сохранён: '+esc(c.token)+')':''}</label><input id="tk" type="password" placeholder="${S.state.hasToken?'оставь пустым, чтобы не менять':'ghp_…'}">
+    <div class="muted small">github.com → Settings → Developer settings → Personal access tokens → <b>Tokens (classic)</b> → Generate, отметить <b>repo</b>. <a href="https://github.com/settings/tokens/new?scopes=repo&description=Programma%20Uzbeka">Открыть страницу создания</a>. Хранится только на этом компьютере.</div>
+    <label>Твой ник на GitHub</label><input id="gl" value="${esc(c.githubLogin||'')}" placeholder="логин GitHub">
+    <div class="lookup" id="glc"></div>
+    <details style="margin-top:8px" ${S.state.registryDefault||c.registry?'':'open'}><summary class="muted small" style="cursor:pointer">Справочник ников</summary>
+      <div class="muted small" style="margin-top:6px">${S.state.registryDefault?`Встроен в программу: ${esc(S.state.registryDefault)}. Менять не нужно.`:'Общий список «ник → GitHub», чтобы звать друг друга по нику. <b>Впиши GitHub-логин того, кто поставил программу первым.</b> Если первый — ты, оставь пустым: справочник создастся на твоём GitHub.'}</div>
+      <input id="rg" value="${esc(c.registry||'')}" placeholder="${esc(S.state.registryDefault||'GitHub-логин первого (или пусто, если первый — ты)')}"></details>
+    <div class="row" style="justify-content:flex-end;margin-top:14px">${first?'':'<button id="cancel">Отмена</button>'}<button class="primary" id="ok">${first?'Зарегистрироваться':'Сохранить'}</button></div>`);
+  if(first) m.sticky=true;
+  const cb=m.querySelector('#cancel'); if(cb) cb.onclick=()=>m.close();
+  const tl=m.querySelector('#toLogin'); if(tl) tl.onclick=()=>{ m.close(); openLogin() };
+  const check=async()=>{ const tok=m.querySelector('#tk').value.trim(); const out=m.querySelector('#glc');
+    if(!tok && !S.state.hasToken){ out.innerHTML=''; return }
+    out.innerHTML='<span class="muted">проверяю токен…</span>';
+    try{ const r=await api('/api/whoami',{token:tok}); const gl=m.querySelector('#gl');
+      if(!gl.value.trim()) gl.value=r.login;
+      out.innerHTML = gl.value.trim().toLowerCase()===r.login.toLowerCase() ? `<span style="color:var(--ok)">✓ токен принадлежит @${esc(r.login)}</span>` : `<span style="color:var(--warn)">⚠ токен принадлежит @${esc(r.login)}, а не @${esc(gl.value.trim())}</span>`;
+    }catch(e){ out.innerHTML=`<span style="color:var(--bad)">✗ ${esc(e.message)}</span>` } };
+  m.querySelector('#tk').addEventListener('change',check); m.querySelector('#gl').addEventListener('change',check);
+  if(S.state.hasToken) check();
+  m.querySelector('#ok').onclick=async()=>{
+    const body={userName:m.querySelector('#un').value.trim(), token:m.querySelector('#tk').value.trim(), registry:m.querySelector('#rg').value.trim()};
+    if(!body.userName) return uiAlert('Введи ник');
+    if(!body.token && !S.state.hasToken) return uiAlert('Нужен GitHub-токен — без него не получится синхронизироваться');
+    const btn=m.querySelector('#ok'); btn.disabled=true; btn.textContent='Регистрирую…';
+    try{
+      const r=await api('/api/register',body);
+      const gl=m.querySelector('#gl').value.trim();
+      if(gl && gl.toLowerCase()!==r.login.toLowerCase()) await uiAlert(`Токен принадлежит GitHub-аккаунту @${r.login}, а не @${gl}. Использую @${r.login}.`,'Обрати внимание');
+      m.close(); if(r.note) uiAlert(r.note,'Готово!'); else toast(`Готово! Ты в справочнике как «${esc(body.userName)}»`); refreshAll();
+    }catch(e){ btn.disabled=false; btn.textContent=first?'Зарегистрироваться':'Сохранить'; fail(e) }
+  };
+}
+function renderFolders(el,f){ if(!el) return;
+  el.innerHTML=`<table><tr><th>Папка</th><th>Откуда</th><th style="text-align:right">Плагинов</th></tr>${(f.folders||[]).filter(x=>x.exists).map(x=>`<tr><td class="mono">${esc(x.path)}</td><td><span class="tag ${/FL/.test(x.source)?'v':''}">${esc(x.source)}</span></td><td style="text-align:right">${x.count}</td></tr>`).join('')}</table>
+  <div class="muted" style="margin-top:4px">Всего найдено плагинов: ${f.count}. ${f.dbCount?`В базе плагинов FL: ${f.dbCount}.`:'База плагинов FL не найдена ('+esc(f.db)+') — открой в FL «Manage plugins» и нажми «Find installed plugins».'} <a onclick="rescanFolders(this)">↻ пересканировать</a></div>` }
+async function rescanFolders(a){ a.textContent='сканирую…'; const r=await api('/api/pluginfolders',{}).catch(()=>null); if(r) renderFolders(a.closest('#pfolders'),r) }
+async function installTools(){ await runJob('/api/tools/install',{},{title:'Установка git / git-lfs'}) }
+async function quitApp(){ if(await uiConfirm('Закрыть программу?',{ok:'Закрыть'})){ await api('/api/quit',{}).catch(()=>{}); document.body.innerHTML='<div class="empty"><div>Программа закрыта. Вкладку можно закрыть.</div></div>' } }
+
+window.addEventListener('focus', ()=>{ if(S.sel && !document.querySelector('.modal-bg')) loadProject(S.sel) });
+refreshAll().then(pollNotes).catch(e=>{ $('#main').innerHTML='<div class="badbox">'+esc(e.message)+'</div>' });
+</script>
+</body>
+</html>

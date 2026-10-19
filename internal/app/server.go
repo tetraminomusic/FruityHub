@@ -1,0 +1,624 @@
+package app
+
+import (
+	"bytes"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"flsync/internal/flp"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+)
+
+var Version = "dev"
+
+type Server struct {
+	cfg      *Config
+	token    string
+	index    []byte
+	mu       sync.Mutex // serialises git operations
+	jobsMu   sync.Mutex
+	jobs     map[string]*Job
+	running  int
+	lastPing time.Time
+	quit     chan struct{}
+	quitOnce sync.Once
+	Windowed bool
+	notesMu  sync.Mutex
+	notes    map[string]*ProjectNotes
+	invites  []Invitation
+	profile  *Profile
+}
+
+func NewServer(index []byte) *Server {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return &Server{cfg: LoadConfig(), token: hex.EncodeToString(b), index: index, jobs: map[string]*Job{},
+		lastPing: time.Now(), quit: make(chan struct{}), notes: map[string]*ProjectNotes{}}
+}
+
+func (s *Server) Quit() <-chan struct{} { return s.quit }
+
+// Stop closes the app (safe to call many times).
+func (s *Server) Stop() { s.quitOnce.Do(func() { close(s.quit) }) }
+
+// IdleWatcher stops the app when the UI tab has been closed for a while.
+func (s *Server) IdleWatcher(after time.Duration) {
+	for range time.Tick(15 * time.Second) {
+		s.jobsMu.Lock()
+		idle := s.running == 0 && time.Since(s.lastPing) > after
+		s.jobsMu.Unlock()
+		if idle {
+			s.Stop()
+			return
+		}
+	}
+}
+
+func (s *Server) Handler(port int) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Write(bytes.Replace(s.index, []byte("__FLSYNC_TOKEN__"), []byte(s.token), 1))
+	})
+	mux.HandleFunc("/hello", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "uzbek") })
+	mux.HandleFunc("/focus", func(w http.ResponseWriter, r *http.Request) {
+		if OnFocus != nil {
+			OnFocus()
+		}
+	})
+	// media files for the <audio> player (token in the query: <audio> can't send headers)
+	mux.HandleFunc("/media/preview", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("k") != s.token {
+			http.Error(w, "forbidden", 403)
+			return
+		}
+		p := &Project{Dir: r.URL.Query().Get("path"), Cfg: s.cfg}
+		info, err := p.Preview()
+		if err != nil || info.Asset == nil || !info.Cached {
+			http.NotFound(w, r)
+			return
+		}
+		st, _ := p.storage()
+		w.Header().Set("Content-Type", contentType(info.Asset.Name))
+		http.ServeFile(w, r, st.previewCachePath(*info.Asset))
+	})
+	api := func(path string, fn func(r *http.Request) (any, error)) {
+		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("X-FLSync") != s.token {
+				http.Error(w, "forbidden", 403)
+				return
+			}
+			res, err := fn(r)
+			w.Header().Set("Content-Type", "application/json")
+			if err != nil {
+				w.WriteHeader(400)
+				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				return
+			}
+			json.NewEncoder(w).Encode(res)
+		})
+	}
+	s.routes(api)
+	s.routes2(api)
+	s.routes3(api)
+	s.routes4(api)
+	// DNS-rebinding protection: only accept our own host names
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := r.Host
+		if h != fmt.Sprintf("127.0.0.1:%d", port) && h != fmt.Sprintf("localhost:%d", port) {
+			http.Error(w, "bad host", 403)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
+}
+
+func decode(r *http.Request, v any) error {
+	if r.Body == nil {
+		return nil
+	}
+	b, _ := io.ReadAll(r.Body)
+	if len(b) == 0 {
+		return nil
+	}
+	return json.Unmarshal(b, v)
+}
+
+func (s *Server) startJob(title, project string, fn func(j *Job) (any, error)) *Job {
+	b := make([]byte, 6)
+	rand.Read(b)
+	j := &Job{ID: hex.EncodeToString(b), Title: title, Project: project, Started: time.Now().Unix()}
+	s.jobsMu.Lock()
+	s.jobs[j.ID] = j
+	s.running++
+	s.jobsMu.Unlock()
+	go func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		defer func() {
+			if rec := recover(); rec != nil {
+				j.mu.Lock()
+				j.Err = fmt.Sprint("внутренняя ошибка: ", rec)
+				j.mu.Unlock()
+			}
+			j.mu.Lock()
+			j.Done = true
+			j.mu.Unlock()
+			s.jobsMu.Lock()
+			s.running--
+			s.jobsMu.Unlock()
+		}()
+		res, err := fn(j)
+		j.mu.Lock()
+		j.Res = res
+		if err != nil {
+			j.Err = err.Error()
+			j.Details = errDetails(err)
+			if j.Details == "" && len(j.raw) > 0 {
+				j.Details = strings.Join(j.raw[max(0, len(j.raw)-15):], "\n")
+			}
+		}
+		last := "" // the most telling line for the journal
+		for _, st := range j.Steps {
+			if !strings.HasPrefix(st, "✓") && !strings.HasSuffix(st, "…") {
+				last = st
+				break
+			}
+		}
+		if last == "" && len(j.Steps) > 0 {
+			last = j.Steps[len(j.Steps)-1]
+		}
+		j.mu.Unlock()
+		if err != nil {
+			LogActivity(project, "error", title+": "+err.Error())
+		} else {
+			LogActivity(project, "ok", title+" — готово"+map[bool]string{true: ". " + strings.TrimPrefix(last, "✓ "), false: ""}[last != ""])
+		}
+	}()
+	return j
+}
+
+type pathReq struct {
+	Path  string `json:"path"`
+	Group string `json:"group"`
+}
+
+func (s *Server) project(path string, j *Job) (*Project, error) {
+	if path == "" {
+		return nil, errors.New("не указан проект")
+	}
+	if st, err := os.Stat(path); err != nil || !st.IsDir() {
+		return nil, fmt.Errorf("папка не найдена: %s", path)
+	}
+	return &Project{Dir: path, Cfg: s.cfg, Job: j}, nil
+}
+
+type ProjectSummary struct {
+	Path     string         `json:"path"`
+	Name     string         `json:"name"`
+	Exists   bool           `json:"exists"`
+	IsRepo   bool           `json:"isRepo"`
+	Remote   string         `json:"remote"`
+	Branch   string         `json:"branch"`
+	Lock     *Lock          `json:"lock"`
+	Changes  []StatusEntry  `json:"changes"`
+	Ahead    int            `json:"ahead"`
+	Behind   int            `json:"behind"`
+	Me       string         `json:"me"`
+	Relink   bool           `json:"relinkOnReceive"`
+	Shared   SharedSettings `json:"shared"`
+	Machines []Machine      `json:"machines"`
+	LastSync string         `json:"lastSync"`
+	Adopted  bool           `json:"adopted"`
+	Extra    []string       `json:"extraFlps"`
+	MainFLP  string         `json:"mainFlp"`
+	Group    string         `json:"group"`
+	Rootless int            `json:"rootAudio"` // audio files lying in the project root
+}
+
+func (s *Server) summary(path string) ProjectSummary {
+	ps := ProjectSummary{Path: path, Name: filepath.Base(path), Me: s.cfg.MachineID()}
+	if lp := s.cfg.Project(path); lp != nil {
+		ps.Relink = lp.RelinkOnReceive
+		ps.Group = lp.Group
+	}
+	if !exists(path) {
+		return ps
+	}
+	ps.Exists = true
+	p := &Project{Dir: path, Cfg: s.cfg}
+	g := p.git()
+	ps.IsRepo = g.IsRepo()
+	ps.Shared = LoadShared(path)
+	if ps.IsRepo {
+		ps.Adopted = p.IsAdopted()
+		if !ps.Adopted && exists(filepath.Join(path, ".flsync")) {
+			// a project already managed by this app (e.g. made by an older version) — no questions
+			g.RunQuiet("lfs", "install", "--local", "--skip-repo")
+			g.RunQuiet("config", "uzbek.adopted", "true")
+			ps.Adopted = true
+		}
+		ps.Remote = g.Remote()
+		ps.Branch = g.Branch()
+		ps.Changes, _ = g.Status()
+		ps.Ahead, ps.Behind = g.AheadBehind()
+		if fi, err := os.Stat(filepath.Join(path, ".git", "FETCH_HEAD")); err == nil {
+			ps.LastSync = fi.ModTime().Format("02.01 15:04")
+		}
+	}
+	ps.Extra = p.ExtraFLPs()
+	if len(ps.Extra) > 0 {
+		ps.MainFLP = p.MainFLPGuess(ps.Extra)
+	}
+	if ents, err := os.ReadDir(path); err == nil {
+		for _, e := range ents {
+			if !e.IsDir() && flp.IsAudio(e.Name()) {
+				ps.Rootless++
+			}
+		}
+	}
+	ps.Lock = p.ReadLock()
+	ps.Machines = p.Machines()
+	for i := range ps.Machines {
+		ps.Machines[i].Plugins = nil
+	}
+	return ps
+}
+
+func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
+	api("/api/ping", func(r *http.Request) (any, error) {
+		s.jobsMu.Lock()
+		s.lastPing = time.Now()
+		s.jobsMu.Unlock()
+		return "ok", nil
+	})
+	api("/api/quit", func(r *http.Request) (any, error) {
+		go func() { time.Sleep(300 * time.Millisecond); s.Stop() }()
+		return "bye", nil
+	})
+	api("/api/state", func(r *http.Request) (any, error) {
+		cfg := *s.cfg
+		if cfg.Token != "" {
+			cfg.Token = "••••" + cfg.Token[max(0, len(cfg.Token)-4):]
+		}
+		var list []ProjectSummary
+		for _, p := range s.cfg.Projects {
+			ps := ProjectSummary{Path: p.Path, Name: filepath.Base(p.Path), Exists: exists(p.Path), Group: p.Group}
+			pr := &Project{Dir: p.Path, Cfg: s.cfg}
+			ps.Lock = pr.ReadLock()
+			ps.IsRepo = pr.git().IsRepo()
+			list = append(list, ps)
+		}
+		return map[string]any{"config": cfg, "hasToken": s.cfg.Token != "", "projects": list, "windowed": s.Windowed,
+			"tools": CheckTools(), "os": OSName(), "me": s.cfg.MachineID(), "version": Version, "configDir": ConfigDir(),
+			"groups": s.cfg.Groups, "registry": s.cfg.RegistryRepo(), "registryDefault": DefaultRegistry}, nil
+	})
+	api("/api/settings", func(r *http.Request) (any, error) {
+		var req struct {
+			UserName        *string  `json:"userName"`
+			Token           *string  `json:"token"`
+			Registry        *string  `json:"registry"`
+			ExtraPluginDirs []string `json:"extraPluginDirs"`
+		}
+		if err := decode(r, &req); err != nil {
+			return nil, err
+		}
+		if req.UserName != nil {
+			s.cfg.UserName = strings.TrimSpace(*req.UserName)
+		}
+		if req.Token != nil && strings.TrimSpace(*req.Token) != s.cfg.Token {
+			s.cfg.Token = strings.TrimSpace(*req.Token)
+			s.cfg.GitHubLogin, s.cfg.Registered = "", false
+		}
+		if req.Registry != nil {
+			s.cfg.Registry = strings.TrimSpace(*req.Registry)
+			invalidateRegistry()
+		}
+		if req.ExtraPluginDirs != nil {
+			s.cfg.ExtraPluginDirs = req.ExtraPluginDirs
+		}
+		return "ok", s.cfg.Save()
+	})
+	api("/api/pickfolder", func(r *http.Request) (any, error) {
+		p, err := PickFolder()
+		if err != nil && p == "" {
+			return map[string]string{"path": ""}, nil
+		}
+		return map[string]string{"path": p}, nil
+	})
+	api("/api/projects/add", func(r *http.Request) (any, error) {
+		var req pathReq
+		decode(r, &req)
+		p := strings.TrimSpace(req.Path)
+		if st, err := os.Stat(p); err != nil || !st.IsDir() {
+			return nil, fmt.Errorf("папка не найдена: %s", p)
+		}
+		if s.cfg.Project(p) == nil {
+			s.cfg.Projects = append(s.cfg.Projects, LocalProject{Path: p, RelinkOnReceive: true, Group: req.Group})
+			pr := &Project{Dir: p, Cfg: s.cfg}
+			if !pr.git().IsRepo() && LoadShared(p).OrganizeAudio {
+				if moved, err := pr.OrganizeAudio(); err == nil && len(moved) > 0 {
+					pr.Relink()
+					LogActivity(p, "info", fmt.Sprintf("Аудио из корня проекта перенесено в %s/: %d файл(ов)", audioDir, len(moved)))
+				}
+			}
+			sort.Slice(s.cfg.Projects, func(i, j int) bool {
+				return strings.ToLower(filepath.Base(s.cfg.Projects[i].Path)) < strings.ToLower(filepath.Base(s.cfg.Projects[j].Path))
+			})
+		}
+		return "ok", s.cfg.Save()
+	})
+	api("/api/projects/remove", func(r *http.Request) (any, error) {
+		var req pathReq
+		decode(r, &req)
+		var out []LocalProject
+		for _, p := range s.cfg.Projects {
+			if !samePath(p.Path, req.Path) {
+				out = append(out, p)
+			}
+		}
+		s.cfg.Projects = out
+		return "ok", s.cfg.Save()
+	})
+	api("/api/project", func(r *http.Request) (any, error) {
+		return s.summary(r.URL.Query().Get("path")), nil
+	})
+	api("/api/project/analysis", func(r *http.Request) (any, error) {
+		p, err := s.project(r.URL.Query().Get("path"), nil)
+		if err != nil {
+			return nil, err
+		}
+		a := p.Analyze()
+		machines := p.Machines()
+		// always include my *current* inventory in the comparison
+		me := p.myMachine(a)
+		found := false
+		for i := range machines {
+			if machines[i].User == me.User {
+				machines[i] = me
+				found = true
+			}
+		}
+		if !found {
+			machines = append(machines, me)
+		}
+		return map[string]any{"analysis": a, "plugins": p.PluginReport(a, machines), "machines": len(machines)}, nil
+	})
+	api("/api/project/history", func(r *http.Request) (any, error) {
+		p, err := s.project(r.URL.Query().Get("path"), nil)
+		if err != nil {
+			return nil, err
+		}
+		return p.git().Log(150), nil
+	})
+	api("/api/project/settings", func(r *http.Request) (any, error) {
+		var req struct {
+			Path   string          `json:"path"`
+			Shared *SharedSettings `json:"shared"`
+			Relink *bool           `json:"relinkOnReceive"`
+			Remote *string         `json:"remote"`
+		}
+		if err := decode(r, &req); err != nil {
+			return nil, err
+		}
+		p, err := s.project(req.Path, nil)
+		if err != nil {
+			return nil, err
+		}
+		if req.Shared != nil {
+			if err := writeJSON(filepath.Join(p.Dir, ".flsync", "settings.json"), req.Shared); err != nil {
+				return nil, err
+			}
+			p.writeAttributes(*req.Shared)
+			p.updateIgnore(p.Analyze())
+		}
+		if req.Relink != nil {
+			if lp := s.cfg.Project(p.Dir); lp != nil {
+				lp.RelinkOnReceive = *req.Relink
+				s.cfg.Save()
+			}
+		}
+		if req.Remote != nil && p.git().IsRepo() {
+			g := p.git()
+			if g.Remote() == "" {
+				_, err = g.Run("remote", "add", "origin", strings.TrimSpace(*req.Remote))
+			} else {
+				_, err = g.Run("remote", "set-url", "origin", strings.TrimSpace(*req.Remote))
+			}
+			if err != nil {
+				return nil, err
+			}
+		}
+		return "ok", nil
+	})
+	api("/api/project/include", func(r *http.Request) (any, error) {
+		var req struct {
+			Path    string `json:"path"`
+			File    string `json:"file"`
+			Include bool   `json:"include"`
+		}
+		decode(r, &req)
+		p, err := s.project(req.Path, nil)
+		if err != nil {
+			return nil, err
+		}
+		sh := LoadShared(p.Dir)
+		var list []string
+		for _, x := range sh.AlwaysInclude {
+			if x != req.File {
+				list = append(list, x)
+			}
+		}
+		if req.Include {
+			list = append(list, req.File)
+		}
+		sh.AlwaysInclude = list
+		writeJSON(filepath.Join(p.Dir, ".flsync", "settings.json"), sh)
+		_, err = p.updateIgnore(p.Analyze())
+		return "ok", err
+	})
+	api("/api/project/catalog", func(r *http.Request) (any, error) {
+		var req struct{ Path, Name, URL, Note string }
+		decode(r, &req)
+		p, err := s.project(req.Path, nil)
+		if err != nil {
+			return nil, err
+		}
+		return "ok", p.SetCatalog(req.Name, strings.TrimSpace(req.URL), strings.TrimSpace(req.Note))
+	})
+	api("/api/project/open", func(r *http.Request) (any, error) {
+		var req pathReq
+		decode(r, &req)
+		return "ok", OpenFolder(req.Path)
+	})
+	api("/api/rescan", func(r *http.Request) (any, error) {
+		return len(ScanInstalled(s.cfg, true)), nil
+	})
+
+	// ----- jobs -----
+	jobAPI := func(path, title string, fn func(req map[string]any, j *Job) (any, error)) {
+		api(path, func(r *http.Request) (any, error) {
+			req := map[string]any{}
+			if err := decode(r, &req); err != nil {
+				return nil, err
+			}
+			p, _ := req["path"].(string)
+			return s.startJob(title, p, func(j *Job) (any, error) { return fn(req, j) }), nil
+		})
+	}
+	str := func(m map[string]any, k string) string { v, _ := m[k].(string); return v }
+	boolean := func(m map[string]any, k string) bool { v, _ := m[k].(bool); return v }
+
+	jobAPI("/api/project/init", "Подключение проекта", func(req map[string]any, j *Job) (any, error) {
+		p, err := s.project(str(req, "path"), j)
+		if err != nil {
+			return nil, err
+		}
+		if err := p.Init(strings.TrimSpace(str(req, "remote"))); err != nil {
+			return nil, err
+		}
+		if _, err := p.commitAll("Начало проекта (" + s.cfg.MachineID() + ")"); err != nil {
+			return nil, err
+		}
+		if p.git().Remote() != "" && boolean(req, "push") {
+			return p.Send("Первая отправка", false)
+		}
+		return "ok", nil
+	})
+	jobAPI("/api/project/clone", "Скачивание проекта", func(req map[string]any, j *Job) (any, error) {
+		dir, err := Clone(s.cfg, j, strings.TrimSpace(str(req, "url")), str(req, "parent"))
+		if dir != "" && s.cfg.Project(dir) == nil {
+			s.cfg.Projects = append(s.cfg.Projects, LocalProject{Path: dir, RelinkOnReceive: true})
+			s.cfg.Save()
+		}
+		return map[string]string{"path": dir}, err
+	})
+	jobAPI("/api/project/receive", "Получение", func(req map[string]any, j *Job) (any, error) {
+		p, err := s.project(str(req, "path"), j)
+		if err != nil {
+			return nil, err
+		}
+		return p.Receive()
+	})
+	jobAPI("/api/project/send", "Отправка", func(req map[string]any, j *Job) (any, error) {
+		p, err := s.project(str(req, "path"), j)
+		if err != nil {
+			return nil, err
+		}
+		msg := strings.TrimSpace(str(req, "message"))
+		if msg == "" {
+			msg = defaultCommitMsg(s.cfg)
+		}
+		return p.Send(msg, boolean(req, "release"))
+	})
+	jobAPI("/api/project/lock", "Взять в работу", func(req map[string]any, j *Job) (any, error) {
+		p, err := s.project(str(req, "path"), j)
+		if err != nil {
+			return nil, err
+		}
+		return "ok", p.TakeLock(boolean(req, "force"), str(req, "note"))
+	})
+	jobAPI("/api/project/unlock", "Освободить", func(req map[string]any, j *Job) (any, error) {
+		p, err := s.project(str(req, "path"), j)
+		if err != nil {
+			return nil, err
+		}
+		return "ok", p.ReleaseLock()
+	})
+	jobAPI("/api/project/prepare", "Подготовка", func(req map[string]any, j *Job) (any, error) {
+		p, err := s.project(str(req, "path"), j)
+		if err != nil {
+			return nil, err
+		}
+		_, err = p.Prepare()
+		return "ok", err
+	})
+	jobAPI("/api/project/relink", "Перелинковка сэмплов", func(req map[string]any, j *Job) (any, error) {
+		p, err := s.project(str(req, "path"), j)
+		if err != nil {
+			return nil, err
+		}
+		n, err := p.Relink()
+		if n == 0 && err == nil {
+			j.Logf("Все пути в порядке — менять нечего")
+		}
+		return n, err
+	})
+	jobAPI("/api/project/restore", "Восстановление версии", func(req map[string]any, j *Job) (any, error) {
+		p, err := s.project(str(req, "path"), j)
+		if err != nil {
+			return nil, err
+		}
+		dst, err := p.RestoreVersion(str(req, "hash"), str(req, "file"))
+		if err == nil {
+			j.Logf("Сохранено как %s", dst)
+		}
+		return dst, err
+	})
+	jobAPI("/api/tools/install", "Установка компонентов", func(req map[string]any, j *Job) (any, error) {
+		return "ok", InstallTools(j)
+	})
+	jobAPI("/api/github/create", "Создание репозитория на GitHub", func(req map[string]any, j *Job) (any, error) {
+		return GitHubCreate(s.cfg, j, str(req, "name"), strings.FieldsFunc(str(req, "invite"), func(r rune) bool { return r == ',' || r == ' ' || r == ';' }))
+	})
+	api("/api/job", func(r *http.Request) (any, error) {
+		s.jobsMu.Lock()
+		j := s.jobs[r.URL.Query().Get("id")]
+		s.jobsMu.Unlock()
+		if j == nil {
+			return nil, errors.New("задача не найдена")
+		}
+		j.mu.Lock()
+		defer j.mu.Unlock()
+		cp := Job{ID: j.ID, Title: j.Title, Project: j.Project, Done: j.Done, Err: j.Err, Details: j.Details, Res: j.Res,
+			Steps: append([]string{}, j.Steps...), Progress: j.Progress, Started: j.Started}
+		return &cp, nil
+	})
+}
+
+// Listen picks the preferred port, falling back to a random one.
+func Listen(pref int) (net.Listener, int, error) {
+	l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", pref))
+	if err != nil {
+		l, err = net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+	return l, l.Addr().(*net.TCPAddr).Port, nil
+}
