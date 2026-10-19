@@ -32,90 +32,6 @@ func (s *Server) routes3(api func(string, func(*http.Request) (any, error))) {
 		})
 	}
 
-	// ----- registration & people -----
-	api("/api/register", func(r *http.Request) (any, error) {
-		b := body(r)
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if v := strings.TrimSpace(str(b, "userName")); v != "" {
-			s.cfg.UserName = v
-		}
-		if v := strings.TrimSpace(str(b, "token")); v != "" {
-			s.cfg.Token = v
-		}
-		if v, ok := b["registry"].(string); ok {
-			s.cfg.Registry = strings.TrimSpace(v)
-		}
-		note, err := RegisterNick(s.cfg)
-		s.cfg.Save()
-		if err != nil {
-			return nil, err
-		}
-		LogActivity("", "ok", "Регистрация: "+s.cfg.UserName+" (GitHub @"+s.cfg.GitHubLogin+")")
-		return map[string]any{"login": s.cfg.GitHubLogin, "registered": s.cfg.Registered, "note": note}, nil
-	})
-	api("/api/whoami", func(r *http.Request) (any, error) {
-		tok := str(body(r), "token")
-		if tok == "" {
-			tok = s.cfg.Token
-		}
-		login, err := GitHubLogin(tok)
-		return map[string]string{"login": login}, err
-	})
-	api("/api/lookup", func(r *http.Request) (any, error) {
-		u, reg, err := ResolvePerson(s.cfg, r.URL.Query().Get("nick"))
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"nick": u.Nick, "login": u.Login, "registered": reg}, nil
-	})
-	api("/api/project/participants", func(r *http.Request) (any, error) {
-		p, err := s.project(r.URL.Query().Get("path"), nil)
-		if err != nil {
-			return nil, err
-		}
-		return Participants(s.cfg, p.git().Remote())
-	})
-	api("/api/project/invite", func(r *http.Request) (any, error) {
-		b := body(r)
-		p, err := s.project(str(b, "path"), nil)
-		if err != nil {
-			return nil, err
-		}
-		u, err := InviteToProject(s.cfg, p.git().Remote(), str(b, "nick"))
-		if err == nil {
-			LogActivity(p.Dir, "ok", "Приглашение отправлено: "+u.Nick)
-		}
-		return u, err
-	})
-	jobAPI("/api/invitations/accept", "Принимаю приглашение", func(b map[string]any, j *Job) (any, error) {
-		id, _ := b["id"].(float64)
-		if err := AcceptInvitation(s.cfg, int64(id)); err != nil {
-			return nil, err
-		}
-		j.Logf("Приглашение принято")
-		parent := str(b, "parent")
-		if parent == "" {
-			return nil, errors.New("не выбрана папка, куда скачать проект")
-		}
-		s.cfg.LastParent = parent
-		dir, err := Clone(s.cfg, j, str(b, "cloneUrl"), parent)
-		if dir != "" && s.cfg.Project(dir) == nil {
-			s.cfg.Projects = append(s.cfg.Projects, LocalProject{Path: dir, RelinkOnReceive: true, Group: str(b, "group")})
-		}
-		s.cfg.Save()
-		s.notesMu.Lock()
-		var rest []Invitation
-		for _, inv := range s.invites {
-			if inv.ID != int64(id) {
-				rest = append(rest, inv)
-			}
-		}
-		s.invites = rest
-		s.notesMu.Unlock()
-		return map[string]string{"path": dir}, err
-	})
-
 	// ----- existing repo -----
 	api("/api/project/adopt-info", func(r *http.Request) (any, error) {
 		p, err := s.project(r.URL.Query().Get("path"), nil)
@@ -233,25 +149,6 @@ func (s *Server) routes3(api func(string, func(*http.Request) (any, error))) {
 	// ----- journal -----
 	api("/api/activity", func(r *http.Request) (any, error) { return Activities(), nil })
 
-	// ----- plugins -----
-	api("/api/plugin/inspect", func(r *http.Request) (any, error) {
-		p, err := s.project(r.URL.Query().Get("path"), nil)
-		if err != nil {
-			return nil, err
-		}
-		return p.Inspect(r.URL.Query().Get("id"))
-	})
-	api("/api/plugin/untrust", func(r *http.Request) (any, error) {
-		nick := str(body(r), "nick")
-		var out []string
-		for _, t := range s.cfg.TrustedRequesters {
-			if !strings.EqualFold(t, nick) {
-				out = append(out, t)
-			}
-		}
-		s.cfg.TrustedRequesters = out
-		return "ok", s.cfg.Save()
-	})
 	api("/api/pickanyfile", func(r *http.Request) (any, error) {
 		p, _ := PickAnyFile()
 		return map[string]string{"path": p, "name": filepath.Base(p)}, nil

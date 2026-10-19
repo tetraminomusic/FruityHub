@@ -1,10 +1,12 @@
-// Программа Узбека — совместная работа над проектами FL Studio через Git.
+// прога узбека — совместная работа над проектами FL Studio: проекты на GitHub,
+// пользователи, приглашения и передача плагинов — через свой сервер.
 package main
 
 import (
-	_ "embed"
+	"embed"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -19,6 +21,9 @@ import (
 //go:embed web/index.html
 var indexHTML []byte
 
+//go:embed web
+var webFS embed.FS
+
 var version = "dev"
 
 var preferredPort = 47811
@@ -28,7 +33,7 @@ func main() {
 	if os.Getenv("FLSYNC_ASKPASS") == "1" {
 		prompt := strings.ToLower(strings.Join(os.Args[1:], " "))
 		if strings.HasPrefix(prompt, "username") {
-			fmt.Println("uzbek")
+			fmt.Println("x-access-token")
 		} else {
 			fmt.Println(os.Getenv("FLSYNC_TOKEN"))
 		}
@@ -61,11 +66,12 @@ func main() {
 		os.Exit(1)
 	}
 	srv := app.NewServer(indexHTML)
+	srv.Assets, _ = fs.Sub(webFS, "web")
 	url := fmt.Sprintf("http://127.0.0.1:%d/", port)
 	fmt.Println(app.AppName, version, "→", url)
 	go http.Serve(l, srv.Handler(port))
 	go srv.Poller(poll)
-	go srv.ProfileSync()
+	go srv.HubLoop(8 * time.Second)
 	app.OnFocus = ui.Focus
 
 	if !browserMode {

@@ -26,7 +26,7 @@ func main() {
 	cert := flag.String("cert", "", "свой сертификат (вместо Let's Encrypt)")
 	key := flag.String("key", "", "ключ к сертификату")
 	maxFile := flag.Int64("max-file-mb", 1500, "максимальный размер одного плагина/установщика, МБ")
-	maxTotal := flag.Int64("max-total-mb", 7000, "сколько места на диске могут занимать передаваемые плагины, МБ")
+	maxTotal := flag.Int64("max-total-mb", 5000, "сколько места на диске могут занимать передаваемые плагины, МБ")
 	ttl := flag.Duration("file-ttl", 72*time.Hour, "сколько файл ждёт получателя")
 	flag.Parse()
 

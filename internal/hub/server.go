@@ -45,7 +45,7 @@ func New(opt Options) (*Server, error) {
 		opt.MaxFile = 1500 << 20
 	}
 	if opt.MaxTotal == 0 {
-		opt.MaxTotal = 7 << 30
+		opt.MaxTotal = 5 << 30
 	}
 	if opt.FileTTL == 0 {
 		opt.FileTTL = 72 * time.Hour
@@ -812,12 +812,12 @@ button{font:inherit;padding:9px 16px;border-radius:8px;border:0;background:#f7a5
 			org = html.EscapeString(s.gh.Org)
 		}
 		manifest, _ := json.Marshal(map[string]any{
-			"name":         "prog-uzbeka-" + newID()[:6],
-			"url":          s.opt.PublicURL,
-			"redirect_url": s.opt.PublicURL + "/setup/callback",
-			"setup_url":    s.opt.PublicURL + "/setup/installed?key=" + s.opt.AdminKey,
-			"public":       false,
-			"hook_attributes": map[string]any{"url": s.opt.PublicURL + "/setup/hook", "active": false},
+			"name":                "prog-uzbeka-" + newID()[:6],
+			"url":                 s.opt.PublicURL,
+			"redirect_url":        s.opt.PublicURL + "/setup/callback",
+			"setup_url":           s.opt.PublicURL + "/setup/installed?key=" + s.opt.AdminKey,
+			"public":              false,
+			"hook_attributes":     map[string]any{"url": s.opt.PublicURL + "/setup/hook", "active": false},
 			"default_permissions": map[string]string{"contents": "write", "administration": "write", "metadata": "read"},
 		})
 		page(w, fmt.Sprintf(`<h1>прога узбека — сервер</h1><p>GitHub: %s</p>
@@ -850,14 +850,11 @@ f.action='%s/organizations/'+encodeURIComponent(o)+'/settings/apps/new?state=%s'
 		http.Redirect(w, r, s.opt.GitHubWeb+"/apps/"+url.PathEscape(s.gh.Slug)+"/installations/new", http.StatusFound)
 	})
 	mux.HandleFunc("GET /setup/installed", func(w http.ResponseWriter, r *http.Request) {
-		if !keyOK(r) {
-			http.Error(w, "forbidden", 403)
+		// the id in the URL is not trusted: ask GitHub where our app is installed
+		if err := s.gh.FindInstallation(); err != nil {
+			page(w, "<h2>Почти готово</h2><p>"+html.EscapeString(err.Error())+"</p><p class=\"muted\">Установи приложение в организацию и обнови страницу.</p>")
 			return
 		}
-		if id, err := strconv.ParseInt(r.URL.Query().Get("installation_id"), 10, 64); err == nil {
-			s.gh.InstallationID = id
-			s.gh.Save()
-		}
-		page(w, `<h1 class="ok">Готово ✓</h1><p>Сервер подключён к GitHub. Теперь можно создавать проекты в программе.</p>`)
+		page(w, `<h1 class="ok">Готово ✓</h1><p>Сервер подключён к GitHub. Теперь можно создавать проекты в проге.</p>`)
 	})
 }

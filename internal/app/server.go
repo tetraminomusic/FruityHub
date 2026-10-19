@@ -9,6 +9,7 @@ import (
 	"flsync/internal/flp"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -22,6 +23,7 @@ import (
 var Version = "dev"
 
 type Server struct {
+	Assets   fs.FS // background picture, icon (optional)
 	cfg      *Config
 	token    string
 	index    []byte
@@ -35,8 +37,8 @@ type Server struct {
 	Windowed bool
 	notesMu  sync.Mutex
 	notes    map[string]*ProjectNotes
-	invites  []Invitation
-	profile  *Profile
+	busyReq  sync.Map // plugin request id -> "sending" | "installing" | "human"
+	hubError string
 }
 
 func NewServer(index []byte) *Server {
@@ -74,6 +76,23 @@ func (s *Server) Handler(port int) http.Handler {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		w.Write(bytes.Replace(s.index, []byte("__FLSYNC_TOKEN__"), []byte(s.token), 1))
+	})
+	// pictures for the interface: /assets/bg, /assets/icon (any extension in web/)
+	mux.HandleFunc("/assets/", func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/assets/")
+		if s.Assets == nil || strings.ContainsAny(name, "/\\.") {
+			http.NotFound(w, r)
+			return
+		}
+		for _, ext := range []string{".jpg", ".jpeg", ".png", ".webp"} {
+			if b, err := fs.ReadFile(s.Assets, name+ext); err == nil {
+				w.Header().Set("Content-Type", map[string]string{".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}[ext])
+				w.Header().Set("Cache-Control", "max-age=3600")
+				w.Write(b)
+				return
+			}
+		}
+		http.NotFound(w, r)
 	})
 	mux.HandleFunc("/hello", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "uzbek") })
 	mux.HandleFunc("/focus", func(w http.ResponseWriter, r *http.Request) {
@@ -140,6 +159,12 @@ func decode(r *http.Request, v any) error {
 }
 
 func (s *Server) startJob(title, project string, fn func(j *Job) (any, error)) *Job {
+	return s.startJobOpt(title, project, true, fn)
+}
+
+// startJobOpt: lock=false for work that does not touch git (plugin transfers),
+// so a big upload never blocks sending/receiving projects.
+func (s *Server) startJobOpt(title, project string, lock bool, fn func(j *Job) (any, error)) *Job {
 	b := make([]byte, 6)
 	rand.Read(b)
 	j := &Job{ID: hex.EncodeToString(b), Title: title, Project: project, Started: time.Now().Unix()}
@@ -148,8 +173,10 @@ func (s *Server) startJob(title, project string, fn func(j *Job) (any, error)) *
 	s.running++
 	s.jobsMu.Unlock()
 	go func() {
-		s.mu.Lock()
-		defer s.mu.Unlock()
+		if lock {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+		}
 		defer func() {
 			if rec := recover(); rec != nil {
 				j.mu.Lock()
@@ -229,6 +256,7 @@ type ProjectSummary struct {
 	MainFLP  string         `json:"mainFlp"`
 	Group    string         `json:"group"`
 	Rootless int            `json:"rootAudio"` // audio files lying in the project root
+	OnServer bool           `json:"onServer"`  // the remote is a project of our server
 }
 
 func (s *Server) summary(path string) ProjectSummary {
@@ -254,6 +282,7 @@ func (s *Server) summary(path string) ProjectSummary {
 			ps.Adopted = true
 		}
 		ps.Remote = g.Remote()
+		ps.OnServer = s.cfg.Hub().ProjectForRemote(ps.Remote) != nil
 		ps.Branch = g.Branch()
 		ps.Changes, _ = g.Status()
 		ps.Ahead, ps.Behind = g.AheadBehind()
@@ -293,9 +322,7 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 	})
 	api("/api/state", func(r *http.Request) (any, error) {
 		cfg := *s.cfg
-		if cfg.Token != "" {
-			cfg.Token = "••••" + cfg.Token[max(0, len(cfg.Token)-4):]
-		}
+		cfg.Token, cfg.DeviceToken, cfg.hub = "", "", nil
 		var list []ProjectSummary
 		for _, p := range s.cfg.Projects {
 			ps := ProjectSummary{Path: p.Path, Name: filepath.Base(p.Path), Exists: exists(p.Path), Group: p.Group}
@@ -304,30 +331,24 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 			ps.IsRepo = pr.git().IsRepo()
 			list = append(list, ps)
 		}
-		return map[string]any{"config": cfg, "hasToken": s.cfg.Token != "", "projects": list, "windowed": s.Windowed,
-			"tools": CheckTools(), "os": OSName(), "me": s.cfg.MachineID(), "version": Version, "configDir": ConfigDir(),
-			"groups": s.cfg.Groups, "registry": s.cfg.RegistryRepo(), "registryDefault": DefaultRegistry}, nil
+		sharing := s.cfg.Sharing
+		if sharing == "" {
+			sharing = "ask"
+		}
+		return map[string]any{"config": cfg, "registered": s.cfg.Hub().Registered(), "projects": list, "windowed": s.Windowed,
+			"tools": CheckTools(), "os": OSName(), "me": s.cfg.MachineID(), "userId": s.cfg.UserID, "version": Version, "configDir": ConfigDir(),
+			"groups": s.cfg.Groups, "server": s.cfg.ServerURL(), "serverDefault": DefaultServer, "sharing": sharing, "legacyToken": s.cfg.Token != ""}, nil
 	})
 	api("/api/settings", func(r *http.Request) (any, error) {
 		var req struct {
-			UserName        *string  `json:"userName"`
 			Token           *string  `json:"token"`
-			Registry        *string  `json:"registry"`
 			ExtraPluginDirs []string `json:"extraPluginDirs"`
 		}
 		if err := decode(r, &req); err != nil {
 			return nil, err
 		}
-		if req.UserName != nil {
-			s.cfg.UserName = strings.TrimSpace(*req.UserName)
-		}
-		if req.Token != nil && strings.TrimSpace(*req.Token) != s.cfg.Token {
+		if req.Token != nil {
 			s.cfg.Token = strings.TrimSpace(*req.Token)
-			s.cfg.GitHubLogin, s.cfg.Registered = "", false
-		}
-		if req.Registry != nil {
-			s.cfg.Registry = strings.TrimSpace(*req.Registry)
-			invalidateRegistry()
 		}
 		if req.ExtraPluginDirs != nil {
 			s.cfg.ExtraPluginDirs = req.ExtraPluginDirs
@@ -434,6 +455,7 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 			}
 		}
 		if req.Remote != nil && p.git().IsRepo() {
+			forgetRemote(p.Dir)
 			g := p.git()
 			if g.Remote() == "" {
 				_, err = g.Run("remote", "add", "origin", strings.TrimSpace(*req.Remote))
@@ -593,8 +615,19 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 	jobAPI("/api/tools/install", "Установка компонентов", func(req map[string]any, j *Job) (any, error) {
 		return "ok", InstallTools(j)
 	})
-	jobAPI("/api/github/create", "Создание репозитория на GitHub", func(req map[string]any, j *Job) (any, error) {
-		return GitHubCreate(s.cfg, j, str(req, "name"), strings.FieldsFunc(str(req, "invite"), func(r rune) bool { return r == ',' || r == ' ' || r == ';' }))
+	// jobs started in the background (automatic plugin transfers) — the UI shows them too
+	api("/api/jobs", func(r *http.Request) (any, error) {
+		s.jobsMu.Lock()
+		defer s.jobsMu.Unlock()
+		out := []map[string]any{}
+		for _, j := range s.jobs {
+			j.mu.Lock()
+			if time.Since(time.Unix(j.Started, 0)) < 10*time.Minute {
+				out = append(out, map[string]any{"id": j.ID, "title": j.Title, "done": j.Done, "started": j.Started})
+			}
+			j.mu.Unlock()
+		}
+		return out, nil
 	})
 	api("/api/job", func(r *http.Request) (any, error) {
 		s.jobsMu.Lock()

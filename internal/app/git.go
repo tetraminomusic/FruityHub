@@ -143,6 +143,7 @@ type Git struct {
 	Cfg *Config
 	Job *Job
 	Env []string // extra environment (e.g. GIT_INDEX_FILE)
+	URL string   // remote URL when there is no repo yet (clone)
 }
 
 func selfExe() string {
@@ -153,7 +154,9 @@ func selfExe() string {
 	return p
 }
 
-func gitEnv(cfg *Config) []string {
+func gitEnv(cfg *Config) []string { return gitEnvToken(cfg, "") }
+
+func gitEnvToken(cfg *Config, token string) []string {
 	env := os.Environ()
 	path := os.Getenv("PATH")
 	var extra []string
@@ -165,12 +168,35 @@ func gitEnv(cfg *Config) []string {
 	}
 	env = setEnv(env, "PATH", path)
 	env = setEnv(env, "GIT_TERMINAL_PROMPT", "0")
-	if cfg != nil && cfg.Token != "" {
+	if token != "" {
 		env = setEnv(env, "GIT_ASKPASS", selfExe())
 		env = setEnv(env, "FLSYNC_ASKPASS", "1")
-		env = setEnv(env, "FLSYNC_TOKEN", cfg.Token)
+		env = setEnv(env, "FLSYNC_TOKEN", token)
 	}
 	return env
+}
+
+// token for this repo's remote (server projects get a short-lived key).
+func (g *Git) token() string {
+	if g.Cfg == nil {
+		return ""
+	}
+	remote := g.URL
+	if remote == "" {
+		key := filepath.Clean(g.Dir)
+		if e, ok := remoteCache.Load(key); ok && time.Since(e.(remoteEntry).at) < 30*time.Second {
+			remote = e.(remoteEntry).url
+		} else {
+			cmd := exec.Command(gitBinary(), "config", "--get", "remote.origin.url")
+			cmd.Dir = g.Dir
+			cmd.Env = gitEnv(nil)
+			hideWindow(cmd)
+			out, _ := cmd.Output()
+			remote = strings.TrimSpace(string(out))
+			remoteCache.Store(key, remoteEntry{remote, time.Now()})
+		}
+	}
+	return repoToken(g.Cfg, remote)
 }
 
 func setEnv(env []string, k, v string) []string {
@@ -200,11 +226,24 @@ func (g *Git) baseArgs() []string {
 			name = g.Cfg.MachineID()
 		}
 		a = append(a, "-c", "user.name="+name, "-c", "user.email="+strings.ReplaceAll(strings.ToLower(g.Cfg.MachineID()), " ", ".")+"@flsync.local")
-		if g.Cfg.Token != "" {
-			a = append(a, "-c", "credential.helper=")
-		}
 	}
 	return a
+}
+
+// needsAuth: commands that may talk to the server (LFS downloads happen on
+// checkout/merge/reset too).
+func needsAuth(args []string) bool {
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		switch a {
+		case "fetch", "push", "pull", "clone", "ls-remote", "lfs", "checkout", "merge", "reset", "switch", "restore", "cherry-pick", "rebase", "stash", "show", "cat-file":
+			return true
+		}
+		return false
+	}
+	return false
 }
 
 // Run executes git and returns trimmed stdout.
@@ -218,10 +257,21 @@ func (g *Git) RunQuiet(args ...string) (string, error) {
 }
 
 func (g *Git) run(stdin io.Reader, echo bool, args ...string) (string, error) {
-	full := append(g.baseArgs(), args...)
+	if len(args) > 0 && args[0] == "remote" {
+		defer forgetRemote(g.Dir)
+	}
+	full := g.baseArgs()
+	tok := ""
+	if needsAuth(args) {
+		tok = g.token()
+	}
+	if tok != "" {
+		full = append(full, "-c", "credential.helper=")
+	}
+	full = append(full, args...)
 	cmd := exec.Command(gitBinary(), full...)
 	cmd.Dir = g.Dir
-	cmd.Env = append(gitEnv(g.Cfg), g.Env...)
+	cmd.Env = append(gitEnvToken(g.Cfg, tok), g.Env...)
 	cmd.Stdin = stdin
 	hideWindow(cmd)
 	var out, errb bytes.Buffer
@@ -450,7 +500,7 @@ func (g *Git) ShowToFile(rev, path, dst string) error {
 	if bytes.HasPrefix(out, []byte("version https://git-lfs.github.com/spec/")) {
 		cmd := exec.Command(gitBinary(), append(g.baseArgs(), "lfs", "smudge", "--", path)...)
 		cmd.Dir = g.Dir
-		cmd.Env = gitEnv(g.Cfg)
+		cmd.Env = gitEnvToken(g.Cfg, g.token())
 		cmd.Stdin = bytes.NewReader(out)
 		hideWindow(cmd)
 		sm, err := cmd.Output()

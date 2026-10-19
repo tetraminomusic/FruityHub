@@ -297,3 +297,14 @@ func (p *Project) SetStatus(stage, text string) error {
 	st := Status{Stage: strings.TrimSpace(stage), Text: strings.TrimSpace(text), By: p.Cfg.MachineID(), Time: time.Now().Unix()}
 	return p.git().MetaWrite(map[string][]byte{"status.json": mustJSON(st)}, "📌 статус: "+st.Stage)
 }
+
+func translit(r rune) string {
+	m := map[rune]string{'а': "a", 'б': "b", 'в': "v", 'г': "g", 'д': "d", 'е': "e", 'ё': "e", 'ж': "zh", 'з': "z", 'и': "i", 'й': "y",
+		'к': "k", 'л': "l", 'м': "m", 'н': "n", 'о': "o", 'п': "p", 'р': "r", 'с': "s", 'т': "t", 'у': "u", 'ф': "f", 'х': "h",
+		'ц': "ts", 'ч': "ch", 'ш': "sh", 'щ': "sch", 'ы': "y", 'э': "e", 'ю': "yu", 'я': "ya"}
+	lr := []rune(strings.ToLower(string(r)))[0]
+	if s, ok := m[lr]; ok {
+		return s
+	}
+	return ""
+}

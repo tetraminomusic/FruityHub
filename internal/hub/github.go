@@ -122,9 +122,16 @@ func (a *GitHubApp) call(auth, method, path string, body, out any) error {
 	if resp.StatusCode >= 300 {
 		var e struct {
 			Message string `json:"message"`
+			Errors  []struct {
+				Message string `json:"message"`
+			} `json:"errors"`
 		}
 		json.Unmarshal(b, &e)
-		return fmt.Errorf("GitHub: %s (%s)", e.Message, resp.Status)
+		msg := e.Message
+		for _, x := range e.Errors {
+			msg += "; " + x.Message
+		}
+		return fmt.Errorf("GitHub: %s (%s)", msg, resp.Status)
 	}
 	if out != nil && len(b) > 0 {
 		return json.Unmarshal(b, out)
@@ -132,7 +139,14 @@ func (a *GitHubApp) call(auth, method, path string, body, out any) error {
 	return nil
 }
 
-// findInstallation looks up the installation on the configured org.
+// FindInstallation looks up (and remembers) the installation on the configured org.
+func (a *GitHubApp) FindInstallation() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.findInstallation()
+}
+
+// findInstallation: call with mu held.
 func (a *GitHubApp) findInstallation() error {
 	j, err := a.jwt()
 	if err != nil {

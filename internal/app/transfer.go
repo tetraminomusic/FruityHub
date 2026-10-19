@@ -2,7 +2,6 @@ package app
 
 import (
 	"archive/zip"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,128 +9,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 	"time"
 )
 
-// Plugin transfer: the requester asks, the owner explicitly allows it, the
-// owner's app zips the plugin and uploads it to the project storage, the
-// requester's app downloads and installs it, then the file is deleted from
-// the storage. Requests live on the meta branch (requests/<id>.json).
-
-type PluginRequest struct {
-	ID          string `json:"id"`
-	Plugin      string `json:"plugin"`
-	Format      string `json:"format"`
-	Vendor      string `json:"vendor,omitempty"`
-	From        string `json:"from"` // who asks
-	FromOS      string `json:"fromOs"`
-	To          string `json:"to"` // who has the plugin
-	Status      string `json:"status"`
-	Created     int64  `json:"created"`
-	Updated     int64  `json:"updated"`
-	AssetID     int64  `json:"assetId,omitempty"`
-	Size        int64  `json:"size,omitempty"`
-	Note        string `json:"note,omitempty"`
-	InstalledTo string `json:"installedTo,omitempty"`
-	Kind        string `json:"kind,omitempty"`     // "plugin" (ready to install) or "installer" (a file to run)
-	FileName    string `json:"fileName,omitempty"` // for installers
-	Auto        bool   `json:"auto,omitempty"`     // approved automatically (trusted friend)
-}
-
-// Statuses
-const (
-	ReqPending   = "pending"
-	ReqApproved  = "approved" // uploaded, waiting for the requester to install
-	ReqDeclined  = "declined"
-	ReqInstalled = "installed"
-	ReqFailed    = "failed"
-	ReqCancelled = "cancelled"
-)
-
-func (p *Project) Requests() []PluginRequest {
-	var rs []PluginRequest
-	for _, b := range p.git().MetaFiles("requests/") {
-		var r PluginRequest
-		if json.Unmarshal(b, &r) == nil && r.ID != "" {
-			rs = append(rs, r)
-		}
-	}
-	sort.Slice(rs, func(i, j int) bool { return rs[i].Created > rs[j].Created })
-	return rs
-}
-
-func (p *Project) request(id string) (*PluginRequest, error) {
-	p.git().Fetch()
-	for _, r := range p.Requests() {
-		if r.ID == id {
-			return &r, nil
-		}
-	}
-	return nil, errors.New("запрос не найден")
-}
-
-func (p *Project) saveRequest(r *PluginRequest, msg string) error {
-	r.Updated = time.Now().Unix()
-	return p.git().MetaWrite(map[string][]byte{"requests/" + r.ID + ".json": mustJSON(r)}, msg)
-}
-
-// RequestPlugin asks another participant for a plugin.
-func (p *Project) RequestPlugin(name, format, vendor, to string) (*PluginRequest, error) {
-	me := p.Cfg.MachineID()
-	if to == me {
-		return nil, errors.New("нельзя попросить плагин у самого себя")
-	}
-	var owner *Machine
-	for _, m := range p.Machines() {
-		if m.User == to {
-			mm := m
-			owner = &mm
-		}
-	}
-	if owner == nil {
-		return nil, fmt.Errorf("не знаю участника %s", to)
-	}
-	for _, r := range p.Requests() {
-		if r.From == me && normName(r.Plugin) == normName(name) && (r.Status == ReqPending || r.Status == ReqApproved) {
-			return nil, errors.New("такой запрос уже отправлен — ждём ответа")
-		}
-	}
-	now := time.Now().Unix()
-	r := &PluginRequest{ID: newID(me), Plugin: name, Format: format, Vendor: vendor, From: me, FromOS: OSName(), To: to,
-		Status: ReqPending, Created: now}
-	return r, p.saveRequest(r, fmt.Sprintf("🔌 %s просит у %s плагин %s", me, to, name))
-}
-
-func (p *Project) CancelRequest(id string) error {
-	r, err := p.request(id)
-	if err != nil {
-		return err
-	}
-	if r.From != p.Cfg.MachineID() {
-		return errors.New("отменить может только тот, кто просил")
-	}
-	if r.AssetID != 0 {
-		if s, err := p.storage(); err == nil {
-			s.Delete(r.AssetID)
-		}
-	}
-	r.Status, r.AssetID = ReqCancelled, 0
-	return p.saveRequest(r, "🔌 запрос отменён")
-}
-
-func (p *Project) DeclineRequest(id, reason string) error {
-	r, err := p.request(id)
-	if err != nil {
-		return err
-	}
-	if r.To != p.Cfg.MachineID() {
-		return errors.New("это запрос не к тебе")
-	}
-	r.Status, r.Note = ReqDeclined, strings.TrimSpace(reason)
-	return p.saveRequest(r, "🔌 "+r.To+" отклонил запрос "+r.Plugin)
-}
+// Plugin transfer (through our server): the requester asks, the owner
+// allows it (or has allowed it in advance in the settings), the owner's app
+// zips the plugin and uploads it to the server, the requester's app downloads
+// and installs it, then the server deletes the file.
 
 // Candidate is a file the owner could send instead of the plugin itself.
 type Candidate struct {
@@ -231,17 +116,13 @@ func dirSize(p string) int64 {
 	return n
 }
 
-// Inspect: can I send this plugin to the requester, and how?
-func (p *Project) Inspect(id string) (*Inspection, error) {
-	r, err := p.request(id)
-	if err != nil {
-		return nil, err
-	}
+// InspectRequest: can I send this plugin to the requester, and how?
+func InspectRequest(cfg *Config, r *PluginRequest) *Inspection {
 	in := &Inspection{SameOS: r.FromOS == OSName()}
-	ip := FindInstalled(p.Cfg, r.Plugin, r.Format)
+	ip := FindInstalled(cfg, r.Plugin, r.Format)
 	if ip == nil {
-		ScanInstalled(p.Cfg, true)
-		ip = FindInstalled(p.Cfg, r.Plugin, r.Format)
+		ScanInstalled(cfg, true)
+		ip = FindInstalled(cfg, r.Plugin, r.Format)
 	}
 	if ip != nil {
 		in.Found, in.Path, in.Format, in.Version, in.Size = true, ip.Path, ip.Format, ip.Version, dirSize(ip.Path)
@@ -258,151 +139,130 @@ func (p *Project) Inspect(id string) (*Inspection, error) {
 		in.Compatible = true
 		in.Reason = "В твоём пакете плагина есть версия и для " + r.FromOS + " — можно отправить как есть."
 	default:
-		in.Reason = fmt.Sprintf("Твой файл плагина собран только под %s, у %s — %s. Отправь установщик для %s (можно скачать у производителя).", OSName(), r.From, r.FromOS, r.FromOS)
+		in.Reason = fmt.Sprintf("Твой файл плагина собран только под %s, у %s — %s. Отправь установщик для %s (можно скачать у производителя).", OSName(), r.FromNick, r.FromOS, r.FromOS)
 	}
 	in.Installers = findInstallers(r.Plugin, r.Vendor, r.FromOS)
-	return in, nil
+	return in
+}
+
+func (cfg *Config) myRequest(id string, owner bool) (*PluginRequest, error) {
+	r, err := cfg.Hub().Request(id)
+	if err != nil {
+		return nil, err
+	}
+	if owner && r.To != cfg.UserID {
+		return nil, errors.New("это запрос не к тебе")
+	}
+	if !owner && r.From != cfg.UserID {
+		return nil, errors.New("это не твой запрос")
+	}
+	return r, nil
 }
 
 // ApproveRequest: the owner allowed it. file == "" sends the installed plugin
 // itself; otherwise that file (an installer) is sent.
-func (p *Project) ApproveRequest(id, file string, trust bool) error {
-	r, err := p.request(id)
+func ApproveRequest(cfg *Config, job *Job, id, file string) error {
+	r, err := cfg.myRequest(id, true)
 	if err != nil {
 		return err
-	}
-	if r.To != p.Cfg.MachineID() {
-		return errors.New("это запрос не к тебе")
 	}
 	if r.Status != ReqPending {
 		return fmt.Errorf("запрос уже обработан (%s)", r.Status)
 	}
-	if trust {
-		found := false
-		for _, t := range p.Cfg.TrustedRequesters {
-			found = found || strings.EqualFold(t, r.From)
-		}
-		if !found {
-			p.Cfg.TrustedRequesters = append(p.Cfg.TrustedRequesters, r.From)
-			p.Cfg.Save()
-		}
-	}
-	s, err := p.storage()
-	if err != nil {
-		return err
-	}
+	h := cfg.Hub()
 	if file != "" {
 		st, err := os.Stat(file)
 		if err != nil || st.IsDir() {
 			return errors.New("файл установщика не найден")
 		}
-		p.Job.Logf("Отправляю установщик %s", filepath.Base(file))
-		a, err := s.Upload(p.Job, "plugin-"+r.ID+strings.ToLower(filepath.Ext(file)), r.Plugin+" — установщик", file)
-		if err != nil {
+		job.Logf("Отправляю установщик %s для %s", filepath.Base(file), r.FromNick)
+		if err := h.UploadFile(job, r.ID, file, "installer", filepath.Base(file), "установщик", r.Format); err != nil {
 			return err
 		}
-		r.Status, r.AssetID, r.Size, r.Kind, r.FileName, r.Note = ReqApproved, a.ID, a.Size, "installer", filepath.Base(file), "установщик"
-		if err := p.saveRequest(r, "🔌 "+r.To+" отправил установщик "+r.Plugin); err != nil {
-			return err
-		}
-		p.Job.Logf("✓ Установщик отправлен, %s сможет запустить его у себя", r.From)
+		job.Logf("✓ Установщик отправлен, %s сможет запустить его у себя", r.FromNick)
+		LogActivity("", "ok", fmt.Sprintf("🔌 Отправлен установщик %s для %s", r.Plugin, r.FromNick))
 		return nil
 	}
-	in, err := p.Inspect(id)
-	if err != nil {
-		return err
-	}
+	in := InspectRequest(cfg, r)
 	if !in.Compatible {
 		return errors.New(in.Reason)
 	}
-	p.Job.Logf("Упаковываю %s…", r.Plugin)
+	job.Logf("Упаковываю %s…", r.Plugin)
 	tmp := filepath.Join(os.TempDir(), "uzbek-plugin-"+r.ID+".zip")
 	defer os.Remove(tmp)
 	if err := zipPath(in.Path, tmp); err != nil {
 		return err
 	}
-	a, err := s.Upload(p.Job, "plugin-"+r.ID+".zip", r.Plugin+" ("+in.Format+")", tmp)
-	if err != nil {
-		return err
-	}
-	r.Status, r.AssetID, r.Size, r.Format, r.Kind = ReqApproved, a.ID, a.Size, in.Format, "plugin"
-	r.Note = ""
+	note := ""
 	if in.Version != "" {
-		r.Note = "версия " + in.Version
+		note = "версия " + in.Version
 	}
-	if err := p.saveRequest(r, "🔌 "+r.To+" разрешил и отправил "+r.Plugin); err != nil {
+	if err := h.UploadFile(job, r.ID, tmp, "plugin", filepath.Base(in.Path)+".zip", note, in.Format); err != nil {
 		return err
 	}
-	p.Job.Logf("✓ Плагин отправлен, %s сможет установить его у себя", r.From)
+	job.Logf("✓ %s отправлен, у %s он установится сам", r.Plugin, r.FromNick)
+	LogActivity("", "ok", fmt.Sprintf("🔌 Отправлен плагин %s для %s", r.Plugin, r.FromNick))
 	return nil
 }
 
 // InstallRequest: the requester downloads and installs an approved plugin.
-func (p *Project) InstallRequest(id string) (string, error) {
-	r, err := p.request(id)
+func InstallRequest(cfg *Config, job *Job, id string) (string, error) {
+	r, err := cfg.myRequest(id, false)
 	if err != nil {
 		return "", err
 	}
-	if r.From != p.Cfg.MachineID() {
-		return "", errors.New("это не твой запрос")
-	}
-	if r.Status != ReqApproved || r.AssetID == 0 {
+	if r.Status != ReqApproved {
 		return "", fmt.Errorf("плагин ещё не готов (%s)", r.Status)
 	}
-	s, err := p.storage()
-	if err != nil {
-		return "", err
-	}
+	h := cfg.Hub()
 	if r.Kind == "installer" {
 		home, _ := os.UserHomeDir()
 		dst, _, _ := uniqueTarget(filepath.Join(home, "Downloads"), r.FileName, "")
-		p.Job.Logf("Скачиваю установщик %s…", r.FileName)
-		if err := s.Download(p.Job, Asset{ID: r.AssetID, Size: r.Size}, dst); err != nil {
+		job.Logf("Скачиваю установщик %s…", r.FileName)
+		if err := h.DownloadFile(job, r, dst); err != nil {
 			return "", err
 		}
-		s.Delete(r.AssetID)
-		r.Status, r.AssetID, r.InstalledTo = ReqInstalled, 0, dst
-		p.saveRequest(r, "🔌 "+r.From+" получил установщик "+r.Plugin)
+		h.DoneRequest(r.ID, true, "установщик скачан")
+		LogActivity("", "ok", fmt.Sprintf("🔌 Получен установщик %s от %s", r.Plugin, r.ToNick))
 		if strings.HasSuffix(strings.ToLower(dst), ".zip") {
 			OpenFolder(filepath.Dir(dst))
-			p.Job.Logf("✓ Архив установщика сохранён в «Загрузки» — открыл папку")
+			job.Logf("✓ Архив установщика сохранён в «Загрузки» — открыл папку")
 		} else {
 			OpenURL(dst)
-			p.Job.Logf("✓ Установщик сохранён в «Загрузки» и запущен — пройди установку")
+			job.Logf("✓ Установщик сохранён в «Загрузки» и запущен — пройди установку")
 		}
 		return dst, nil
 	}
 	tmp := filepath.Join(os.TempDir(), "uzbek-plugin-"+r.ID+".zip")
 	defer os.Remove(tmp)
-	p.Job.Logf("Скачиваю %s…", r.Plugin)
-	if err := s.Download(p.Job, Asset{ID: r.AssetID, Size: r.Size}, tmp); err != nil {
+	job.Logf("Скачиваю %s…", r.Plugin)
+	if err := h.DownloadFile(job, r, tmp); err != nil {
 		return "", err
 	}
-	dir, err := p.installDir(r.Format)
+	dir, err := installDir(cfg, job, r.Format)
 	if err != nil {
+		h.DoneRequest(r.ID, false, err.Error())
 		return "", err
 	}
-	top, err := unzipTo(tmp, dir, p.Job)
+	top, err := unzipTo(tmp, dir, job)
 	if err != nil {
-		r.Status, r.Note = ReqFailed, err.Error()
-		p.saveRequest(r, "🔌 установка не удалась")
+		h.DoneRequest(r.ID, false, err.Error())
 		return "", err
 	}
 	if runtime.GOOS == "darwin" && r.Format == "AU" {
-		// make macOS re-read the Audio Unit cache
-		killAUCache()
+		killAUCache() // make macOS re-read the Audio Unit cache
 	}
-	s.Delete(r.AssetID)
-	r.Status, r.AssetID, r.InstalledTo = ReqInstalled, 0, filepath.Join(dir, top)
-	p.saveRequest(r, "🔌 "+r.From+" установил "+r.Plugin)
-	ScanInstalled(p.Cfg, true)
-	p.Job.Logf("✓ Установлено: %s", r.InstalledTo)
-	p.Job.Logf("Теперь в FL Studio: Options → Manage plugins → Find installed plugins (Start scan)")
-	return r.InstalledTo, nil
+	dst := filepath.Join(dir, top)
+	h.DoneRequest(r.ID, true, "")
+	ScanInstalled(cfg, true)
+	LogActivity("", "ok", fmt.Sprintf("🔌 Установлен %s от %s", r.Plugin, r.ToNick))
+	job.Logf("✓ Установлено: %s", dst)
+	job.Logf("Теперь в FL Studio: Options → Manage plugins → Find installed plugins (Start scan)")
+	return dst, nil
 }
 
 // installDir picks a writable standard plugin folder for this format.
-func (p *Project) installDir(format string) (string, error) {
+func installDir(cfg *Config, job *Job, format string) (string, error) {
 	home, _ := os.UserHomeDir()
 	var cands []string
 	switch runtime.GOOS {
@@ -421,13 +281,13 @@ func (p *Project) installDir(format string) (string, error) {
 		case "CLAP":
 			cands = []string{filepath.Join(cf, "CLAP"), filepath.Join(la, "Programs", "Common", "CLAP")}
 		default:
-			for _, f := range ScannedFolders(p.Cfg) {
+			for _, f := range ScannedFolders(cfg) {
 				if f.Exists && f.Count > 0 && !strings.Contains(strings.ToLower(f.Path), "vst3") && !strings.Contains(strings.ToLower(f.Path), "clap") {
 					cands = append(cands, f.Path)
 				}
 			}
 		}
-		cands = append(cands, filepath.Join(home, "Documents", "Программа Узбека — плагины", format))
+		cands = append(cands, filepath.Join(home, "Documents", "прога узбека — плагины", format))
 	default:
 		cands = []string{filepath.Join(home, "."+strings.ToLower(strings.TrimSuffix(format, "2")))}
 	}
@@ -443,16 +303,16 @@ func (p *Project) installDir(format string) (string, error) {
 		if i > 0 && runtime.GOOS == "windows" {
 			// non-standard folder: remember it and tell the user to add it in FL once
 			found := false
-			for _, e := range p.Cfg.ExtraPluginDirs {
+			for _, e := range cfg.ExtraPluginDirs {
 				if samePath(e, c) {
 					found = true
 				}
 			}
 			if !found {
-				p.Cfg.ExtraPluginDirs = append(p.Cfg.ExtraPluginDirs, c)
-				p.Cfg.Save()
+				cfg.ExtraPluginDirs = append(cfg.ExtraPluginDirs, c)
+				cfg.Save()
 			}
-			p.Job.Logf("⚠ В стандартную папку писать нельзя без прав администратора — ставлю в %s. Добавь её один раз в FL: Options → Manage plugins → Plugin search paths", c)
+			job.Logf("⚠ В стандартную папку писать нельзя без прав администратора — ставлю в %s. Добавь её один раз в FL: Options → Manage plugins → Plugin search paths", c)
 		}
 		return c, nil
 	}

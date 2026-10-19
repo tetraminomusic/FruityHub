@@ -224,7 +224,7 @@ func (p *Project) SetCatalog(name, url, note string) error {
 }
 
 func (p *Project) myMachine(a *Analysis) Machine {
-	me := Machine{User: p.Cfg.MachineID(), GitHub: p.Cfg.GitHubLogin, OS: OSName(), Updated: time.Now().Format("2006-01-02 15:04")}
+	me := Machine{User: p.Cfg.MachineID(), OS: OSName(), Updated: time.Now().Format("2006-01-02 15:04")}
 	var prev Machine
 	readJSON(filepath.Join(p.Dir, ".flsync", "machines", me.User+".json"), &prev)
 	me.FLVersion = prev.FLVersion

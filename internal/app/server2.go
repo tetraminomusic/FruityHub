@@ -15,11 +15,9 @@ var OnFocus func()
 
 // ProjectNotes is what the background check found for one project.
 type ProjectNotes struct {
-	Unread   int             `json:"unread"`   // new comments from others
-	Incoming []PluginRequest `json:"incoming"` // others ask me for a plugin
-	Ready    []PluginRequest `json:"ready"`    // my plugin requests that were approved
-	Behind   int             `json:"behind"`
-	Checked  string          `json:"checked"`
+	Unread  int    `json:"unread"` // new comments from others
+	Behind  int    `json:"behind"`
+	Checked string `json:"checked"`
 }
 
 func (s *Server) computeNotes(path string) *ProjectNotes {
@@ -40,14 +38,6 @@ func (s *Server) computeNotes(path string) *ProjectNotes {
 			n.Unread++
 		}
 	}
-	for _, r := range p.Requests() {
-		if r.To == me && r.Status == ReqPending {
-			n.Incoming = append(n.Incoming, r)
-		}
-		if r.From == me && r.Status == ReqApproved {
-			n.Ready = append(n.Ready, r)
-		}
-	}
 	_, n.Behind = g.AheadBehind()
 	s.notesMu.Lock()
 	s.notes[path] = n
@@ -66,9 +56,11 @@ func (s *Server) Poller(every time.Duration) {
 			}
 			g := &Git{Dir: lp.Path, Cfg: s.cfg}
 			behindBefore := -1
+			s.notesMu.Lock()
 			if n := s.notes[lp.Path]; n != nil {
 				behindBefore = n.Behind
 			}
+			s.notesMu.Unlock()
 			if g.IsRepo() && g.Remote() != "" && s.mu.TryLock() {
 				g.Fetch()
 				s.mu.Unlock()
@@ -78,42 +70,8 @@ func (s *Server) Poller(every time.Duration) {
 				who, _ := g.RunQuiet("log", "-1", "--format=%an: %s", "origin/"+g.Branch())
 				LogActivity(lp.Path, "info", "На сервере новое — "+who)
 			}
-			s.autoApprove(lp.Path, n)
-		}
-		if s.cfg.Token != "" {
-			if inv, err := PendingInvitations(s.cfg); err == nil {
-				s.notesMu.Lock()
-				s.invites = inv
-				s.notesMu.Unlock()
-			}
 		}
 		time.Sleep(every)
-	}
-}
-
-// autoApprove sends plugins to trusted friends without asking (only when the
-// plugin can be sent as is; installers always need a human).
-func (s *Server) autoApprove(path string, n *ProjectNotes) {
-	for _, r := range n.Incoming {
-		trusted := false
-		for _, t := range s.cfg.TrustedRequesters {
-			trusted = trusted || strings.EqualFold(t, r.From)
-		}
-		if !trusted {
-			continue
-		}
-		p := &Project{Dir: path, Cfg: s.cfg}
-		in, err := p.Inspect(r.ID)
-		if err != nil || !in.Compatible {
-			continue
-		}
-		id, from, plugin := r.ID, r.From, r.Plugin
-		s.startJob("Отправка плагина "+plugin+" для "+from+" (без вопросов)", path, func(j *Job) (any, error) {
-			p := &Project{Dir: path, Cfg: s.cfg, Job: j}
-			err := p.ApproveRequest(id, "", false)
-			s.computeNotes(path)
-			return "ok", err
-		})
 	}
 }
 
@@ -129,8 +87,27 @@ func (s *Server) routes2(api func(string, func(*http.Request) (any, error))) {
 
 	api("/api/notifications", func(r *http.Request) (any, error) {
 		s.notesMu.Lock()
-		defer s.notesMu.Unlock()
-		return map[string]any{"projects": s.notes, "invites": s.invites}, nil
+		notes := map[string]*ProjectNotes{}
+		for k, v := range s.notes {
+			notes[k] = v
+		}
+		s.notesMu.Unlock()
+		out := map[string]any{"projects": notes, "invites": []HubInvite{}, "incoming": []PluginRequest{}, "ready": []PluginRequest{}}
+		if in := s.cfg.Hub().LastInbox(); in != nil {
+			out["invites"], out["ready"] = in.Invites, in.Ready
+			// with sharing allowed, a request is shown only after the app decided it needs a human
+			auto := s.cfg.Sharing == "members" || s.cfg.Sharing == "all"
+			inc := []PluginRequest{}
+			for _, r := range in.Incoming {
+				if _, seen := s.busyReq.Load(r.ID); seen || !auto {
+					inc = append(inc, r)
+				}
+			}
+			out["incoming"] = inc
+		}
+		out["serverError"] = s.hubErr()
+		out["busy"] = s.busyMap()
+		return out, nil
 	})
 	api("/api/openurl", func(r *http.Request) (any, error) {
 		u := str(body(r), "url")
@@ -161,7 +138,7 @@ func (s *Server) routes2(api func(string, func(*http.Request) (any, error))) {
 			s.mu.Unlock()
 		}
 		cs, st := p.Comments()
-		return map[string]any{"comments": cs, "status": st, "requests": p.Requests(), "me": s.cfg.MachineID()}, nil
+		return map[string]any{"comments": cs, "status": st, "me": s.cfg.MachineID()}, nil
 	})
 	api("/api/project/seen", func(r *http.Request) (any, error) {
 		p, err := proj(str(body(r), "path"))
@@ -281,60 +258,4 @@ func (s *Server) routes2(api func(string, func(*http.Request) (any, error))) {
 		return "ok", p.DeletePreview()
 	})
 
-	// ----- plugin transfers -----
-	api("/api/plugin/request", func(r *http.Request) (any, error) {
-		b := body(r)
-		return locked(func() (any, error) {
-			p, err := proj(str(b, "path"))
-			if err != nil {
-				return nil, err
-			}
-			req, err := p.RequestPlugin(str(b, "name"), str(b, "format"), str(b, "vendor"), str(b, "to"))
-			s.computeNotes(p.Dir)
-			return req, err
-		})
-	})
-	api("/api/plugin/decline", func(r *http.Request) (any, error) {
-		b := body(r)
-		return locked(func() (any, error) {
-			p, err := proj(str(b, "path"))
-			if err != nil {
-				return nil, err
-			}
-			err = p.DeclineRequest(str(b, "id"), str(b, "reason"))
-			s.computeNotes(p.Dir)
-			return "ok", err
-		})
-	})
-	api("/api/plugin/cancel", func(r *http.Request) (any, error) {
-		b := body(r)
-		return locked(func() (any, error) {
-			p, err := proj(str(b, "path"))
-			if err != nil {
-				return nil, err
-			}
-			err = p.CancelRequest(str(b, "id"))
-			s.computeNotes(p.Dir)
-			return "ok", err
-		})
-	})
-	jobAPI("/api/plugin/approve", "Отправка плагина", func(b map[string]any, j *Job) (any, error) {
-		p, err := s.project(str(b, "path"), j)
-		if err != nil {
-			return nil, err
-		}
-		trust, _ := b["trust"].(bool)
-		err = p.ApproveRequest(str(b, "id"), str(b, "file"), trust)
-		s.computeNotes(p.Dir)
-		return "ok", err
-	})
-	jobAPI("/api/plugin/install", "Установка плагина", func(b map[string]any, j *Job) (any, error) {
-		p, err := s.project(str(b, "path"), j)
-		if err != nil {
-			return nil, err
-		}
-		dst, err := p.InstallRequest(str(b, "id"))
-		s.computeNotes(p.Dir)
-		return dst, err
-	})
 }

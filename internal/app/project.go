@@ -548,7 +548,18 @@ func (p *Project) Init(remote string) error {
 }
 
 func Clone(cfg *Config, job *Job, url, parent string) (string, error) {
-	name := strings.TrimSuffix(flp.BaseName(strings.TrimSuffix(url, "/")), ".git")
+	return CloneNamed(cfg, job, url, parent, "")
+}
+
+// CloneNamed downloads a project into parent/<name> (name defaults to the repo name).
+func CloneNamed(cfg *Config, job *Job, url, parent, name string) (string, error) {
+	name = safeName(strings.TrimSpace(name))
+	if name == "" {
+		name = strings.TrimSuffix(flp.BaseName(strings.TrimSuffix(url, "/")), ".git")
+	}
+	if parent == "" {
+		return "", errors.New("не выбрана папка, куда скачать проект")
+	}
 	if name == "" {
 		return "", errors.New("не понял имя репозитория из ссылки")
 	}
@@ -559,7 +570,10 @@ func Clone(cfg *Config, job *Job, url, parent string) (string, error) {
 			return "", fmt.Errorf("папка %s уже существует и не пустая", dir)
 		}
 	}
-	g := &Git{Dir: parent, Cfg: cfg, Job: job}
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return "", err
+	}
+	g := &Git{Dir: parent, Cfg: cfg, Job: job, URL: url}
 	os.Setenv("GIT_LFS_SKIP_SMUDGE", "1")
 	job.Logf("Скачиваю проект…")
 	_, err := g.Run("clone", "--progress", url, dir)

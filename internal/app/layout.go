@@ -253,19 +253,20 @@ func (p *Project) TrashUnused(rels []string) (int, error) {
 // ---------- adopting an existing git repo ----------
 
 type AdoptInfo struct {
-	Remote       string        `json:"remote"`
-	Branch       string        `json:"branch"`
-	Commits      int           `json:"commits"`
-	LastCommit   string        `json:"lastCommit"`
-	LastAuthor   string        `json:"lastAuthor"`
-	HasFlsync    bool          `json:"hasFlsync"`
-	Dirty        int           `json:"dirty"`
-	NonLFSAudio  []string      `json:"nonLfsAudio"`
-	Participants []Participant `json:"participants"`
-	PartErr      string        `json:"participantsError,omitempty"`
-	Behind       int           `json:"behind"`
-	FetchErr     string        `json:"fetchError,omitempty"`
-	GitHub       bool          `json:"github"`
+	Remote       string    `json:"remote"`
+	Branch       string    `json:"branch"`
+	Commits      int       `json:"commits"`
+	LastCommit   string    `json:"lastCommit"`
+	LastAuthor   string    `json:"lastAuthor"`
+	HasFlsync    bool      `json:"hasFlsync"`
+	Dirty        int       `json:"dirty"`
+	NonLFSAudio  []string  `json:"nonLfsAudio"`
+	Participants []HubUser `json:"participants"`
+	OnServer     bool      `json:"onServer"` // the remote is a project of our server
+	PartErr      string    `json:"participantsError,omitempty"`
+	Behind       int       `json:"behind"`
+	FetchErr     string    `json:"fetchError,omitempty"`
+	GitHub       bool      `json:"github"`
 }
 
 func (p *Project) IsAdopted() bool {
@@ -302,12 +303,8 @@ func (p *Project) AdoptInfo() *AdoptInfo {
 		}
 		_, info.Behind = g.AheadBehind()
 		_, _, info.GitHub = repoSlug(info.Remote)
-		if info.GitHub && p.Cfg.Token != "" {
-			if ps, err := Participants(p.Cfg, info.Remote); err != nil {
-				info.PartErr = err.Error()
-			} else {
-				info.Participants = ps
-			}
+		if hp := p.Cfg.Hub().ProjectForRemote(info.Remote); hp != nil {
+			info.OnServer, info.Participants = true, hp.Members
 		}
 	}
 	return info

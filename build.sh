@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Собирает «Программу Узбека» под Windows и macOS (из любой ОС, нужен только Go 1.22+).
+# Собирает «прогу узбека» под Windows и macOS, а сервер — под Linux (из любой ОС, нужен только Go 1.22+).
+#   SERVER=https://uzbek.example.com ./build.sh 0.5.0
+# SERVER — адрес вашего сервера, он вшивается в прогу (можно не указывать: тогда адрес спросят при регистрации).
 set -euo pipefail
 cd "$(dirname "$0")"
 VERSION="${1:-$(date +%Y.%m.%d)}"
-# справочник ников: REGISTRY=<твой GitHub-логин> ./build.sh (или владелец/репозиторий)
-REGISTRY="${REGISTRY:-tetraminomusic}"
-if [[ -n "$REGISTRY" && "$REGISTRY" != */* ]]; then REGISTRY="$REGISTRY/programma-uzbeka-users"; fi
-LD="-s -w -X main.version=$VERSION -X flsync/internal/app.DefaultRegistry=$REGISTRY"
-NAME="Программа Узбека"
+SERVER="${SERVER:-}"
+LD="-s -w -X main.version=$VERSION -X flsync/internal/app.DefaultServer=$SERVER"
+NAME="прога узбека"
 rm -rf dist && mkdir -p dist
-[[ -z "$REGISTRY" ]] && echo "⚠ REGISTRY не задан: приглашения по нику будут работать только после настройки справочника в программе"
+[[ -z "$SERVER" ]] && echo "⚠ SERVER не задан: адрес сервера нужно будет вписать при регистрации"
 export CGO_ENABLED=0
 
 echo "→ Windows"
@@ -49,7 +49,15 @@ PLIST
   fi
   (cd "dist/mac-$1" && zip -qry "../$2" "$NAME.app")
 }
-echo "→ macOS (Apple Silicon)"; make_app arm64 "ProgrammaUzbeka-mac-AppleSilicon.zip"
-echo "→ macOS (Intel)";         make_app amd64 "ProgrammaUzbeka-mac-Intel.zip"
-(cd dist && zip -qj "ProgrammaUzbeka-Windows.zip" "$NAME.exe")
-ls -lh dist
+echo "→ macOS (Apple Silicon)"; make_app arm64 "ProgaUzbeka-mac-AppleSilicon.zip"
+echo "→ macOS (Intel)";         make_app amd64 "ProgaUzbeka-mac-Intel.zip"
+(cd dist && zip -qj "ProgaUzbeka-Windows.zip" "$NAME.exe")
+
+echo "→ сервер (Linux)"
+mkdir -p dist/server
+for a in amd64 arm64; do
+  GOOS=linux GOARCH=$a go build -trimpath -ldflags "-s -w" -o "dist/server/uzbek-server-linux-$a" ./cmd/uzbek-server
+done
+cp deploy/install.sh dist/server/install.sh
+(cd dist && tar -czf uzbek-server.tar.gz server)
+ls -lh dist dist/server

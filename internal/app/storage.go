@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,6 +40,15 @@ func init() {
 	if v := os.Getenv("UZBEK_GITHUB_API"); v != "" {
 		ghAPIBase = v
 	}
+	if os.Getenv("UZBEK_DEV_LOCALREPOS") != "" { // repos are local paths .../owner/name.git
+		repoSlug = func(remote string) (string, string, bool) {
+			parts := strings.Split(strings.TrimSuffix(filepath.ToSlash(remote), ".git"), "/")
+			if len(parts) < 2 {
+				return "", "", false
+			}
+			return parts[len(parts)-2], parts[len(parts)-1], true
+		}
+	}
 	if v := os.Getenv("UZBEK_DEV_SLUG"); v != "" {
 		o, r, _ := strings.Cut(v, "/")
 		repoSlug = func(string) (string, string, bool) { return o, r, true }
@@ -59,6 +69,7 @@ type Asset struct {
 
 type Storage struct {
 	cfg         *Config
+	remote      string
 	owner, repo string
 	relID       int64
 	uploadURL   string
@@ -74,23 +85,24 @@ func OpenStorage(cfg *Config, remote string) (*Storage, error) {
 	if !ok {
 		return nil, errors.New("превью и передача плагинов пока работают только с репозиторием на GitHub")
 	}
-	if cfg.Token == "" {
-		return nil, errors.New("нужен GitHub-токен (⚙ Настройки)")
+	tok := repoToken(cfg, remote)
+	if tok == "" {
+		return nil, errors.New("нет доступа к проекту на сервере — проект не подключён к проге узбека")
 	}
 	key := ghAPIBase + "|" + owner + "/" + repo
 	storageMu.Lock()
 	defer storageMu.Unlock()
 	if s, ok := storageCache[key]; ok {
-		s.cfg = cfg
+		s.cfg, s.remote = cfg, remote
 		return s, nil
 	}
-	s := &Storage{cfg: cfg, owner: owner, repo: repo}
+	s := &Storage{cfg: cfg, remote: remote, owner: owner, repo: repo}
 	var rels []struct {
 		ID        int64  `json:"id"`
 		TagName   string `json:"tag_name"`
 		UploadURL string `json:"upload_url"`
 	}
-	if err := ghAPI(cfg.Token, "GET", fmt.Sprintf("/repos/%s/%s/releases?per_page=100", owner, repo), nil, &rels); err != nil {
+	if err := ghAPI(tok, "GET", fmt.Sprintf("/repos/%s/%s/releases?per_page=100", owner, repo), nil, &rels); err != nil {
 		return nil, err
 	}
 	for _, r := range rels {
@@ -103,8 +115,8 @@ func OpenStorage(cfg *Config, remote string) (*Storage, error) {
 			ID        int64  `json:"id"`
 			UploadURL string `json:"upload_url"`
 		}
-		err := ghAPI(cfg.Token, "POST", fmt.Sprintf("/repos/%s/%s/releases", owner, repo), map[string]any{
-			"tag_name": storageTag, "name": "Программа Узбека — файлы проекта", "draft": true,
+		err := ghAPI(tok, "POST", fmt.Sprintf("/repos/%s/%s/releases", owner, repo), map[string]any{
+			"tag_name": storageTag, "name": "прога узбека — файлы проекта", "draft": true,
 			"body": "Служебный черновик: превью трека и плагины в пути. Не удаляй и не публикуй."}, &r)
 		if err != nil {
 			return nil, err
@@ -118,14 +130,16 @@ func OpenStorage(cfg *Config, remote string) (*Storage, error) {
 	return s, nil
 }
 
+func (s *Storage) tok() string { return repoToken(s.cfg, s.remote) }
+
 func (s *Storage) Assets() ([]Asset, error) {
 	var a []Asset
-	err := ghAPI(s.cfg.Token, "GET", fmt.Sprintf("/repos/%s/%s/releases/%d/assets?per_page=100", s.owner, s.repo, s.relID), nil, &a)
+	err := ghAPI(s.tok(), "GET", fmt.Sprintf("/repos/%s/%s/releases/%d/assets?per_page=100", s.owner, s.repo, s.relID), nil, &a)
 	return a, err
 }
 
 func (s *Storage) Delete(id int64) error {
-	return ghAPI(s.cfg.Token, "DELETE", fmt.Sprintf("/repos/%s/%s/releases/assets/%d", s.owner, s.repo, id), nil, nil)
+	return ghAPI(s.tok(), "DELETE", fmt.Sprintf("/repos/%s/%s/releases/assets/%d", s.owner, s.repo, id), nil, nil)
 }
 
 type progressReader struct {
@@ -182,7 +196,7 @@ func (s *Storage) Upload(job *Job, name, label, path string) (*Asset, error) {
 	req, _ := http.NewRequest("POST", s.uploadURL+"?"+q.Encode(), &progressReader{r: f, total: st.Size(), job: job, verb: "Загрузка"})
 	req.ContentLength = st.Size()
 	req.Header.Set("Content-Type", contentType(name))
-	req.Header.Set("Authorization", "Bearer "+s.cfg.Token)
+	req.Header.Set("Authorization", "Bearer "+s.tok())
 	req.Header.Set("Accept", "application/vnd.github+json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -199,7 +213,7 @@ func (s *Storage) Upload(job *Job, name, label, path string) (*Asset, error) {
 
 func (s *Storage) Download(job *Job, a Asset, dst string) error {
 	req, _ := http.NewRequest("GET", fmt.Sprintf("%s/repos/%s/%s/releases/assets/%d", ghAPIBase, s.owner, s.repo, a.ID), nil)
-	req.Header.Set("Authorization", "Bearer "+s.cfg.Token)
+	req.Header.Set("Authorization", "Bearer "+s.tok())
 	req.Header.Set("Accept", "application/octet-stream")
 	// Go drops the Authorization header when the redirect leaves the API host,
 	// which is exactly what the signed download URL expects.
@@ -354,6 +368,43 @@ func (p *Project) DeletePreview() error {
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+func ghAPI(token, method, path string, body any, out any) error {
+	var rd io.Reader
+	if body != nil {
+		b, _ := json.Marshal(body)
+		rd = bytes.NewReader(b)
+	}
+	req, _ := http.NewRequest(method, ghAPIBase+path, rd)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	cl := &http.Client{Timeout: 30 * time.Second}
+	resp, err := cl.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		var e struct {
+			Message string `json:"message"`
+			Errors  []struct {
+				Message string `json:"message"`
+			} `json:"errors"`
+		}
+		json.Unmarshal(b, &e)
+		msg := e.Message
+		for _, x := range e.Errors {
+			msg += "; " + x.Message
+		}
+		return fmt.Errorf("GitHub: %s (%s)", msg, resp.Status)
+	}
+	if out != nil && len(b) > 0 {
+		return json.Unmarshal(b, out)
 	}
 	return nil
 }
