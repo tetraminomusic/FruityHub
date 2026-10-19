@@ -9,14 +9,18 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
-// Plugin transfer (through our server): the requester asks, the owner
-// allows it (or has allowed it in advance in the settings), the owner's app
-// zips the plugin and uploads it to the server, the requester's app downloads
-// and installs it, then the server deletes the file.
+// Plugin transfer: the requester asks (through our server), the owner allows
+// it (or has allowed it in advance in the settings). When both computers are
+// online, the owner's app zips the plugin and streams it through the server
+// straight into the requester's app — nothing is stored on the server. The
+// requester's app puts the plugin into the folder where its plugins of that
+// format live and adds it to FL Studio's plugin database.
 
 // Candidate is a file the owner could send instead of the plugin itself.
 type Candidate struct {
@@ -160,13 +164,14 @@ func (cfg *Config) myRequest(id string, owner bool) (*PluginRequest, error) {
 }
 
 // ApproveRequest: the owner allowed it. file == "" sends the installed plugin
-// itself; otherwise that file (an installer) is sent.
+// itself; otherwise that file (an installer) is sent. The transfer itself
+// starts when the requester is online (see SendApproved).
 func ApproveRequest(cfg *Config, job *Job, id, file string) error {
 	r, err := cfg.myRequest(id, true)
 	if err != nil {
 		return err
 	}
-	if r.Status != ReqPending {
+	if r.Status != ReqPending && r.Status != ReqApproved {
 		return fmt.Errorf("запрос уже обработан (%s)", r.Status)
 	}
 	h := cfg.Hub()
@@ -175,153 +180,315 @@ func ApproveRequest(cfg *Config, job *Job, id, file string) error {
 		if err != nil || st.IsDir() {
 			return errors.New("файл установщика не найден")
 		}
-		job.Logf("Отправляю установщик %s для %s", filepath.Base(file), r.FromNick)
-		if err := h.UploadFile(job, r.ID, file, "installer", filepath.Base(file), "установщик", r.Format); err != nil {
+		if err := h.Approve(r.ID, "installer", filepath.Base(file), "установщик", r.Format); err != nil {
 			return err
 		}
-		job.Logf("✓ Установщик отправлен, %s сможет запустить его у себя", r.FromNick)
-		LogActivity("", "ok", fmt.Sprintf("🔌 Отправлен установщик %s для %s", r.Plugin, r.FromNick))
+		outboxPut(r.ID, outboxItem{Kind: "installer", File: file})
+		job.Logf("Разрешено: установщик %s уйдёт к %s, как только он будет в сети", filepath.Base(file), r.FromNick)
 		return nil
 	}
 	in := InspectRequest(cfg, r)
 	if !in.Compatible {
 		return errors.New(in.Reason)
 	}
-	job.Logf("Упаковываю %s…", r.Plugin)
-	tmp := filepath.Join(os.TempDir(), "uzbek-plugin-"+r.ID+".zip")
-	defer os.Remove(tmp)
-	if err := zipPath(in.Path, tmp); err != nil {
-		return err
-	}
 	note := ""
 	if in.Version != "" {
 		note = "версия " + in.Version
 	}
-	if err := h.UploadFile(job, r.ID, tmp, "plugin", filepath.Base(in.Path)+".zip", note, in.Format); err != nil {
+	if err := h.Approve(r.ID, "plugin", filepath.Base(in.Path), note, in.Format); err != nil {
 		return err
 	}
-	job.Logf("✓ %s отправлен, у %s он установится сам", r.Plugin, r.FromNick)
-	LogActivity("", "ok", fmt.Sprintf("🔌 Отправлен плагин %s для %s", r.Plugin, r.FromNick))
+	outboxPut(r.ID, outboxItem{Kind: "plugin", File: in.Path})
+	job.Logf("Разрешено: %s уйдёт к %s, как только он будет в сети", r.Plugin, r.FromNick)
 	return nil
 }
 
-// InstallRequest: the requester downloads and installs an approved plugin.
-func InstallRequest(cfg *Config, job *Job, id string) (string, error) {
-	r, err := cfg.myRequest(id, false)
-	if err != nil {
-		return "", err
+// SendApproved streams an allowed plugin (or installer) to the requester.
+func SendApproved(cfg *Config, job *Job, r *PluginRequest) error {
+	it, ok := outboxGet(r.ID)
+	if !ok { // e.g. allowed before the app was restarted with a cleared outbox
+		if r.Kind == "installer" {
+			return errors.New("не помню, какой установщик отправлять — ответь на запрос ещё раз")
+		}
+		ip := FindInstalled(cfg, r.Plugin, r.Format)
+		if ip == nil {
+			return errors.New("не нашёл у себя этот плагин")
+		}
+		it = outboxItem{Kind: "plugin", File: ip.Path}
 	}
-	if r.Status != ReqApproved {
-		return "", fmt.Errorf("плагин ещё не готов (%s)", r.Status)
+	path := it.File
+	if it.Kind == "plugin" {
+		job.Logf("Упаковываю %s…", r.Plugin)
+		tmp := filepath.Join(os.TempDir(), "uzbek-plugin-"+r.ID+".zip")
+		defer os.Remove(tmp)
+		var extra map[string][]byte
+		if r.FromOS == OSName() { // FL's entries for the plugin only make sense on the same system
+			extra = collectFLDBEntries(it.File)
+		}
+		if err := zipPath(it.File, tmp, extra); err != nil {
+			return err
+		}
+		path = tmp
+	}
+	job.Logf("Жду, пока %s примет…", r.FromNick)
+	if err := cfg.Hub().StreamSend(job, r.ID, path); err != nil {
+		return err
+	}
+	outboxDelete(r.ID)
+	job.Logf("✓ %s передан %s", r.Plugin, r.FromNick)
+	LogActivity("", "ok", fmt.Sprintf("🔌 %s передан %s", r.Plugin, r.FromNick))
+	return nil
+}
+
+// ReceiveRequest takes an allowed plugin while the owner's app sends it and
+// installs it. For an installer it returns the downloaded file.
+func ReceiveRequest(cfg *Config, job *Job, r *PluginRequest) (string, error) {
+	if r.From != cfg.UserID {
+		return "", errors.New("это не твой запрос")
 	}
 	h := cfg.Hub()
 	if r.Kind == "installer" {
 		home, _ := os.UserHomeDir()
 		dst, _, _ := uniqueTarget(filepath.Join(home, "Downloads"), r.FileName, "")
-		job.Logf("Скачиваю установщик %s…", r.FileName)
-		if err := h.DownloadFile(job, r, dst); err != nil {
+		job.Logf("Получаю установщик %s от %s…", r.FileName, r.ToNick)
+		if err := h.StreamRecv(job, r, dst); err != nil {
 			return "", err
 		}
 		h.DoneRequest(r.ID, true, "установщик скачан")
-		LogActivity("", "ok", fmt.Sprintf("🔌 Получен установщик %s от %s", r.Plugin, r.ToNick))
-		if strings.HasSuffix(strings.ToLower(dst), ".zip") {
-			OpenFolder(filepath.Dir(dst))
-			job.Logf("✓ Архив установщика сохранён в «Загрузки» — открыл папку")
-		} else {
-			OpenURL(dst)
-			job.Logf("✓ Установщик сохранён в «Загрузки» и запущен — пройди установку")
-		}
+		LogActivity("", "ok", fmt.Sprintf("🔌 Получен установщик %s от %s — лежит в «Загрузках»", r.Plugin, r.ToNick))
+		job.Logf("✓ Установщик сохранён в «Загрузки»")
 		return dst, nil
 	}
 	tmp := filepath.Join(os.TempDir(), "uzbek-plugin-"+r.ID+".zip")
 	defer os.Remove(tmp)
-	job.Logf("Скачиваю %s…", r.Plugin)
-	if err := h.DownloadFile(job, r, tmp); err != nil {
+	job.Logf("Получаю %s от %s…", r.Plugin, r.ToNick)
+	if err := h.StreamRecv(job, r, tmp); err != nil {
 		return "", err
 	}
-	dir, err := installDir(cfg, job, r.Format)
+	dst, err := InstallPluginZip(cfg, job, tmp, r.Format)
 	if err != nil {
 		h.DoneRequest(r.ID, false, err.Error())
 		return "", err
 	}
-	top, err := unzipTo(tmp, dir, job)
-	if err != nil {
-		h.DoneRequest(r.ID, false, err.Error())
-		return "", err
-	}
-	if runtime.GOOS == "darwin" && r.Format == "AU" {
-		killAUCache() // make macOS re-read the Audio Unit cache
-	}
-	dst := filepath.Join(dir, top)
 	h.DoneRequest(r.ID, true, "")
-	ScanInstalled(cfg, true)
-	LogActivity("", "ok", fmt.Sprintf("🔌 Установлен %s от %s", r.Plugin, r.ToNick))
-	job.Logf("✓ Установлено: %s", dst)
-	job.Logf("Теперь в FL Studio: Options → Manage plugins → Find installed plugins (Start scan)")
+	LogActivity("", "ok", fmt.Sprintf("🔌 Установлен %s от %s → %s", r.Plugin, r.ToNick, dst))
 	return dst, nil
 }
 
-// installDir picks a writable standard plugin folder for this format.
-func installDir(cfg *Config, job *Job, format string) (string, error) {
-	home, _ := os.UserHomeDir()
+// InstallPluginZip unpacks a received plugin into the right folder for its
+// format and registers it in FL Studio's plugin database.
+func InstallPluginZip(cfg *Config, job *Job, zipFile, format string) (string, error) {
+	stage, err := os.MkdirTemp("", "uzbek-stage-")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(stage)
+	top, fldb, err := unzipTo(zipFile, stage)
+	if err != nil {
+		return "", err
+	}
+	if format == "" {
+		format = pluginExts[strings.ToLower(filepath.Ext(top))]
+	}
+	dir, admin := pluginTargetDir(cfg, format)
+	if dir == "" {
+		return "", errors.New("не нашёл папку для плагинов " + format)
+	}
+	dst := filepath.Join(dir, top)
+	if admin {
+		job.Logf("Папка %s защищена — Windows попросит разрешение", dir)
+		if err := elevatedReplace(filepath.Join(stage, top), dst); err != nil {
+			return "", err
+		}
+	} else {
+		if exists(dst) {
+			bak := filepath.Join(ConfigDir(), "plugin-backups", time.Now().Format("20060102-150405"))
+			os.MkdirAll(bak, 0o755)
+			if err := moveAll(dst, filepath.Join(bak, top)); err != nil {
+				return "", fmt.Errorf("не могу заменить существующий %s (закрой FL Studio): %w", top, err)
+			}
+			job.Logf("Старая версия перенесена в %s", bak)
+		}
+		if err := moveAll(filepath.Join(stage, top), dst); err != nil {
+			return "", err
+		}
+	}
+	if runtime.GOOS == "darwin" && format == "AU" {
+		killAUCache() // make macOS re-read the Audio Unit cache
+	}
+	job.Logf("✓ Установлено: %s", dst)
+	if oldPath := fldb["__path__"]; oldPath != nil {
+		delete(fldb, "__path__")
+		if n := registerInFLDB(fldb, string(oldPath), dst); n > 0 {
+			job.Logf("✓ Добавлен в базу плагинов FL Studio — найдёшь его в браузере Plugin database и в списке плагинов (если FL открыт — перезапусти)")
+		}
+	} else {
+		job.Logf("Теперь в FL Studio: Options → Manage plugins → Find installed plugins")
+	}
+	ScanInstalled(cfg, true)
+	return dst, nil
+}
+
+// pluginTargetDir: the folder where this computer keeps plugins of that format
+// (the one most of them are in), so FL finds the new one together with the rest.
+func pluginTargetDir(cfg *Config, format string) (dir string, needsAdmin bool) {
+	count := map[string]int{}
+	for _, p := range ScanInstalled(cfg, false) {
+		if p.Format == format && p.Path != "" {
+			count[filepath.Dir(strings.TrimRight(p.Path, `/\`))]++
+		}
+	}
 	var cands []string
+	for d := range count {
+		cands = append(cands, d)
+	}
+	sort.Slice(cands, func(i, j int) bool { return count[cands[i]] > count[cands[j]] })
+	cands = append(cands, standardPluginDirs(format)...)
+	for _, c := range cands {
+		if writableDir(c) {
+			return c, false
+		}
+		if runtime.GOOS == "windows" && dirExists(c) {
+			return c, true // ask Windows for permission (UAC) instead of hiding it elsewhere
+		}
+	}
+	return "", false
+}
+
+func standardPluginDirs(format string) []string {
+	home, _ := os.UserHomeDir()
 	switch runtime.GOOS {
 	case "darwin":
 		sub := map[string]string{"VST3": "VST3", "VST2": "VST", "VST": "VST", "AU": "Components", "CLAP": "CLAP"}[format]
 		if sub == "" {
 			sub = "VST3"
 		}
-		cands = []string{filepath.Join(home, "Library", "Audio", "Plug-Ins", sub)}
+		return []string{filepath.Join("/Library/Audio/Plug-Ins", sub), filepath.Join(home, "Library", "Audio", "Plug-Ins", sub)}
 	case "windows":
 		cf := envOr("CommonProgramFiles", `C:\Program Files\Common Files`)
+		pf := envOr("ProgramFiles", `C:\Program Files`)
 		la := os.Getenv("LOCALAPPDATA")
 		switch format {
 		case "VST3":
-			cands = []string{filepath.Join(cf, "VST3"), filepath.Join(la, "Programs", "Common", "VST3")}
+			return []string{filepath.Join(cf, "VST3"), filepath.Join(la, "Programs", "Common", "VST3")}
 		case "CLAP":
-			cands = []string{filepath.Join(cf, "CLAP"), filepath.Join(la, "Programs", "Common", "CLAP")}
+			return []string{filepath.Join(cf, "CLAP"), filepath.Join(la, "Programs", "Common", "CLAP")}
 		default:
-			for _, f := range ScannedFolders(cfg) {
-				if f.Exists && f.Count > 0 && !strings.Contains(strings.ToLower(f.Path), "vst3") && !strings.Contains(strings.ToLower(f.Path), "clap") {
-					cands = append(cands, f.Path)
-				}
-			}
+			return []string{filepath.Join(pf, "VSTPlugins"), filepath.Join(pf, "Steinberg", "VSTPlugins"), filepath.Join(pf, "Image-Line", "FL Studio 2024", "Plugins", "VST"),
+				filepath.Join(home, "Documents", "VST Plugins")}
 		}
-		cands = append(cands, filepath.Join(home, "Documents", "прога узбека — плагины", format))
 	default:
-		cands = []string{filepath.Join(home, "."+strings.ToLower(strings.TrimSuffix(format, "2")))}
+		return []string{filepath.Join(home, "."+strings.ToLower(strings.TrimSuffix(format, "2")))}
 	}
-	for i, c := range cands {
-		if os.MkdirAll(c, 0o755) != nil {
-			continue
-		}
-		probe := filepath.Join(c, ".uzbek-write-test")
-		if os.WriteFile(probe, nil, 0o644) != nil {
-			continue
-		}
-		os.Remove(probe)
-		if i > 0 && runtime.GOOS == "windows" {
-			// non-standard folder: remember it and tell the user to add it in FL once
-			found := false
-			for _, e := range cfg.ExtraPluginDirs {
-				if samePath(e, c) {
-					found = true
-				}
-			}
-			if !found {
-				cfg.ExtraPluginDirs = append(cfg.ExtraPluginDirs, c)
-				cfg.Save()
-			}
-			job.Logf("⚠ В стандартную папку писать нельзя без прав администратора — ставлю в %s. Добавь её один раз в FL: Options → Manage plugins → Plugin search paths", c)
-		}
-		return c, nil
+}
+
+func writableDir(c string) bool {
+	if os.MkdirAll(c, 0o755) != nil {
+		return false
 	}
-	return "", errors.New("не нашёл папку для установки, куда можно писать")
+	probe := filepath.Join(c, ".uzbek-write-test")
+	if os.WriteFile(probe, nil, 0o644) != nil {
+		return false
+	}
+	os.Remove(probe)
+	return true
+}
+
+// moveAll renames, or copies when the folders are on different disks.
+func moveAll(src, dst string) error {
+	os.MkdirAll(filepath.Dir(dst), 0o755)
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+	if err := copyTree(src, dst); err != nil {
+		os.RemoveAll(dst)
+		return err
+	}
+	return os.RemoveAll(src)
+}
+
+func copyTree(src, dst string) error {
+	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(src, p)
+		t := filepath.Join(dst, rel)
+		info, err := os.Lstat(p)
+		if err != nil {
+			return err
+		}
+		switch {
+		case info.IsDir():
+			return os.MkdirAll(t, 0o755)
+		case info.Mode()&os.ModeSymlink != 0:
+			l, err := os.Readlink(p)
+			if err != nil {
+				return err
+			}
+			return os.Symlink(l, t)
+		default:
+			in, err := os.Open(p)
+			if err != nil {
+				return err
+			}
+			defer in.Close()
+			out, err := os.OpenFile(t, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode().Perm()|0o600)
+			if err != nil {
+				return err
+			}
+			_, err = io.Copy(out, in)
+			if cerr := out.Close(); err == nil {
+				err = cerr
+			}
+			return err
+		}
+	})
+}
+
+// ---------- outbox: what I allowed and still have to send ----------
+
+type outboxItem struct {
+	Kind string `json:"kind"`
+	File string `json:"file"`
+}
+
+var outboxMu sync.Mutex
+
+func outboxPath() string { return filepath.Join(ConfigDir(), "outbox.json") }
+
+func outboxLoad() map[string]outboxItem {
+	m := map[string]outboxItem{}
+	readJSON(outboxPath(), &m)
+	return m
+}
+
+func outboxPut(id string, it outboxItem) {
+	outboxMu.Lock()
+	defer outboxMu.Unlock()
+	m := outboxLoad()
+	m[id] = it
+	writeJSON(outboxPath(), m)
+}
+
+func outboxGet(id string) (outboxItem, bool) {
+	outboxMu.Lock()
+	defer outboxMu.Unlock()
+	it, ok := outboxLoad()[id]
+	return it, ok
+}
+
+func outboxDelete(id string) {
+	outboxMu.Lock()
+	defer outboxMu.Unlock()
+	m := outboxLoad()
+	delete(m, id)
+	writeJSON(outboxPath(), m)
 }
 
 // ---------- zip with symlinks and permissions (macOS bundles need both) ----------
 
-func zipPath(src, dst string) error {
+func zipPath(src, dst string, extra map[string][]byte) error {
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
@@ -372,44 +539,58 @@ func zipPath(src, dst string) error {
 	if err != nil {
 		return err
 	}
+	if len(extra) > 0 { // FL database entries for the plugin + where it was on the sender's computer
+		extra["__path__"] = []byte(strings.TrimRight(src, `/\`))
+		for name, b := range extra {
+			w, err := zw.Create(fldbPrefix + name)
+			if err != nil {
+				return err
+			}
+			w.Write(b)
+		}
+	}
 	return zw.Close()
 }
 
-// unzipTo extracts into dir. An existing plugin with the same name is moved
-// to a backup folder first. Returns the top-level entry name.
-func unzipTo(src, dir string, job *Job) (string, error) {
+// unzipTo extracts a received plugin into an empty folder. FL database
+// entries packed by the sender come back separately. Returns the top entry.
+func unzipTo(src, dir string) (string, map[string][]byte, error) {
 	r, err := zip.OpenReader(src)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	defer r.Close()
-	if len(r.File) == 0 {
-		return "", errors.New("пустой архив")
-	}
-	top := strings.SplitN(strings.TrimLeft(r.File[0].Name, "/"), "/", 2)[0]
-	if top == "" || top == ".." {
-		return "", errors.New("странный архив")
-	}
-	target := filepath.Join(dir, top)
-	if exists(target) {
-		bak := filepath.Join(ConfigDir(), "plugin-backups", time.Now().Format("20060102-150405"))
-		os.MkdirAll(bak, 0o755)
-		if err := os.Rename(target, filepath.Join(bak, top)); err != nil {
-			return "", fmt.Errorf("не могу заменить существующий %s (закрой FL Studio): %w", top, err)
-		}
-		job.Logf("Старая версия перенесена в %s", bak)
-	}
+	fldb := map[string][]byte{}
+	top := ""
 	clean := filepath.Clean(dir) + string(os.PathSeparator)
 	for _, f := range r.File {
+		if rel, ok := splitFLDB(f.Name); ok {
+			rc, err := f.Open()
+			if err == nil {
+				b, _ := io.ReadAll(io.LimitReader(rc, 4<<20))
+				rc.Close()
+				fldb[rel] = b
+			}
+			continue
+		}
+		t := strings.SplitN(strings.TrimLeft(f.Name, "/"), "/", 2)[0]
+		if t == "" || t == ".." {
+			return "", nil, errors.New("странный архив")
+		}
+		if top == "" {
+			top = t
+		} else if t != top {
+			return "", nil, errors.New("в архиве больше одного плагина")
+		}
 		p := filepath.Join(dir, filepath.FromSlash(f.Name))
 		if !strings.HasPrefix(p, clean) {
-			return "", errors.New("архив пытается писать за пределы папки")
+			return "", nil, errors.New("архив пытается писать за пределы папки")
 		}
 		mode := f.Mode()
 		switch {
 		case mode.IsDir():
 			if err := os.MkdirAll(p, 0o755); err != nil {
-				return "", err
+				return "", nil, err
 			}
 		case mode&os.ModeSymlink != 0:
 			rc, _ := f.Open()
@@ -420,26 +601,30 @@ func unzipTo(src, dir string, job *Job) (string, error) {
 				continue // symlinks only matter in macOS bundles
 			}
 			if err := os.Symlink(string(t), p); err != nil {
-				return "", err
+				return "", nil, err
 			}
 		default:
 			os.MkdirAll(filepath.Dir(p), 0o755)
 			rc, err := f.Open()
 			if err != nil {
-				return "", err
+				return "", nil, err
 			}
 			w, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode.Perm()|0o600)
 			if err != nil {
 				rc.Close()
-				return "", err
+				return "", nil, err
 			}
 			_, err = io.Copy(w, rc)
 			rc.Close()
 			w.Close()
 			if err != nil {
-				return "", err
+				return "", nil, err
 			}
+			os.Chtimes(p, f.Modified, f.Modified)
 		}
 	}
-	return top, nil
+	if top == "" {
+		return "", nil, errors.New("пустой архив")
+	}
+	return top, fldb, nil
 }

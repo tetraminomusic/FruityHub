@@ -1,32 +1,45 @@
 #!/usr/bin/env bash
-# Установка сервера «проги узбека» на VPS (Ubuntu/Debian, нужен root).
+# Установка (и обновление) сервера «проги узбека» на VPS с Linux. Нужен root (или sudo).
+# Обычно его запускает deploy-server.sh с твоего компьютера, но можно и руками:
 #
-#   bash install.sh                      # домен возьмётся сам: <IP>.sslip.io
+#   bash install.sh                      # адрес будет https://<IP>.sslip.io — домен не нужен
 #   bash install.sh uzbek.example.com    # свой домен (A-запись должна указывать на этот VPS)
 #
-# Повторный запуск обновляет сервер, данные (пользователи, проекты) сохраняются.
+# Повторный запуск обновляет сервер; пользователи, проекты и код сервера сохраняются.
 set -euo pipefail
 cd "$(dirname "$0")"
-[[ $EUID -eq 0 ]] || { echo "Запусти от root: sudo bash install.sh"; exit 1; }
+[[ $EUID -eq 0 ]] || { echo "Нужны права root: sudo bash install.sh"; exit 1; }
 
 case "$(uname -m)" in
   x86_64|amd64) BIN=uzbek-server-linux-amd64 ;;
   aarch64|arm64) BIN=uzbek-server-linux-arm64 ;;
   *) echo "Неизвестная архитектура $(uname -m)"; exit 1 ;;
 esac
+[[ -f "$BIN" ]] || { echo "Нет файла $BIN рядом со скриптом"; exit 1; }
 
+IP="$(curl -4 -fsS --max-time 8 https://api.ipify.org 2>/dev/null || curl -4 -fsS --max-time 8 https://ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')"
 DOMAIN="${1:-}"
-if [[ -z "$DOMAIN" ]]; then
-  IP="$(curl -4 -fsS https://api.ipify.org || curl -4 -fsS https://ifconfig.me || true)"
-  [[ -n "$IP" ]] || { echo "Не смог узнать внешний IP — укажи домен: bash install.sh мой.домен"; exit 1; }
-  DOMAIN="${IP//./-}.sslip.io"
-fi
-echo "→ Домен: $DOMAIN"
+[[ -z "$DOMAIN" && -f /etc/uzbek-server.domain ]] && DOMAIN="$(cat /etc/uzbek-server.domain)"
+[[ -z "$DOMAIN" ]] && DOMAIN="${IP//./-}.sslip.io"
+echo "$DOMAIN" > /etc/uzbek-server.domain
 
-id uzbek >/dev/null 2>&1 || useradd --system --home /var/lib/uzbek-server --shell /usr/sbin/nologin uzbek
-install -d -o uzbek -g uzbek -m 700 /var/lib/uzbek-server
+DATA=/var/lib/uzbek-server
+id uzbek >/dev/null 2>&1 || useradd --system --home "$DATA" --shell /usr/sbin/nologin uzbek
+install -d -o uzbek -g uzbek -m 700 "$DATA"
 systemctl stop uzbek-server 2>/dev/null || true
 install -m 755 "$BIN" /usr/local/bin/uzbek-server
+
+# порт 443 нужен для HTTPS; если его уже занимает другой веб-сервер — работаем по HTTP на 47900
+busy443=""
+if command -v ss >/dev/null && ss -ltn '( sport = :443 )' | grep -q LISTEN; then busy443=1; fi
+if [[ -z "$busy443" ]]; then
+  ARGS="-data $DATA -domain $DOMAIN"
+  ADDRESS="https://$DOMAIN"
+else
+  ARGS="-data $DATA -addr :47900"
+  ADDRESS="http://$IP:47900"
+  echo "⚠ Порт 443 занят другой программой — сервер будет работать без HTTPS на порту 47900."
+fi
 
 cat > /etc/systemd/system/uzbek-server.service <<UNIT
 [Unit]
@@ -36,37 +49,40 @@ Wants=network-online.target
 
 [Service]
 User=uzbek
-ExecStart=/usr/local/bin/uzbek-server -data /var/lib/uzbek-server -domain $DOMAIN
+ExecStart=/usr/local/bin/uzbek-server $ARGS
 Restart=always
 RestartSec=3
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/uzbek-server
+ReadWritePaths=$DATA
 PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target
 UNIT
 
-if command -v ufw >/dev/null && ufw status | grep -q active; then
-  ufw allow 80/tcp >/dev/null; ufw allow 443/tcp >/dev/null
+if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
+  ufw allow 80/tcp >/dev/null; ufw allow 443/tcp >/dev/null; ufw allow 47900/tcp >/dev/null
 fi
 systemctl daemon-reload
-systemctl enable --now uzbek-server
-sleep 2
-systemctl --no-pager --lines=0 status uzbek-server || true
+systemctl enable --now uzbek-server >/dev/null 2>&1
 
-for i in $(seq 1 20); do [[ -f /var/lib/uzbek-server/admin-key ]] && break; sleep 0.5; done
-KEY="$(cat /var/lib/uzbek-server/admin-key 2>/dev/null || echo '?')"
-cat <<TXT
+for i in $(seq 1 30); do [[ -f $DATA/server-code ]] && break; sleep 0.5; done
+CODE="$(tr -d '[:space:]' < $DATA/server-code 2>/dev/null || echo '?')"
 
-✓ Сервер запущен: https://$DOMAIN
-  (сертификат HTTPS получится сам при первом заходе, это займёт несколько секунд)
+echo "→ Проверяю, что сервер отвечает (первый раз HTTPS-сертификат получается 5–30 секунд)…"
+ok=""
+for i in $(seq 1 30); do
+  if curl -fsS --max-time 5 "$ADDRESS/api/ping" 2>/dev/null | grep -q prog-uzbeka; then ok=1; break; fi
+  sleep 2
+done
+if [[ -z "$ok" ]]; then
+  echo "⚠ Сервер запущен, но снаружи пока не отвечает. Проверь, что в панели хостинга открыты порты 80 и 443,"
+  echo "  и посмотри логи: journalctl -u uzbek-server -n 50"
+fi
 
-Осталось один раз подключить его к GitHub — открой в браузере:
-  https://$DOMAIN/setup?key=$KEY
-
-Адрес сервера для проги: https://$DOMAIN
-Логи: journalctl -u uzbek-server -f
-TXT
+echo
+echo "✓ Готово"
+echo "UZBEK_ADDRESS=$ADDRESS"
+echo "UZBEK_CODE=$CODE"

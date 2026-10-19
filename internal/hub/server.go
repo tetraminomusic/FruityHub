@@ -4,74 +4,57 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
 
 type Options struct {
-	DataDir   string
-	PublicURL string // https://example.com — used for the GitHub App setup callbacks
-	GitHubAPI string // https://api.github.com (overridable in tests)
-	GitHubWeb string // https://github.com
-	MaxFile   int64  // largest plugin/installer file (bytes)
-	MaxTotal  int64  // all transfer files together (bytes)
-	FileTTL   time.Duration
-	AdminKey  string
+	DataDir    string
+	GitHubAPI  string        // https://api.github.com (overridable in tests)
+	Code       string        // server code needed to register (empty: read/generate data/server-code)
+	StreamWait time.Duration // how long one side of a plugin transfer waits for the other
 }
 
 type Server struct {
-	opt   Options
-	st    *Store
-	gh    *GitHubApp
-	files string
+	opt Options
+	st  *Store
+
+	relayMu sync.Mutex
+	relays  map[string]*relay
 }
 
 func New(opt Options) (*Server, error) {
 	if opt.GitHubAPI == "" {
 		opt.GitHubAPI = "https://api.github.com"
 	}
-	if opt.GitHubWeb == "" {
-		opt.GitHubWeb = "https://github.com"
-	}
-	if opt.MaxFile == 0 {
-		opt.MaxFile = 1500 << 20
-	}
-	if opt.MaxTotal == 0 {
-		opt.MaxTotal = 5 << 30
-	}
-	if opt.FileTTL == 0 {
-		opt.FileTTL = 72 * time.Hour
+	if opt.StreamWait == 0 {
+		opt.StreamWait = 2 * time.Minute
 	}
 	st, err := OpenStore(opt.DataDir)
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{opt: opt, st: st, gh: LoadGitHubApp(opt.DataDir, opt.GitHubAPI), files: filepath.Join(opt.DataDir, "files")}
-	os.MkdirAll(s.files, 0o700)
-	if s.opt.AdminKey == "" {
-		kp := filepath.Join(opt.DataDir, "admin-key")
-		if b, err := os.ReadFile(kp); err == nil {
-			s.opt.AdminKey = strings.TrimSpace(string(b))
+	if opt.Code == "" {
+		p := filepath.Join(opt.DataDir, "server-code")
+		if b, err := os.ReadFile(p); err == nil {
+			opt.Code = strings.TrimSpace(string(b))
 		} else {
-			s.opt.AdminKey = newSecret()[:20]
-			os.WriteFile(kp, []byte(s.opt.AdminKey), 0o600)
+			opt.Code = newSecret()[:8]
+			os.WriteFile(p, []byte(opt.Code+"\n"), 0o600)
 		}
 	}
-	return s, nil
+	return &Server{opt: opt, st: st, relays: map[string]*relay{}}, nil
 }
 
-func (s *Server) AdminKey() string { return s.opt.AdminKey }
-
-// GitHubApp exposes the app config (setup / tests).
-func (s *Server) GitHubApp() *GitHubApp { return s.gh }
+// Code is what a new user types at registration (keeps strangers out).
+func (s *Server) Code() string { return s.opt.Code }
 
 // ---------- helpers ----------
 
@@ -128,7 +111,7 @@ func (s *Server) wrap(auth bool, h handler) http.HandlerFunc {
 }
 
 func decode(r *http.Request, v any) error {
-	b, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	b, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 	if err != nil {
 		return err
 	}
@@ -141,16 +124,19 @@ func decode(r *http.Request, v any) error {
 	return nil
 }
 
-// public views
+// ---------- public views ----------
 
 type UserView struct {
 	ID       string `json:"id"`
 	Nick     string `json:"nick"`
+	GitHub   string `json:"github"`
 	OS       string `json:"os"`
 	LastSeen int64  `json:"lastSeen"`
 	Online   bool   `json:"online"`
 	Sharing  string `json:"sharing"`
 }
+
+func online(u *User) bool { return u != nil && now()-u.LastSeen < 60 }
 
 func view(u *User) UserView {
 	if u == nil {
@@ -160,7 +146,7 @@ func view(u *User) UserView {
 	if sh == "" {
 		sh = "ask"
 	}
-	return UserView{ID: u.ID, Nick: u.Nick, OS: u.OS, LastSeen: u.LastSeen, Online: now()-u.LastSeen < 90, Sharing: sh}
+	return UserView{ID: u.ID, Nick: u.Nick, GitHub: u.GitHub, OS: u.OS, LastSeen: u.LastSeen, Online: online(u), Sharing: sh}
 }
 
 type ProjectView struct {
@@ -175,16 +161,19 @@ type ProjectView struct {
 }
 
 type InviteView struct {
-	ID      string   `json:"id"`
-	Project string   `json:"project"`
-	Name    string   `json:"name"`
-	From    UserView `json:"from"`
-	To      UserView `json:"to"`
-	Created int64    `json:"created"`
+	ID       string   `json:"id"`
+	Project  string   `json:"project"`
+	Name     string   `json:"name"`
+	Repo     string   `json:"repo"`
+	CloneURL string   `json:"cloneUrl"`
+	From     UserView `json:"from"`
+	To       UserView `json:"to"`
+	Created  int64    `json:"created"`
 }
 
 func (s *Server) projectView(p *Project, me *User) ProjectView {
-	v := ProjectView{ID: p.ID, Name: p.Name, Repo: p.Repo, CloneURL: p.CloneURL, Owner: view(s.st.db.Users[p.Owner]), IsOwner: p.Owner == me.ID}
+	v := ProjectView{ID: p.ID, Name: p.Name, Repo: p.Repo, CloneURL: p.CloneURL, Owner: view(s.st.db.Users[p.Owner]),
+		IsOwner: p.Owner == me.ID, Members: []UserView{}, Invited: []InviteView{}}
 	for _, m := range p.Members {
 		v.Members = append(v.Members, view(s.st.db.Users[m]))
 	}
@@ -197,27 +186,29 @@ func (s *Server) projectView(p *Project, me *User) ProjectView {
 }
 
 func (s *Server) inviteView(i *Invite) InviteView {
-	name := ""
+	v := InviteView{ID: i.ID, Project: i.Project, From: view(s.st.db.Users[i.From]), To: view(s.st.db.Users[i.To]), Created: i.Created}
 	if p := s.st.db.Projects[i.Project]; p != nil {
-		name = p.Name
+		v.Name, v.Repo, v.CloneURL = p.Name, p.Repo, p.CloneURL
 	}
-	return InviteView{ID: i.ID, Project: i.Project, Name: name, From: view(s.st.db.Users[i.From]), To: view(s.st.db.Users[i.To]), Created: i.Created}
+	return v
 }
 
 type ReqView struct {
 	PluginReq
-	FromNick string `json:"fromNick"`
-	ToNick   string `json:"toNick"`
-	ToOS     string `json:"toOs"`
+	FromNick   string `json:"fromNick"`
+	FromOnline bool   `json:"fromOnline"`
+	ToNick     string `json:"toNick"`
+	ToOS       string `json:"toOs"`
+	ToOnline   bool   `json:"toOnline"`
 }
 
 func (s *Server) reqView(r *PluginReq) ReqView {
 	v := ReqView{PluginReq: *r}
 	if u := s.st.db.Users[r.From]; u != nil {
-		v.FromNick = u.Nick
+		v.FromNick, v.FromOnline = u.Nick, online(u)
 	}
 	if u := s.st.db.Users[r.To]; u != nil {
-		v.ToNick, v.ToOS = u.Nick, u.OS
+		v.ToNick, v.ToOS, v.ToOnline = u.Nick, u.OS, online(u)
 	}
 	return v
 }
@@ -227,7 +218,19 @@ func (s *Server) reqView(r *PluginReq) ReqView {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/ping", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]any{"ok": true, "service": "prog-uzbeka", "github": s.gh.Ready()})
+		writeJSON(w, 200, map[string]any{"ok": true, "service": "prog-uzbeka", "version": 2})
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		s.st.mu.Lock()
+		n := len(s.st.db.Users)
+		s.st.mu.Unlock()
+		fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><title>прога узбека — сервер</title><body style="font:16px system-ui;background:#141518;color:#eee;padding:40px">
+<h1>прога узбека — сервер работает ✓</h1><p>Пользователей: %d. Этот адрес вписывается в проге при регистрации.</p>`, n)
 	})
 	mux.HandleFunc("POST /api/register", s.wrap(false, s.register))
 	mux.HandleFunc("GET /api/me", s.wrap(true, func(w http.ResponseWriter, r *http.Request, me *User) (any, error) { return view(me), nil }))
@@ -236,8 +239,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/inventory", s.wrap(true, s.putInventory))
 	mux.HandleFunc("GET /api/users/{id}/inventory", s.wrap(true, s.getInventory))
 	mux.HandleFunc("GET /api/projects", s.wrap(true, s.listProjects))
-	mux.HandleFunc("POST /api/projects", s.wrap(true, s.createProject))
-	mux.HandleFunc("GET /api/projects/{id}/token", s.wrap(true, s.projectToken))
+	mux.HandleFunc("POST /api/projects", s.wrap(true, s.addProject))
+	mux.HandleFunc("POST /api/projects/{id}/sync-members", s.wrap(true, s.syncMembers))
 	mux.HandleFunc("POST /api/projects/{id}/invite", s.wrap(true, s.invite))
 	mux.HandleFunc("DELETE /api/projects/{id}/members/{uid}", s.wrap(true, s.removeMember))
 	mux.HandleFunc("POST /api/invites/{id}/accept", s.wrap(true, s.acceptInvite))
@@ -246,12 +249,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/plugin-requests", s.wrap(true, s.listRequests))
 	mux.HandleFunc("GET /api/plugin-requests/{id}", s.wrap(true, s.getRequest))
 	mux.HandleFunc("POST /api/plugin-requests", s.wrap(true, s.createRequests))
+	mux.HandleFunc("POST /api/plugin-requests/{id}/approve", s.wrap(true, s.approveRequest))
 	mux.HandleFunc("POST /api/plugin-requests/{id}/decline", s.wrap(true, s.declineRequest))
 	mux.HandleFunc("POST /api/plugin-requests/{id}/cancel", s.wrap(true, s.cancelRequest))
-	mux.HandleFunc("PUT /api/plugin-requests/{id}/file", s.wrap(true, s.uploadFile))
-	mux.HandleFunc("GET /api/plugin-requests/{id}/file", s.wrap(true, s.downloadFile))
 	mux.HandleFunc("POST /api/plugin-requests/{id}/done", s.wrap(true, s.doneRequest))
-	s.setupRoutes(mux)
+	mux.HandleFunc("PUT /api/plugin-requests/{id}/stream", s.wrap(true, s.streamSend))
+	mux.HandleFunc("GET /api/plugin-requests/{id}/stream", s.wrap(true, s.streamRecv))
 	return mux
 }
 
@@ -268,13 +271,51 @@ func validNick(n string) error {
 	return nil
 }
 
+// githubLogin asks GitHub whose token this is. The token is not stored.
+func (s *Server) githubLogin(token string) (string, error) {
+	req, _ := http.NewRequest("GET", s.opt.GitHubAPI+"/user", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		return "", &apiErr{502, "сервер не смог связаться с GitHub"}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 401 {
+		return "", bad("GitHub не принял токен — проверь, что он скопирован целиком и не истёк")
+	}
+	var u struct {
+		Login string `json:"login"`
+	}
+	if resp.StatusCode >= 300 || json.NewDecoder(resp.Body).Decode(&u) != nil || u.Login == "" {
+		return "", &apiErr{502, "GitHub ответил ошибкой " + resp.Status}
+	}
+	return u.Login, nil
+}
+
 func (s *Server) register(w http.ResponseWriter, r *http.Request, _ *User) (any, error) {
-	var req struct{ Nick, OS, Device string }
+	var req struct{ Nick, OS, Device, Code, GitHubToken string }
 	if err := decode(r, &req); err != nil {
 		return nil, err
 	}
+	if s.opt.Code != "" && strings.TrimSpace(req.Code) != s.opt.Code {
+		return nil, forbidden("неверный код сервера — спроси его у того, кто поднял сервер")
+	}
 	req.Nick = strings.TrimSpace(req.Nick)
 	if err := validNick(req.Nick); err != nil {
+		return nil, err
+	}
+	s.st.mu.Lock()
+	taken := s.st.userByNick(req.Nick) != nil
+	s.st.mu.Unlock()
+	if taken {
+		return nil, bad(fmt.Sprintf("ник «%s» уже занят — выбери другой", req.Nick))
+	}
+	if strings.TrimSpace(req.GitHubToken) == "" {
+		return nil, bad("нужен GitHub-токен")
+	}
+	login, err := s.githubLogin(strings.TrimSpace(req.GitHubToken))
+	if err != nil {
 		return nil, err
 	}
 	s.st.mu.Lock()
@@ -283,7 +324,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request, _ *User) (any,
 		return nil, bad(fmt.Sprintf("ник «%s» уже занят — выбери другой", req.Nick))
 	}
 	tok := newSecret()
-	u := &User{ID: newID(), Nick: req.Nick, OS: req.OS, Device: req.Device, TokenHash: hashToken(tok), Created: now(), LastSeen: now(), Sharing: "ask"}
+	u := &User{ID: newID(), Nick: req.Nick, GitHub: login, OS: req.OS, Device: req.Device, TokenHash: hashToken(tok), Created: now(), LastSeen: now(), Sharing: "ask"}
 	s.st.db.Users[u.ID] = u
 	if err := s.st.save(); err != nil {
 		return nil, err
@@ -293,11 +334,20 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request, _ *User) (any,
 
 func (s *Server) updateMe(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
 	var req struct {
-		Nick    *string `json:"nick"`
-		Sharing *string `json:"sharing"`
+		Nick        *string `json:"nick"`
+		Sharing     *string `json:"sharing"`
+		GitHubToken *string `json:"githubToken"`
 	}
 	if err := decode(r, &req); err != nil {
 		return nil, err
+	}
+	login := ""
+	if req.GitHubToken != nil {
+		l, err := s.githubLogin(strings.TrimSpace(*req.GitHubToken))
+		if err != nil {
+			return nil, err
+		}
+		login = l
 	}
 	s.st.mu.Lock()
 	defer s.st.mu.Unlock()
@@ -318,6 +368,9 @@ func (s *Server) updateMe(w http.ResponseWriter, r *http.Request, me *User) (any
 		default:
 			return nil, bad("неизвестный режим")
 		}
+	}
+	if login != "" {
+		me.GitHub = login
 	}
 	return view(me), s.st.save()
 }
@@ -358,7 +411,7 @@ func (s *Server) getInventory(w http.ResponseWriter, r *http.Request, me *User) 
 	return map[string]any{"user": view(u), "updated": u.InvUpdated, "plugins": inv}, nil
 }
 
-// ----- projects -----
+// ----- projects (the repos themselves live on the owners' GitHub) -----
 
 func (s *Server) listProjects(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
 	s.st.mu.Lock()
@@ -372,48 +425,25 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request, me *User) 
 	return out, nil
 }
 
-var translit = map[rune]string{'а': "a", 'б': "b", 'в': "v", 'г': "g", 'д': "d", 'е': "e", 'ё': "e", 'ж': "zh", 'з': "z", 'и': "i", 'й': "y",
-	'к': "k", 'л': "l", 'м': "m", 'н': "n", 'о': "o", 'п': "p", 'р': "r", 'с': "s", 'т': "t", 'у': "u", 'ф': "f", 'х': "h",
-	'ц': "ts", 'ч': "ch", 'ш': "sh", 'щ': "sch", 'ы': "y", 'э': "e", 'ю': "yu", 'я': "ya"}
-
-func repoName(name string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(name) {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
-			b.WriteRune(r)
-		case r == ' ':
-			b.WriteRune('-')
-		default:
-			b.WriteString(translit[r])
-		}
-	}
-	n := strings.Trim(b.String(), "-.")
-	if n == "" {
-		n = "project"
-	}
-	return n
-}
-
-func (s *Server) createProject(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
-	var req struct{ Name string }
+// addProject registers a GitHub repo the caller created (or owns) as a project.
+func (s *Server) addProject(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
+	var req struct{ Name, Repo, CloneURL string }
 	if err := decode(r, &req); err != nil {
 		return nil, err
 	}
-	req.Name = strings.TrimSpace(req.Name)
-	if req.Name == "" {
-		return nil, bad("пустое название")
-	}
-	if !s.gh.Ready() {
-		return nil, &apiErr{503, "сервер ещё не подключён к GitHub — администратору нужно открыть страницу настройки сервера"}
-	}
-	full, clone, err := s.gh.CreateRepo(repoName(req.Name)+"-"+strings.ToLower(repoName(me.Nick)), "FL Studio проект «"+req.Name+"» (прога узбека)")
-	if err != nil {
-		return nil, err
+	req.Name, req.Repo = strings.TrimSpace(req.Name), strings.TrimSpace(req.Repo)
+	if req.Name == "" || req.Repo == "" || !strings.Contains(req.Repo, "/") {
+		return nil, bad("нужны название и репозиторий")
 	}
 	s.st.mu.Lock()
 	defer s.st.mu.Unlock()
-	p := &Project{ID: newID(), Name: req.Name, Repo: full, CloneURL: clone, Owner: me.ID, Members: []string{me.ID}, Created: now()}
+	if p := s.st.projectByRepo(req.Repo); p != nil {
+		if isMember(p, me.ID) {
+			return s.projectView(p, me), nil
+		}
+		return nil, &apiErr{409, "этот репозиторий уже подключил " + view(s.st.db.Users[p.Owner]).Nick + " — попроси его пригласить тебя"}
+	}
+	p := &Project{ID: newID(), Name: req.Name, Repo: req.Repo, CloneURL: req.CloneURL, Owner: me.ID, Members: []string{me.ID}, Created: now()}
 	s.st.db.Projects[p.ID] = p
 	return s.projectView(p, me), s.st.save()
 }
@@ -429,22 +459,30 @@ func (s *Server) memberProject(r *http.Request, me *User) (*Project, error) {
 	return p, nil
 }
 
-func (s *Server) projectToken(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
+// syncMembers: the owner reports who already has access on GitHub; registered
+// users with those GitHub logins become members.
+func (s *Server) syncMembers(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
+	var req struct{ Logins []string }
+	if err := decode(r, &req); err != nil {
+		return nil, err
+	}
 	s.st.mu.Lock()
+	defer s.st.mu.Unlock()
 	p, err := s.memberProject(r, me)
-	s.st.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
-	name := p.Repo
-	if i := strings.LastIndex(name, "/"); i >= 0 {
-		name = name[i+1:]
+	if p.Owner != me.ID {
+		return nil, forbidden("это может только владелец проекта")
 	}
-	t, err := s.gh.RepoToken(name)
-	if err != nil {
-		return nil, err
+	for _, l := range req.Logins {
+		for _, u := range s.st.usersByGitHub(l) {
+			if !isMember(p, u.ID) {
+				p.Members = append(p.Members, u.ID)
+			}
+		}
 	}
-	return map[string]any{"token": t.Token, "expiresAt": t.Expires, "cloneUrl": p.CloneURL, "repo": p.Repo}, nil
+	return s.projectView(p, me), s.st.save()
 }
 
 func (s *Server) invite(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
@@ -501,7 +539,7 @@ func (s *Server) removeMember(w http.ResponseWriter, r *http.Request, me *User) 
 			delete(s.st.db.Invites, id)
 		}
 	}
-	return map[string]bool{"ok": true}, s.st.save()
+	return map[string]any{"ok": true, "github": view(s.st.db.Users[uid]).GitHub}, s.st.save()
 }
 
 func (s *Server) acceptInvite(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
@@ -539,20 +577,24 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request, me *User) (any, e
 	defer s.st.mu.Unlock()
 	out := struct {
 		Invites  []InviteView `json:"invites"`
-		Incoming []ReqView    `json:"incoming"` // asked from me
-		Ready    []ReqView    `json:"ready"`    // my requests with a file waiting
+		Incoming []ReqView    `json:"incoming"` // asked from me, waiting for my answer
+		ToSend   []ReqView    `json:"toSend"`   // I allowed it: my app streams it when the other side is online
+		Ready    []ReqView    `json:"ready"`    // my requests that were allowed: my app receives them
 		Me       UserView     `json:"me"`
-	}{Invites: []InviteView{}, Incoming: []ReqView{}, Ready: []ReqView{}, Me: view(me)}
+	}{Invites: []InviteView{}, Incoming: []ReqView{}, ToSend: []ReqView{}, Ready: []ReqView{}, Me: view(me)}
 	for _, i := range s.st.db.Invites {
 		if i.To == me.ID {
 			out.Invites = append(out.Invites, s.inviteView(i))
 		}
 	}
 	for _, q := range s.st.db.Requests {
-		if q.To == me.ID && q.Status == "pending" {
+		active := q.Status == "approved" || q.Status == "streaming"
+		switch {
+		case q.To == me.ID && q.Status == "pending":
 			out.Incoming = append(out.Incoming, s.reqView(q))
-		}
-		if q.From == me.ID && q.Status == "approved" {
+		case q.To == me.ID && active:
+			out.ToSend = append(out.ToSend, s.reqView(q))
+		case q.From == me.ID && active:
 			out.Ready = append(out.Ready, s.reqView(q))
 		}
 	}
@@ -612,7 +654,7 @@ func (s *Server) createRequests(w http.ResponseWriter, r *http.Request, me *User
 		}
 		dup := false
 		for _, q := range s.st.db.Requests {
-			if q.From == me.ID && q.To == to.ID && strings.EqualFold(q.Plugin, it.Plugin) && (q.Status == "pending" || q.Status == "approved") {
+			if q.From == me.ID && q.To == to.ID && strings.EqualFold(q.Plugin, it.Plugin) && (q.Status == "pending" || q.Status == "approved" || q.Status == "streaming") {
 				dup = true
 			}
 		}
@@ -638,6 +680,31 @@ func (s *Server) myReq(r *http.Request, me *User, owner bool) (*PluginReq, error
 	return q, nil
 }
 
+// approveRequest: the owner says yes and what will come (plugin or installer).
+func (s *Server) approveRequest(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
+	var req struct {
+		Kind, Name, Note, Format string
+		Size                     int64
+	}
+	if err := decode(r, &req); err != nil {
+		return nil, err
+	}
+	s.st.mu.Lock()
+	defer s.st.mu.Unlock()
+	q, err := s.myReq(r, me, true)
+	if err != nil {
+		return nil, err
+	}
+	if q.Status != "pending" && q.Status != "approved" {
+		return nil, bad("запрос уже обработан")
+	}
+	q.Status, q.Kind, q.FileName, q.Note, q.Size, q.Updated = "approved", req.Kind, filepath.Base(req.Name), req.Note, req.Size, now()
+	if req.Format != "" {
+		q.Format = req.Format
+	}
+	return s.reqView(q), s.st.save()
+}
+
 func (s *Server) declineRequest(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
 	var req struct{ Reason string }
 	decode(r, &req)
@@ -648,7 +715,6 @@ func (s *Server) declineRequest(w http.ResponseWriter, r *http.Request, me *User
 		return nil, err
 	}
 	q.Status, q.Note, q.Updated = "declined", strings.TrimSpace(req.Reason), now()
-	s.dropFile(q)
 	return s.reqView(q), s.st.save()
 }
 
@@ -660,87 +726,7 @@ func (s *Server) cancelRequest(w http.ResponseWriter, r *http.Request, me *User)
 		return nil, err
 	}
 	q.Status, q.Updated = "cancelled", now()
-	s.dropFile(q)
 	return s.reqView(q), s.st.save()
-}
-
-func (s *Server) filePath(q *PluginReq) string { return filepath.Join(s.files, q.ID) }
-
-func (s *Server) dropFile(q *PluginReq) { os.Remove(s.filePath(q)) }
-
-func (s *Server) usedSpace() int64 {
-	var n int64
-	ents, _ := os.ReadDir(s.files)
-	for _, e := range ents {
-		if i, err := e.Info(); err == nil {
-			n += i.Size()
-		}
-	}
-	return n
-}
-
-func (s *Server) uploadFile(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
-	s.st.mu.Lock()
-	q, err := s.myReq(r, me, true)
-	if err == nil && q.Status != "pending" {
-		err = bad("запрос уже обработан")
-	}
-	s.st.mu.Unlock()
-	if err != nil {
-		return nil, err
-	}
-	if r.ContentLength > s.opt.MaxFile {
-		return nil, &apiErr{413, fmt.Sprintf("файл больше %d МБ — сервер такой не примет", s.opt.MaxFile>>20)}
-	}
-	if s.usedSpace()+r.ContentLength > s.opt.MaxTotal {
-		return nil, &apiErr{507, "на сервере сейчас не хватает места для передачи — попробуй позже"}
-	}
-	tmp := s.filePath(q) + ".part"
-	f, err := os.Create(tmp)
-	if err != nil {
-		return nil, err
-	}
-	n, err := io.Copy(f, io.LimitReader(r.Body, s.opt.MaxFile+1))
-	f.Close()
-	if err != nil || n > s.opt.MaxFile {
-		os.Remove(tmp)
-		if err == nil {
-			err = &apiErr{413, "файл слишком большой"}
-		}
-		return nil, err
-	}
-	if err := os.Rename(tmp, s.filePath(q)); err != nil {
-		return nil, err
-	}
-	s.st.mu.Lock()
-	defer s.st.mu.Unlock()
-	q.Status, q.Size, q.Updated = "approved", n, now()
-	q.Kind = r.URL.Query().Get("kind")
-	q.FileName = filepath.Base(r.URL.Query().Get("name"))
-	q.Note = r.URL.Query().Get("note")
-	if v := r.URL.Query().Get("format"); v != "" {
-		q.Format = v
-	}
-	return s.reqView(q), s.st.save()
-}
-
-func (s *Server) downloadFile(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
-	s.st.mu.Lock()
-	q, err := s.myReq(r, me, false)
-	s.st.mu.Unlock()
-	if err != nil {
-		return nil, err
-	}
-	f, err := os.Open(s.filePath(q))
-	if err != nil {
-		return nil, notFound("файла уже нет на сервере")
-	}
-	defer f.Close()
-	st, _ := f.Stat()
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Length", strconv.FormatInt(st.Size(), 10))
-	io.Copy(w, f)
-	return nil, nil
 }
 
 func (s *Server) doneRequest(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
@@ -762,21 +748,151 @@ func (s *Server) doneRequest(w http.ResponseWriter, r *http.Request, me *User) (
 	if req.Note != "" {
 		q.Note = req.Note
 	}
-	s.dropFile(q)
 	return s.reqView(q), s.st.save()
 }
 
-// Janitor removes transfer files nobody picked up.
+// ---------- the relay: bytes go from the owner's computer straight to the
+// requester's computer; nothing is written to the server's disk ----------
+
+type recvSide struct {
+	w    http.ResponseWriter
+	done chan error
+}
+
+type relay struct {
+	recv chan *recvSide // capacity 1: the waiting receiver
+}
+
+func (s *Server) relayFor(id string) *relay {
+	s.relayMu.Lock()
+	defer s.relayMu.Unlock()
+	rl := s.relays[id]
+	if rl == nil {
+		rl = &relay{recv: make(chan *recvSide, 1)}
+		s.relays[id] = rl
+	}
+	return rl
+}
+
+func (s *Server) setStatus(id, from, to string) {
+	s.st.mu.Lock()
+	defer s.st.mu.Unlock()
+	if q := s.st.db.Requests[id]; q != nil && q.Status == from {
+		q.Status, q.Updated = to, now()
+		s.st.save()
+	}
+}
+
+// streamSend: the owner's app uploads; we wait for the requester and pipe.
+func (s *Server) streamSend(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
+	s.st.mu.Lock()
+	q, err := s.myReq(r, me, true)
+	var size int64
+	if err == nil {
+		if q.Status != "approved" && q.Status != "streaming" {
+			err = bad("запрос не ждёт отправки (" + q.Status + ")")
+		}
+		size = q.Size
+	}
+	s.st.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	if n, e := strconv.ParseInt(r.Header.Get("X-Size"), 10, 64); e == nil {
+		size = n
+	}
+	id := q.ID
+	s.setStatus(id, "approved", "streaming")
+	rl := s.relayFor(id)
+	var rs *recvSide
+	select {
+	case rs = <-rl.recv:
+	case <-time.After(s.opt.StreamWait):
+		s.setStatus(id, "streaming", "approved")
+		return nil, &apiErr{408, "получатель не подключился — отправлю, когда он будет в сети"}
+	case <-r.Context().Done():
+		s.setStatus(id, "streaming", "approved")
+		return nil, nil
+	}
+	rs.w.Header().Set("Content-Type", "application/octet-stream")
+	if size > 0 {
+		rs.w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+	}
+	rs.w.WriteHeader(200)
+	n, cerr := io.Copy(flushWriter{rs.w}, r.Body)
+	if cerr == nil && size > 0 && n != size {
+		cerr = fmt.Errorf("передано %d из %d байт", n, size)
+	}
+	rs.done <- cerr
+	if cerr != nil {
+		s.setStatus(id, "streaming", "approved")
+		return nil, &apiErr{502, "передача прервалась: " + cerr.Error()}
+	}
+	return map[string]any{"ok": true, "bytes": n}, nil
+}
+
+type flushWriter struct{ w http.ResponseWriter }
+
+func (f flushWriter) Write(p []byte) (int, error) {
+	n, err := f.w.Write(p)
+	if fl, ok := f.w.(http.Flusher); ok {
+		fl.Flush()
+	}
+	return n, err
+}
+
+// streamRecv: the requester's app downloads; we wait for the owner.
+func (s *Server) streamRecv(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
+	s.st.mu.Lock()
+	q, err := s.myReq(r, me, false)
+	if err == nil && q.Status != "approved" && q.Status != "streaming" {
+		err = bad("плагин ещё не разрешён (" + q.Status + ")")
+	}
+	s.st.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	rl := s.relayFor(q.ID)
+	me2 := &recvSide{w: w, done: make(chan error, 1)}
+	select {
+	case rl.recv <- me2:
+	default:
+		return nil, &apiErr{409, "этот плагин уже принимается"}
+	}
+	withdraw := func() bool { // true if the sender has not taken us yet
+		select {
+		case <-rl.recv:
+			return true
+		default:
+			return false
+		}
+	}
+	select {
+	case err := <-me2.done:
+		_ = err
+		return nil, nil // the sender wrote the whole response
+	case <-time.After(s.opt.StreamWait):
+		if withdraw() {
+			return nil, &apiErr{408, "отправитель сейчас не в сети"}
+		}
+	case <-r.Context().Done():
+		if withdraw() {
+			return nil, nil
+		}
+	}
+	<-me2.done // the sender is already writing to us: wait till it is done
+	return nil, nil
+}
+
+// Janitor forgets old finished requests.
 func (s *Server) Janitor() {
 	for {
 		s.st.mu.Lock()
 		for _, q := range s.st.db.Requests {
-			if q.Status == "approved" && time.Since(time.Unix(q.Updated, 0)) > s.opt.FileTTL {
-				s.dropFile(q)
-				q.Status, q.Note, q.Updated = "failed", "файл пролежал на сервере слишком долго и удалён — попроси ещё раз", now()
+			if q.Status == "streaming" && time.Since(time.Unix(q.Updated, 0)) > time.Hour {
+				q.Status = "approved"
 			}
-			// forget finished requests after a month
-			if q.Status != "pending" && q.Status != "approved" && time.Since(time.Unix(q.Updated, 0)) > 30*24*time.Hour {
+			if q.Status != "pending" && q.Status != "approved" && q.Status != "streaming" && time.Since(time.Unix(q.Updated, 0)) > 30*24*time.Hour {
 				delete(s.st.db.Requests, q.ID)
 			}
 		}
@@ -784,77 +900,4 @@ func (s *Server) Janitor() {
 		s.st.mu.Unlock()
 		time.Sleep(time.Hour)
 	}
-}
-
-// ---------- GitHub App setup (one time, by the server owner) ----------
-
-func (s *Server) setupRoutes(mux *http.ServeMux) {
-	page := func(w http.ResponseWriter, body string) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>прога узбека — сервер</title>
-<style>body{font:15px/1.5 system-ui,sans-serif;background:#141518;color:#e6e7ea;max-width:680px;margin:40px auto;padding:0 16px}a{color:#ffbe5c}
-input{font:inherit;padding:8px;border-radius:8px;border:1px solid #444;background:#111;color:#eee;width:100%%;box-sizing:border-box}
-button{font:inherit;padding:9px 16px;border-radius:8px;border:0;background:#f7a531;font-weight:600;cursor:pointer;margin-top:10px}
-.ok{color:#7fe0b0}.muted{color:#8c9099}code{background:#222;padding:1px 5px;border-radius:4px}</style>%s`, body)
-	}
-	keyOK := func(r *http.Request) bool { return r.URL.Query().Get("key") == s.opt.AdminKey }
-	mux.HandleFunc("GET /setup", func(w http.ResponseWriter, r *http.Request) {
-		if !keyOK(r) {
-			page(w, `<h2>Нужен ключ администратора</h2><p class="muted">Открой ссылку, которую сервер напечатал при запуске (или ключ из файла <code>admin-key</code> в папке данных).</p>`)
-			return
-		}
-		st := "не подключён"
-		if s.gh.Ready() {
-			st = fmt.Sprintf(`<span class="ok">подключён</span> — организация <b>%s</b>, приложение <b>%s</b>`, html.EscapeString(s.gh.Org), html.EscapeString(s.gh.Slug))
-		}
-		org := html.EscapeString(r.URL.Query().Get("org"))
-		if org == "" {
-			org = html.EscapeString(s.gh.Org)
-		}
-		manifest, _ := json.Marshal(map[string]any{
-			"name":                "prog-uzbeka-" + newID()[:6],
-			"url":                 s.opt.PublicURL,
-			"redirect_url":        s.opt.PublicURL + "/setup/callback",
-			"setup_url":           s.opt.PublicURL + "/setup/installed?key=" + s.opt.AdminKey,
-			"public":              false,
-			"hook_attributes":     map[string]any{"url": s.opt.PublicURL + "/setup/hook", "active": false},
-			"default_permissions": map[string]string{"contents": "write", "administration": "write", "metadata": "read"},
-		})
-		page(w, fmt.Sprintf(`<h1>прога узбека — сервер</h1><p>GitHub: %s</p>
-<h3>1. Организация на GitHub</h3><p class="muted">Все проекты будут храниться в одной бесплатной организации GitHub. Создай её, если ещё нет: <a href="%s/account/organizations/new?plan=free" target="_blank">создать организацию (Free)</a>.</p>
-<form id="f" method="post"><input id="org" placeholder="название организации, напр. uzbek-beats" value="%s">
-<input type="hidden" name="manifest" value="%s"><button type="button" onclick="go()">2. Создать GitHub App для этой организации</button></form>
-<p class="muted">GitHub попросит подтвердить, затем предложит установить приложение — выбери «All repositories». После этого сервер готов.</p>
-<script>function go(){const o=document.getElementById('org').value.trim();if(!o)return alert('Впиши организацию');
-fetch('/setup/org?key=%s&org='+encodeURIComponent(o),{method:'POST'}).then(()=>{const f=document.getElementById('f');
-f.action='%s/organizations/'+encodeURIComponent(o)+'/settings/apps/new?state=%s';f.submit()})}</script>`,
-			st, s.opt.GitHubWeb, org, html.EscapeString(string(manifest)), s.opt.AdminKey, s.opt.GitHubWeb, s.opt.AdminKey))
-	})
-	mux.HandleFunc("POST /setup/org", func(w http.ResponseWriter, r *http.Request) {
-		if !keyOK(r) {
-			http.Error(w, "forbidden", 403)
-			return
-		}
-		s.gh.Org = strings.TrimSpace(r.URL.Query().Get("org"))
-		s.gh.Save()
-	})
-	mux.HandleFunc("GET /setup/callback", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("state") != s.opt.AdminKey {
-			http.Error(w, "forbidden", 403)
-			return
-		}
-		if err := s.gh.ConvertManifest(r.URL.Query().Get("code")); err != nil {
-			page(w, "<h2>Не получилось</h2><p>"+html.EscapeString(err.Error())+"</p>")
-			return
-		}
-		http.Redirect(w, r, s.opt.GitHubWeb+"/apps/"+url.PathEscape(s.gh.Slug)+"/installations/new", http.StatusFound)
-	})
-	mux.HandleFunc("GET /setup/installed", func(w http.ResponseWriter, r *http.Request) {
-		// the id in the URL is not trusted: ask GitHub where our app is installed
-		if err := s.gh.FindInstallation(); err != nil {
-			page(w, "<h2>Почти готово</h2><p>"+html.EscapeString(err.Error())+"</p><p class=\"muted\">Установи приложение в организацию и обнови страницу.</p>")
-			return
-		}
-		page(w, `<h1 class="ok">Готово ✓</h1><p>Сервер подключён к GitHub. Теперь можно создавать проекты в проге.</p>`)
-	})
 }

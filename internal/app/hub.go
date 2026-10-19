@@ -18,9 +18,12 @@ import (
 // DefaultServer is the address of "прога узбека" server baked in at build time.
 var DefaultServer = ""
 
+// DefaultServerCode is the registration code baked in at build time.
+var DefaultServerCode = ""
+
 // Hub is the client of our own server: users (one device = one user),
-// projects, invitations, plugin transfers. FL projects themselves live on
-// GitHub; the server hands out short-lived access tokens for them.
+// projects and members, invitations, plugin transfers. FL projects
+// themselves live on the owners' GitHub (one repo per project).
 type Hub struct {
 	cfg *Config
 	cl  *http.Client
@@ -28,20 +31,15 @@ type Hub struct {
 	mu       sync.Mutex
 	projects []HubProject
 	projAt   time.Time
-	tokens   map[string]hubToken // project id -> token
 	inbox    *Inbox
 	invSig   string
 	invAt    time.Time
 }
 
-type hubToken struct {
-	tok string
-	exp time.Time
-}
-
 type HubUser struct {
 	ID       string `json:"id"`
 	Nick     string `json:"nick"`
+	GitHub   string `json:"github"`
 	OS       string `json:"os"`
 	LastSeen int64  `json:"lastSeen"`
 	Online   bool   `json:"online"`
@@ -49,12 +47,14 @@ type HubUser struct {
 }
 
 type HubInvite struct {
-	ID      string  `json:"id"`
-	Project string  `json:"project"`
-	Name    string  `json:"name"`
-	From    HubUser `json:"from"`
-	To      HubUser `json:"to"`
-	Created int64   `json:"created"`
+	ID       string  `json:"id"`
+	Project  string  `json:"project"`
+	Name     string  `json:"name"`
+	Repo     string  `json:"repo"`
+	CloneURL string  `json:"cloneUrl"`
+	From     HubUser `json:"from"`
+	To       HubUser `json:"to"`
+	Created  int64   `json:"created"`
 }
 
 type HubProject struct {
@@ -70,29 +70,32 @@ type HubProject struct {
 
 // PluginRequest is a plugin transfer between two users (through the server).
 type PluginRequest struct {
-	ID       string `json:"id"`
-	From     string `json:"from"`
-	To       string `json:"to"`
-	FromOS   string `json:"fromOs"`
-	Plugin   string `json:"plugin"`
-	Format   string `json:"format"`
-	Vendor   string `json:"vendor,omitempty"`
-	Status   string `json:"status"`
-	Kind     string `json:"kind,omitempty"`
-	FileName string `json:"fileName,omitempty"`
-	Size     int64  `json:"size,omitempty"`
-	Note     string `json:"note,omitempty"`
-	Created  int64  `json:"created"`
-	Updated  int64  `json:"updated"`
-	FromNick string `json:"fromNick"`
-	ToNick   string `json:"toNick"`
-	ToOS     string `json:"toOs"`
+	ID         string `json:"id"`
+	From       string `json:"from"`
+	To         string `json:"to"`
+	FromOS     string `json:"fromOs"`
+	Plugin     string `json:"plugin"`
+	Format     string `json:"format"`
+	Vendor     string `json:"vendor,omitempty"`
+	Status     string `json:"status"`
+	Kind       string `json:"kind,omitempty"`
+	FileName   string `json:"fileName,omitempty"`
+	Size       int64  `json:"size,omitempty"`
+	Note       string `json:"note,omitempty"`
+	Created    int64  `json:"created"`
+	Updated    int64  `json:"updated"`
+	FromNick   string `json:"fromNick"`
+	FromOnline bool   `json:"fromOnline"`
+	ToNick     string `json:"toNick"`
+	ToOS       string `json:"toOs"`
+	ToOnline   bool   `json:"toOnline"`
 }
 
 // Statuses
 const (
 	ReqPending   = "pending"
-	ReqApproved  = "approved" // uploaded, waiting for the requester to install
+	ReqApproved  = "approved"  // allowed: the owner's app sends it when both are online
+	ReqStreaming = "streaming" // the owner's app is connected and sending
 	ReqDeclined  = "declined"
 	ReqInstalled = "installed"
 	ReqFailed    = "failed"
@@ -101,8 +104,9 @@ const (
 
 type Inbox struct {
 	Invites  []HubInvite     `json:"invites"`
-	Incoming []PluginRequest `json:"incoming"`
-	Ready    []PluginRequest `json:"ready"`
+	Incoming []PluginRequest `json:"incoming"` // asked from me, waiting for my answer
+	ToSend   []PluginRequest `json:"toSend"`   // I allowed: my app sends them
+	Ready    []PluginRequest `json:"ready"`    // my requests that were allowed: my app receives them
 	Me       HubUser         `json:"me"`
 }
 
@@ -113,7 +117,7 @@ func (c *Config) Hub() *Hub {
 	hubsMu.Lock()
 	defer hubsMu.Unlock()
 	if c.hub == nil {
-		c.hub = &Hub{cfg: c, cl: &http.Client{Timeout: 30 * time.Second}, tokens: map[string]hubToken{}}
+		c.hub = &Hub{cfg: c, cl: &http.Client{Timeout: 30 * time.Second}}
 	}
 	return c.hub
 }
@@ -207,16 +211,18 @@ func (h *Hub) Ping(server string) error {
 	return nil
 }
 
-func (h *Hub) Register(nick string) (*HubUser, error) {
+func (h *Hub) Register(nick, code, githubToken string) (*HubUser, error) {
 	host, _ := os.Hostname()
 	var r struct {
 		Token string  `json:"token"`
 		User  HubUser `json:"user"`
 	}
-	if err := h.do("POST", "/api/register", map[string]string{"nick": strings.TrimSpace(nick), "os": OSName(), "device": host}, &r); err != nil {
+	if err := h.do("POST", "/api/register", map[string]string{"nick": strings.TrimSpace(nick), "os": OSName(), "device": host,
+		"code": strings.TrimSpace(code), "githubToken": strings.TrimSpace(githubToken)}, &r); err != nil {
 		return nil, err
 	}
-	h.cfg.DeviceToken, h.cfg.UserID, h.cfg.UserName = r.Token, r.User.ID, r.User.Nick
+	h.cfg.DeviceToken, h.cfg.UserID, h.cfg.UserName, h.cfg.GitHubLogin = r.Token, r.User.ID, r.User.Nick, r.User.GitHub
+	h.cfg.Token = strings.TrimSpace(githubToken)
 	return &r.User, h.cfg.Save()
 }
 
@@ -225,12 +231,15 @@ func (h *Hub) Me() (*HubUser, error) {
 	return &u, h.do("GET", "/api/me", nil, &u)
 }
 
-func (h *Hub) UpdateMe(nick, sharing *string) (*HubUser, error) {
+func (h *Hub) UpdateMe(nick, sharing, githubToken *string) (*HubUser, error) {
 	var u HubUser
-	if err := h.do("PATCH", "/api/me", map[string]any{"nick": nick, "sharing": sharing}, &u); err != nil {
+	if err := h.do("PATCH", "/api/me", map[string]any{"nick": nick, "sharing": sharing, "githubToken": githubToken}, &u); err != nil {
 		return nil, err
 	}
-	h.cfg.UserName, h.cfg.Sharing = u.Nick, u.Sharing
+	if githubToken != nil {
+		h.cfg.Token = strings.TrimSpace(*githubToken)
+	}
+	h.cfg.UserName, h.cfg.Sharing, h.cfg.GitHubLogin = u.Nick, u.Sharing, u.GitHub
 	h.cfg.Save()
 	return &u, nil
 }
@@ -342,13 +351,14 @@ func (h *Hub) ProjectForRemote(remote string) *HubProject {
 		return nil
 	}
 	n := normRemote(remote)
+	o, r, isGH := repoSlug(remote)
 	for _, age := range []time.Duration{time.Minute, 5 * time.Second} {
 		ps, err := h.Projects(age)
 		if err != nil {
 			return nil
 		}
 		for i := range ps {
-			if normRemote(ps[i].CloneURL) == n {
+			if normRemote(ps[i].CloneURL) == n || (isGH && strings.EqualFold(ps[i].Repo, o+"/"+r)) {
 				return &ps[i]
 			}
 		}
@@ -371,9 +381,18 @@ func (h *Hub) Project(id string) (*HubProject, error) {
 	return nil, errors.New("проект не найден на сервере")
 }
 
-func (h *Hub) CreateProject(name string) (*HubProject, error) {
+// AddProject registers a GitHub repo as a project on the server.
+func (h *Hub) AddProject(name, repo, cloneURL string) (*HubProject, error) {
 	var p HubProject
-	err := h.do("POST", "/api/projects", map[string]string{"name": name}, &p)
+	err := h.do("POST", "/api/projects", map[string]string{"name": name, "repo": repo, "cloneUrl": cloneURL}, &p)
+	h.forget()
+	return &p, err
+}
+
+// SyncMembers: people who already have access on GitHub become members.
+func (h *Hub) SyncMembers(projectID string, logins []string) (*HubProject, error) {
+	var p HubProject
+	err := h.do("POST", "/api/projects/"+url.PathEscape(projectID)+"/sync-members", map[string]any{"logins": logins}, &p)
 	h.forget()
 	return &p, err
 }
@@ -385,10 +404,14 @@ func (h *Hub) Invite(projectID, nick string) (*HubInvite, error) {
 	return &i, err
 }
 
-func (h *Hub) RemoveMember(projectID, userID string) error {
-	err := h.do("DELETE", "/api/projects/"+url.PathEscape(projectID)+"/members/"+url.PathEscape(userID), nil, nil)
+// RemoveMember returns the GitHub login of the removed person.
+func (h *Hub) RemoveMember(projectID, userID string) (string, error) {
+	var r struct {
+		GitHub string `json:"github"`
+	}
+	err := h.do("DELETE", "/api/projects/"+url.PathEscape(projectID)+"/members/"+url.PathEscape(userID), nil, &r)
 	h.forget()
-	return err
+	return r.GitHub, err
 }
 
 func (h *Hub) AcceptInvite(id string) (*HubProject, error) {
@@ -402,30 +425,6 @@ func (h *Hub) DeclineInvite(id string) error {
 	err := h.do("POST", "/api/invites/"+url.PathEscape(id)+"/decline", nil, nil)
 	h.forget()
 	return err
-}
-
-// RepoToken: short-lived GitHub access to one project (cached).
-func (h *Hub) RepoToken(projectID string) (string, error) {
-	h.mu.Lock()
-	if t, ok := h.tokens[projectID]; ok && time.Until(t.exp) > 10*time.Minute {
-		h.mu.Unlock()
-		return t.tok, nil
-	}
-	h.mu.Unlock()
-	var r struct {
-		Token     string    `json:"token"`
-		ExpiresAt time.Time `json:"expiresAt"`
-	}
-	if err := h.do("GET", "/api/projects/"+url.PathEscape(projectID)+"/token", nil, &r); err != nil {
-		return "", err
-	}
-	if r.ExpiresAt.IsZero() {
-		r.ExpiresAt = time.Now().Add(time.Hour)
-	}
-	h.mu.Lock()
-	h.tokens[projectID] = hubToken{r.Token, r.ExpiresAt}
-	h.mu.Unlock()
-	return r.Token, nil
 }
 
 // ----- inbox & plugin transfers -----
@@ -486,39 +485,55 @@ func (h *Hub) DoneRequest(id string, ok bool, note string) error {
 	return h.do("POST", "/api/plugin-requests/"+url.PathEscape(id)+"/done", map[string]any{"ok": ok, "note": note}, nil)
 }
 
-// UploadFile sends the plugin (zip) or an installer for a request.
-func (h *Hub) UploadFile(job *Job, id, path, kind, name, note, format string) error {
+// Approve: yes, and this is what will come (kind "plugin" or "installer").
+func (h *Hub) Approve(id, kind, name, note, format string) error {
+	return h.do("POST", "/api/plugin-requests/"+url.PathEscape(id)+"/approve",
+		map[string]any{"kind": kind, "name": name, "note": note, "format": format}, nil)
+}
+
+var errNotOnline = errors.New("получатель не в сети")
+
+// StreamSend pushes the file through the server straight to the requester.
+// The server keeps nothing: it waits for the other side and pipes the bytes.
+func (h *Hub) StreamSend(job *Job, id, path string) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 	st, _ := f.Stat()
-	q := url.Values{"kind": {kind}, "name": {name}, "note": {note}, "format": {format}}
-	req, err := http.NewRequest("PUT", h.cfg.ServerURL()+"/api/plugin-requests/"+url.PathEscape(id)+"/file?"+q.Encode(),
-		&progressReader{r: f, total: st.Size(), job: job, verb: "Отправка на сервер"})
+	req, err := http.NewRequest("PUT", h.cfg.ServerURL()+"/api/plugin-requests/"+url.PathEscape(id)+"/stream",
+		&progressReader{r: f, total: st.Size(), job: job, verb: "Передаю"})
 	if err != nil {
 		return err
 	}
 	req.ContentLength = st.Size()
+	req.Header.Set("X-Size", fmt.Sprint(st.Size()))
 	req.Header.Set("Authorization", "Bearer "+h.cfg.DeviceToken)
 	req.Header.Set("Content-Type", "application/octet-stream")
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
-		return fmt.Errorf("не удалось отправить файл на сервер: %v", err)
+		return fmt.Errorf("передача прервалась: %v", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == 408 {
+		return errNotOnline
+	}
 	return readHubResp(resp, nil)
 }
 
-func (h *Hub) DownloadFile(job *Job, r *PluginRequest, dst string) error {
-	req, _ := http.NewRequest("GET", h.cfg.ServerURL()+"/api/plugin-requests/"+url.PathEscape(r.ID)+"/file", nil)
+// StreamRecv takes the file while the owner's app is sending it.
+func (h *Hub) StreamRecv(job *Job, r *PluginRequest, dst string) error {
+	req, _ := http.NewRequest("GET", h.cfg.ServerURL()+"/api/plugin-requests/"+url.PathEscape(r.ID)+"/stream", nil)
 	req.Header.Set("Authorization", "Bearer "+h.cfg.DeviceToken)
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
 		return fmt.Errorf("сервер недоступен: %v", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == 408 {
+		return errors.New("отправитель сейчас не в сети")
+	}
 	if resp.StatusCode >= 300 {
 		return readHubResp(resp, nil)
 	}
@@ -528,12 +543,16 @@ func (h *Hub) DownloadFile(job *Job, r *PluginRequest, dst string) error {
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(f, &progressReader{r: resp.Body, total: r.Size, job: job, verb: "Скачивание"})
+	n, err := io.Copy(f, &progressReader{r: resp.Body, total: resp.ContentLength, job: job, verb: "Получаю"})
 	f.Close()
+	if err == nil && resp.ContentLength > 0 && n != resp.ContentLength {
+		err = fmt.Errorf("получено %d из %d байт", n, resp.ContentLength)
+	}
 	if err != nil {
 		os.Remove(tmp)
-		return err
+		return fmt.Errorf("передача прервалась: %v", err)
 	}
+	os.Remove(dst)
 	return os.Rename(tmp, dst)
 }
 
@@ -548,17 +567,10 @@ type remoteEntry struct {
 
 func forgetRemote(dir string) { remoteCache.Delete(filepath.Clean(dir)) }
 
-// repoToken: what to give git as the password for this remote.
+// repoToken: what to give git as the password (the user's GitHub token).
 func repoToken(cfg *Config, remote string) string {
-	if cfg == nil || remote == "" {
+	if cfg == nil {
 		return ""
 	}
-	if h := cfg.Hub(); h.Registered() {
-		if p := h.ProjectForRemote(remote); p != nil {
-			if t, err := h.RepoToken(p.ID); err == nil {
-				return t
-			}
-		}
-	}
-	return cfg.Token // a personal GitHub token from the old version, if any
+	return cfg.Token
 }

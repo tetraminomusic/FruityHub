@@ -1,6 +1,6 @@
-// Package fakegh is a tiny stand-in for GitHub used in tests and demos: a
-// GitHub App installed on one organization, repos as local bare repositories,
-// release assets in memory.
+// Package fakegh is a tiny stand-in for GitHub used in tests and demos:
+// users with tokens, personal repos (local bare repositories — git and LFS
+// work with file paths), collaborators and invitations, release assets.
 package fakegh
 
 import (
@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
 
 type Asset struct {
@@ -25,37 +24,70 @@ type Asset struct {
 	Size  int64  `json:"size"`
 }
 
-func (f *Server) Close() { f.Srv.Close() }
+type repo struct {
+	owner, name, dir string
+	collab           map[string]bool
+	relID            int64
+}
 
-// fakeGitHub: a GitHub App installed on one organization. Repos are local bare
-// repositories (git and LFS work with file paths), releases are kept in memory.
+type invitation struct {
+	ID      int64
+	Repo    *repo
+	Inviter string
+	Invitee string
+}
+
 type Server struct {
 	mu     sync.Mutex
 	Srv    *httptest.Server
 	root   string
-	Org    string
-	Tokens map[string][]string // installation token -> repos it may touch (nil = all)
-	repos  map[string]string   // org/name -> clone url
-	rel    map[string]int64    // repo -> release id
+	Tokens map[string]string // token -> login
+	repos  map[string]*repo  // owner/name (lower case)
+	invs   map[int64]*invitation
 	Assets map[int64]*Asset
-	owner  map[int64]string // asset -> repo
+	owner  map[int64]*repo
 	blobs  map[int64][]byte
 	nextID int64
 }
 
 // New starts a fake GitHub (close it with Close).
 func New(root string) *Server {
-	f := &Server{root: root, Org: "uzbek-org", Tokens: map[string][]string{}, repos: map[string]string{}, rel: map[string]int64{},
-		Assets: map[int64]*Asset{}, owner: map[int64]string{}, blobs: map[int64][]byte{}, nextID: 100}
+	f := &Server{root: root, Tokens: map[string]string{}, repos: map[string]*repo{}, invs: map[int64]*invitation{},
+		Assets: map[int64]*Asset{}, owner: map[int64]*repo{}, blobs: map[int64][]byte{}, nextID: 100}
 	f.Srv = httptest.NewServer(http.HandlerFunc(f.serve))
 	return f
+}
+
+func (f *Server) Close() { f.Srv.Close() }
+
+// AddUser makes a GitHub account with a token.
+func (f *Server) AddUser(token, login string) {
+	f.mu.Lock()
+	f.Tokens[token] = login
+	f.mu.Unlock()
+}
+
+func (f *Server) Collaborators(full string) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []string
+	if r := f.repos[strings.ToLower(full)]; r != nil {
+		for c := range r.collab {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func (f *Server) repoJSON(r *repo) map[string]any {
+	return map[string]any{"full_name": r.owner + "/" + r.name, "name": r.name, "clone_url": r.dir,
+		"html_url": "https://github.com/" + r.owner + "/" + r.name, "owner": map[string]any{"login": r.owner}}
 }
 
 func (f *Server) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	p := r.URL.Path
-	auth := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	js := func(code int, v any) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(code)
@@ -66,87 +98,133 @@ func (f *Server) serve(w http.ResponseWriter, r *http.Request) {
 		w.Write(f.blobs[id])
 		return
 	}
+	login := f.Tokens[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]
+	if login == "" {
+		js(401, map[string]string{"message": "Bad credentials"})
+		return
+	}
 	var body map[string]any
 	if !strings.HasPrefix(p, "/upload") {
 		json.NewDecoder(r.Body).Decode(&body)
 	}
-	// app-level calls (JWT)
-	if strings.HasPrefix(p, "/app/") {
-		if strings.Count(auth, ".") != 2 {
-			js(401, map[string]string{"message": "A JSON web token could not be decoded"})
-			return
-		}
-		switch {
-		case p == "/app/installations":
-			js(200, []map[string]any{{"id": 7, "account": map[string]any{"login": f.Org}}})
-		case p == "/app/installations/7/access_tokens":
-			tok := fmt.Sprintf("ghs_%d", len(f.Tokens)+1)
-			var repos []string
-			if rs, ok := body["repositories"].([]any); ok {
-				for _, x := range rs {
-					repos = append(repos, f.Org+"/"+x.(string))
-				}
-			}
-			f.Tokens[tok] = repos
-			js(201, map[string]any{"token": tok, "expires_at": time.Now().Add(time.Hour).Format(time.RFC3339)})
-		default:
-			js(404, map[string]string{"message": "Not Found"})
-		}
-		return
-	}
-	scope, ok := f.Tokens[auth]
-	if !ok && !strings.HasPrefix(p, "/upload") {
-		js(401, map[string]string{"message": "Bad credentials"})
-		return
-	}
-	allowed := func(repo string) bool {
-		if scope == nil {
-			return true
-		}
-		for _, s := range scope {
-			if s == repo {
-				return true
-			}
-		}
-		return false
-	}
 	parts := strings.Split(strings.Trim(p, "/"), "/")
+	canSee := func(rp *repo) bool { return strings.EqualFold(rp.owner, login) || rp.collab[strings.ToLower(login)] }
 	switch {
-	case p == "/orgs/"+f.Org+"/repos" && r.Method == "POST":
+	case p == "/user":
+		js(200, map[string]any{"login": login})
+	case p == "/user/repos" && r.Method == "POST":
 		name := body["name"].(string)
-		full := f.Org + "/" + name
-		if _, ok := f.repos[full]; ok {
+		key := strings.ToLower(login + "/" + name)
+		if f.repos[key] != nil {
 			js(422, map[string]any{"message": "Repository creation failed.", "errors": []map[string]string{{"message": "name already exists on this account"}}})
 			return
 		}
-		dir := filepath.Join(f.root, "github", f.Org, name+".git")
+		dir := filepath.Join(f.root, "github", login, name+".git")
 		os.MkdirAll(filepath.Dir(dir), 0o755)
 		exec.Command("git", "init", "-q", "--bare", "-b", "main", dir).Run()
-		f.repos[full] = dir
-		js(201, map[string]any{"full_name": full, "clone_url": dir})
-	case len(parts) >= 3 && parts[0] == "repos":
-		repo := parts[1] + "/" + parts[2]
-		if !allowed(repo) {
+		rp := &repo{owner: login, name: name, dir: dir, collab: map[string]bool{}}
+		f.repos[key] = rp
+		js(201, f.repoJSON(rp))
+	case p == "/user/repository_invitations" && r.Method == "GET":
+		out := []map[string]any{}
+		for _, iv := range f.invs {
+			if strings.EqualFold(iv.Invitee, login) {
+				out = append(out, map[string]any{"id": iv.ID, "repository": f.repoJSON(iv.Repo), "inviter": map[string]any{"login": iv.Inviter}})
+			}
+		}
+		js(200, out)
+	case len(parts) == 3 && parts[0] == "user" && parts[1] == "repository_invitations" && r.Method == "PATCH":
+		id, _ := strconv.ParseInt(parts[2], 10, 64)
+		iv := f.invs[id]
+		if iv == nil || !strings.EqualFold(iv.Invitee, login) {
 			js(404, map[string]string{"message": "Not Found"})
 			return
 		}
+		iv.Repo.collab[strings.ToLower(login)] = true
+		delete(f.invs, id)
+		w.WriteHeader(204)
+	case len(parts) == 3 && parts[0] == "upload":
+		relID, _ := strconv.ParseInt(parts[1], 10, 64)
+		var rp *repo
+		for _, x := range f.repos {
+			if x.relID == relID {
+				rp = x
+			}
+		}
+		if rp == nil || !canSee(rp) {
+			js(404, map[string]string{"message": "Not Found"})
+			return
+		}
+		b, _ := io.ReadAll(r.Body)
+		f.nextID++
+		a := &Asset{ID: f.nextID, Name: r.URL.Query().Get("name"), Label: r.URL.Query().Get("label"), Size: int64(len(b))}
+		f.Assets[a.ID], f.blobs[a.ID], f.owner[a.ID] = a, b, rp
+		js(201, a)
+	case len(parts) >= 3 && parts[0] == "repos":
+		rp := f.repos[strings.ToLower(parts[1]+"/"+parts[2])]
+		if rp == nil || !canSee(rp) {
+			js(404, map[string]string{"message": "Not Found"})
+			return
+		}
+		isOwner := strings.EqualFold(rp.owner, login)
 		rest := "/" + strings.Join(parts[3:], "/")
 		switch {
+		case rest == "/" && r.Method == "GET":
+			m := f.repoJSON(rp)
+			m["permissions"] = map[string]bool{"admin": isOwner, "push": true}
+			js(200, m)
 		case rest == "/topics":
 			js(200, map[string]any{})
+		case rest == "/collaborators" && r.Method == "GET":
+			out := []map[string]any{{"login": rp.owner, "permissions": map[string]bool{"admin": true}}}
+			for c := range rp.collab {
+				out = append(out, map[string]any{"login": c, "permissions": map[string]bool{"admin": false}})
+			}
+			js(200, out)
+		case strings.HasPrefix(rest, "/collaborators/"):
+			who := strings.ToLower(strings.TrimPrefix(rest, "/collaborators/"))
+			if !isOwner && !(r.Method == "DELETE" && who == strings.ToLower(login)) {
+				js(403, map[string]string{"message": "Must have admin rights to Repository."})
+				return
+			}
+			if r.Method == "DELETE" {
+				delete(rp.collab, who)
+				for id, iv := range f.invs {
+					if iv.Repo == rp && strings.EqualFold(iv.Invitee, who) {
+						delete(f.invs, id)
+					}
+				}
+				w.WriteHeader(204)
+				return
+			}
+			if rp.collab[who] {
+				w.WriteHeader(204)
+				return
+			}
+			f.nextID++
+			f.invs[f.nextID] = &invitation{ID: f.nextID, Repo: rp, Inviter: login, Invitee: who}
+			js(201, map[string]any{"id": f.nextID})
+		case rest == "/invitations" && r.Method == "GET":
+			out := []map[string]any{}
+			for _, iv := range f.invs {
+				if iv.Repo == rp {
+					out = append(out, map[string]any{"id": iv.ID, "invitee": map[string]any{"login": iv.Invitee}})
+				}
+			}
+			js(200, out)
 		case rest == "/releases" && r.Method == "GET":
-			if id := f.rel[repo]; id != 0 {
-				js(200, []map[string]any{{"id": id, "tag_name": "flsync-storage", "upload_url": fmt.Sprintf("%s/upload/%d/assets{?name,label}", f.Srv.URL, id)}})
+			if rp.relID != 0 {
+				js(200, []map[string]any{{"id": rp.relID, "tag_name": "flsync-storage", "upload_url": fmt.Sprintf("%s/upload/%d/assets{?name,label}", f.Srv.URL, rp.relID)}})
 			} else {
 				js(200, []any{})
 			}
 		case rest == "/releases" && r.Method == "POST":
 			f.nextID++
-			f.rel[repo] = f.nextID
+			rp.relID = f.nextID
 			js(201, map[string]any{"id": f.nextID, "upload_url": fmt.Sprintf("%s/upload/%d/assets{?name,label}", f.Srv.URL, f.nextID)})
 		case strings.HasPrefix(rest, "/releases/assets/"):
 			id, _ := strconv.ParseInt(strings.TrimPrefix(rest, "/releases/assets/"), 10, 64)
-			if f.Assets[id] == nil || f.owner[id] != repo {
+			if f.Assets[id] == nil || f.owner[id] != rp {
 				js(404, map[string]string{"message": "Not Found"})
 				return
 			}
@@ -160,7 +238,7 @@ func (f *Server) serve(w http.ResponseWriter, r *http.Request) {
 		case strings.HasPrefix(rest, "/releases/") && strings.HasSuffix(rest, "/assets"):
 			list := []*Asset{}
 			for id, a := range f.Assets {
-				if f.owner[id] == repo {
+				if f.owner[id] == rp {
 					list = append(list, a)
 				}
 			}
@@ -168,23 +246,6 @@ func (f *Server) serve(w http.ResponseWriter, r *http.Request) {
 		default:
 			js(404, map[string]string{"message": "unknown " + r.Method + " " + p})
 		}
-	case len(parts) == 3 && parts[0] == "upload":
-		if _, ok := f.Tokens[auth]; !ok {
-			js(401, map[string]string{"message": "Bad credentials"})
-			return
-		}
-		relID, _ := strconv.ParseInt(parts[1], 10, 64)
-		repo := ""
-		for k, v := range f.rel {
-			if v == relID {
-				repo = k
-			}
-		}
-		b, _ := io.ReadAll(r.Body)
-		f.nextID++
-		a := &Asset{ID: f.nextID, Name: r.URL.Query().Get("name"), Label: r.URL.Query().Get("label"), Size: int64(len(b))}
-		f.Assets[a.ID], f.blobs[a.ID], f.owner[a.ID] = a, b, repo
-		js(201, a)
 	default:
 		js(404, map[string]string{"message": "unknown " + r.Method + " " + p})
 	}

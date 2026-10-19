@@ -29,10 +29,11 @@ type Group struct {
 type Config struct {
 	UserName        string         `json:"userName"` // nick on the server (= in the app)
 	UserID          string         `json:"userId,omitempty"`
+	GitHubLogin     string         `json:"githubLogin,omitempty"`
 	Server          string         `json:"server,omitempty"`      // server address (empty = built-in)
 	DeviceToken     string         `json:"deviceToken,omitempty"` // this device's key on the server
 	Sharing         string         `json:"sharing,omitempty"`     // who may download plugins from me: off|ask|members|all
-	Token           string         `json:"token,omitempty"`       // personal GitHub token of the old version (only for old repos)
+	Token           string         `json:"token,omitempty"`       // GitHub token: projects are the user's own repos
 	ExtraPluginDirs []string       `json:"extraPluginDirs"`
 	Projects        []LocalProject `json:"projects"`
 	Groups          []Group        `json:"groups,omitempty"`

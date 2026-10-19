@@ -440,3 +440,47 @@ func IsAudio(name string) bool {
 	}
 	return false
 }
+
+// RewritePluginPaths changes the plugin binary path stored in VST/CLAP wrapper
+// data (FL's plugin presets .fst and projects). Returns how many were changed.
+func (f *File) RewritePluginPaths(fn func(old string) string) int {
+	n := 0
+	for i, e := range f.Events {
+		if e.ID != evPluginData || len(e.Data) < 4 {
+			continue
+		}
+		d := e.Data
+		var out bytes.Buffer
+		out.Write(d[:4])
+		pos, changed, ok := 4, false, true
+		for pos < len(d) {
+			if pos+12 > len(d) {
+				ok = false
+				break
+			}
+			id := binary.LittleEndian.Uint32(d[pos:])
+			sz := binary.LittleEndian.Uint64(d[pos+4:])
+			if sz > uint64(len(d)-pos-12) {
+				ok = false
+				break
+			}
+			val := d[pos+12 : pos+12+int(sz)]
+			if id == wrapperPluginPath {
+				old := strings.TrimRight(string(val), "\x00")
+				if nv := fn(old); nv != old {
+					val = []byte(nv)
+					changed = true
+				}
+			}
+			binary.Write(&out, binary.LittleEndian, id)
+			binary.Write(&out, binary.LittleEndian, uint64(len(val)))
+			out.Write(val)
+			pos += 12 + int(sz)
+		}
+		if ok && changed {
+			f.Events[i].Data = out.Bytes()
+			n++
+		}
+	}
+	return n
+}

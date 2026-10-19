@@ -387,16 +387,13 @@ async function loadPreview(){
 // ---------- notifications (from our server) ----------
 async function pollNotes(){
   let r; try{ r = await api('/api/notifications') }catch(e){ return }
-  S.notes=r.projects||{}; S.invites=r.invites||[]; S.incoming=r.incoming||[]; S.ready=r.ready||[]; S.busy=r.busy||{}; S.serverError=r.serverError||'';
+  S.notes=r.projects||{}; S.invites=r.invites||[]; S.incoming=r.incoming||[]; S.ready=r.ready||[]; S.toSend=r.toSend||[]; S.busy=r.busy||{}; S.serverError=r.serverError||'';
   renderList(); renderInvites(); renderWho();
-  for(const q of S.incoming) if(!S.shownReq[q.id] && S.busy[q.id]!=='sending'){ S.shownReq[q.id]=1; askPermission(q) }
-  for(const q of S.ready){
-    if(q.kind==='installer'){ if(!S.shownReq['ready'+q.id]){ S.shownReq['ready'+q.id]=1; offerInstall(q) } }
-    else if(S.busy[q.id]==='human' && !S.shownReq['ready'+q.id]){ S.shownReq['ready'+q.id]=1; offerInstall(q) }
-  }
+  for(const q of S.incoming) if(!S.shownReq[q.id] && S.busy[q.id]!=='approving'){ S.shownReq[q.id]=1; askPermission(q) }
+  for(const it of r.installers||[]) if(!S.shownReq['inst'+it.id]){ S.shownReq['inst'+it.id]=1; offerInstaller(it) }
   for(const inv of S.invites) if(!S.shownReq['inv'+inv.id]){ S.shownReq['inv'+inv.id]=1; acceptInvite(inv.id) }
   // background jobs (plugins sent/installed automatically) get their own cards
-  api('/api/jobs').then(js=>{ for(const j of js) if(!j.done && !S.followed[j.id]) followJob(j.id, j.title, ()=>{ if(S.tab==='plugins') loadReqs() }) }).catch(()=>{});
+  api('/api/jobs').then(js=>{ for(const j of js) if(!j.done && !S.followed[j.id]) followJob(j.id, j.title, ()=>{ S.analysis=null; if(S.sel) loadProject(S.sel); if(S.tab==='plugins') loadReqs() }) }).catch(()=>{});
   const n=S.notes[S.sel];
   if(n && S.proj && n.behind!==S.proj.behind && !document.querySelector('.modal-bg')) loadProject(S.sel);
   if(n && S.tab==='talk' && n.unread) loadComments(false);
@@ -468,7 +465,7 @@ async function participantsDialog(){
     <label>Позвать в проект — ник в проге</label>
     <div class="row" style="flex-wrap:nowrap"><input id="pn" placeholder="ник друга" list="nicks"><button class="primary" id="pinv">Пригласить</button></div><div class="lookup" id="plk"></div>
     <datalist id="nicks"></datalist>
-    <div class="muted small" style="margin-top:8px">Приглашение придёт прямо в прогу. Убирать участников может владелец проекта.</div>`);
+    <div class="muted small" style="margin-top:8px">Приглашение придёт прямо в прогу, доступ к репозиторию на GitHub выдастся сам. Звать и убирать участников может владелец проекта.</div>`);
   m.querySelector('#x').onclick=()=>m.close();
   bindLookup(m.querySelector('#pn'), m.querySelector('#plk'), m.querySelector('#nicks'));
   const load=async()=>{
@@ -476,7 +473,7 @@ async function participantsDialog(){
     const p=r.project, me=r.me;
     const rows=[...(p.members||[]).map(u=>({u,pending:false})),...(p.invited||[]).map(i=>({u:i.to,pending:true}))];
     m.querySelector('#plistp').innerHTML=rows.map(({u,pending})=>`<div class="person" style="color:var(--text)">${avatar(u)}
-      <div style="flex:1"><b>${esc(u.nick)}</b>${u.id===me?' <span class="muted small">(ты)</span>':''} <span class="muted small">${esc(u.os||'')}</span><div>${u.id===p.owner.id?'<span class="tag">владелец</span> ':''}${pending?'<span class="tag warn">приглашён, ещё не принял</span>':''}</div></div>
+      <div style="flex:1"><b>${esc(u.nick)}</b>${u.id===me?' <span class="muted small">(ты)</span>':''} <span class="muted small">GitHub @${esc(u.github||'?')} · ${esc(u.os||'')}</span><div>${u.id===p.owner.id?'<span class="tag">владелец</span> ':''}${pending?'<span class="tag warn">приглашён, ещё не принял</span>':''}</div></div>
       ${p.isOwner&&u.id!==me?`<button class="sm ghost" data-u="${u.id}" data-n="${esc(u.nick)}" data-p="${pending?1:0}">${pending?'отменить приглашение':'убрать'}</button>`:''}
       ${!p.isOwner&&u.id===me?`<button class="sm ghost" data-u="${u.id}" data-n="${esc(u.nick)}" data-p="0">выйти из проекта</button>`:''}</div>`).join('');
     m.querySelectorAll('button[data-u]').forEach(b=>b.onclick=async()=>{
@@ -510,7 +507,7 @@ setInterval(pollNotes, 6000);
 function projName(path){ return (S.state?.projects||[]).find(p=>p.path===path)?.name || path }
 async function askPermission(r){
   const m=modal(`<h2><span class="ic">🔌</span> ${esc(r.fromNick)} просит плагин</h2>
-    <div class="card" style="margin:8px 0"><b style="font-size:16px">${esc(r.plugin)}</b> <span class="tag">${esc(r.format)}</span>${r.vendor?` <span class="muted">${esc(r.vendor)}</span>`:''}<div class="muted small">у ${esc(r.fromNick)} ${esc(r.fromOs)}</div></div>
+    <div class="card" style="margin:8px 0"><b style="font-size:16px">${esc(r.plugin)}</b> <span class="tag">${esc(r.format)}</span>${r.vendor?` <span class="muted">${esc(r.vendor)}</span>`:''}<div class="muted small">у ${esc(r.fromNick)} ${esc(r.fromOs)}${r.fromOnline?' · в сети':' · сейчас не в сети — плагин уйдёт, когда он появится'}</div></div>
     <div id="insp" class="muted small">Проверяю, что можно отправить…</div>
     <div class="warnbox small" style="margin-top:10px">⚖ Передавай только бесплатные плагины или те, на которые у ${esc(r.fromNick)} есть своя лицензия. Библиотеки сэмплов и активация не копируются.</div>
     <div class="muted small" style="margin-top:6px">Чтобы не нажимать каждый раз — ⚙ Настройки → «Кто может скачивать плагины с моего компьютера».</div>
@@ -530,16 +527,17 @@ async function askPermission(r){
   yes.onclick=async()=>{
     let file=m.querySelector('input[name=what]:checked').value;
     if(file==='__pick__'){ const p=await api('/api/pickanyfile',{}).catch(()=>({})); if(!p.path) return; file=p.path }
-    m.close(); await runJob('/api/plugin/approve',{id:r.id,file},{title:'Отправляю '+r.plugin+' для '+r.fromNick}); pollNotes();
+    m.close();
+    try{ await api('/api/plugin/approve',{id:r.id,file}); toast(r.fromOnline?`Разрешено — ${esc(r.plugin)} уже уходит к ${esc(r.fromNick)}`:`Разрешено — ${esc(r.plugin)} уйдёт к ${esc(r.fromNick)}, как только вы оба будете в сети`,5000) }catch(e){ fail(e) }
+    pollNotes(); if(S.tab==='plugins') loadReqs();
   };
 }
-function offerInstall(r){
-  const inst=r.kind==='installer';
-  const m=modal(`<h2><span class="ic">⬇</span> ${esc(r.toNick)} прислал ${inst?'установщик':'плагин'}</h2><div><b>${esc(r.plugin)}</b> <span class="tag">${esc(r.format)}</span> ${r.note?`<span class="muted">${esc(r.note)}</span>`:''} · ${fmtSize(r.size)}</div>
-    <div class="muted small" style="margin-top:8px">${inst?`Файл «${esc(r.fileName)}» сохранится в «Загрузки» и запустится — пройди установку как обычно.`:'Автоматическая установка не удалась — закрой FL Studio и попробуй ещё раз.'} После установки в FL: Options → Manage plugins → Find installed plugins.</div>
-    <div class="row" style="justify-content:flex-end;margin-top:14px"><button id="later" class="ghost">Позже</button><button id="yes" class="primary">${inst?'Скачать и запустить':'Установить'}</button></div>`);
-  m.querySelector('#later').onclick=()=>m.close();
-  m.querySelector('#yes').onclick=async()=>{ m.close(); await runJob('/api/plugin/install',{id:r.id},{title:(inst?'Скачиваю установщик ':'Устанавливаю ')+r.plugin}); pollNotes(); S.analysis=null; if(S.sel) loadProject(S.sel) };
+function offerInstaller(it){
+  const m=modal(`<h2><span class="ic">⬇</span> ${esc(it.from)} прислал установщик</h2><div><b>${esc(it.plugin)}</b></div>
+    <div class="muted small" style="margin-top:8px">Файл уже в «Загрузках»: <span class="mono">${esc(it.path)}</span>. Запусти и пройди установку как обычно. После установки в FL: Options → Manage plugins → Find installed plugins.</div>
+    <div class="row" style="justify-content:flex-end;margin-top:14px"><button id="later" class="ghost">Потом сам</button><button id="yes" class="primary">Запустить установщик</button></div>`);
+  m.querySelector('#later').onclick=()=>{ api('/api/plugin/run-installer',{id:it.id,skip:'1'}).catch(()=>{}); m.close() };
+  m.querySelector('#yes').onclick=async()=>{ m.close(); try{ await api('/api/plugin/run-installer',{id:it.id}) }catch(e){ fail(e) } };
 }
 // ---------- main view ----------
 function renderMain(){
@@ -592,7 +590,7 @@ function renderMain(){
 function setTab(t){ S.tab=t; if(t==='plugins') loadReqs(); if(t==='history'&&!S.history) loadHistory(); if(t==='talk') loadComments(true); if(t==='settings') S.parts=null; renderMain(); if(t==='settings') loadParticipants() }
 function layoutBanners(p){
   let h='';
-  if(p.isRepo && p.adopted && !p.onServer && S.state?.registered) h+=`<div class="warnbox">☁ Проект ${p.remote?'лежит не на сервере проги':'ещё не подключён к серверу'} — в него нельзя позвать участников. <button class="sm" style="margin-left:6px" onclick="moveToServer()">Перенести на сервер</button></div>`;
+  if(p.isRepo && p.adopted && !p.onServer && S.state?.registered) h+=`<div class="warnbox">☁ Проект не подключён к серверу проги — звать участников и видеть его в «Доступных» у друзей пока нельзя. <button class="sm" style="margin-left:6px" onclick="moveToServer()">Подключить к серверу</button></div>`;
   if((p.extraFlps||[]).length) h+=`<div class="warnbox">📂 В папке проекта лежит несколько проектов FL: ${p.extraFlps.map(x=>'<b>'+esc(x)+'</b>').join(', ')}. Так их легко перепутать, а у друга всё смешается. <button class="sm" style="margin-left:6px" onclick="splitDialog()">Разобрать по папкам…</button></div>`;
   if(p.rootAudio>0) h+=`<div class="warnbox">🎵 В корне проекта лежит аудио (${p.rootAudio}). Аудио должно жить в папке <b>Audio/</b> — перенесу и поправлю пути в .flp (закрой проект в FL). <button class="sm" style="margin-left:6px" onclick="runJob('/api/project/organize',{path:S.sel},{title:'Навожу порядок в папке'})">Перенести в Audio/</button></div>`;
   return h;
@@ -800,7 +798,7 @@ async function delComment(id){ if(!await uiConfirm('Удалить коммен�
 async function saveStatus(){ try{ await api('/api/project/status',{path:S.sel,stage:$('#sstage').value,text:$('#stext').value}); toast('Статус обновлён'); loadComments(false) }catch(e){ fail(e) } }
 
 async function loadReqs(){ try{ const r=await api('/api/plugin/requests'); S.reqs=r.requests||[]; S.busy=r.busy||S.busy; if(S.tab==='plugins'&&S.sel) renderMain() }catch(e){ S.reqs=S.reqs||[] } }
-const RS={pending:['ждёт ответа','warn'],approved:['отправлен','blue'],declined:['отказ','bad'],installed:['установлен','ok'],failed:['ошибка','bad'],cancelled:['отменён','']};
+const RS={pending:['ждёт ответа','warn'],approved:['разрешён — ждёт, когда оба в сети','blue'],streaming:['передаётся…','blue'],declined:['отказ','bad'],installed:['установлен','ok'],failed:['ошибка','bad'],cancelled:['отменён','']};
 function renderPlugins(){
   if(!S.analysis) return `<p class="muted">Сканирую плагины… (первый раз может занять до минуты)</p>`;
   if(!S.reqs){ loadReqs() }
@@ -811,7 +809,7 @@ function renderPlugins(){
   const stTag={ok:'ok',missing:'bad','other-format':'warn',unknown:''};
   const stName={ok:'есть',missing:'нет','other-format':'другой формат',unknown:'?'};
   const users=[...new Set(rows.flatMap(r=>r.machines.map(m=>m.user)))];
-  const myReq=name=>reqs.find(r=>r.from===myId&&r.plugin.toLowerCase()===name.toLowerCase()&&['pending','approved'].includes(r.status));
+  const myReq=name=>reqs.find(r=>r.from===myId&&r.plugin.toLowerCase()===name.toLowerCase()&&['pending','approved','streaming'].includes(r.status));
   const needs=r=>{ const m=r.machines.find(x=>x.user===me); return r.format!=='FL' && (!m||m.state!=='ok') && !myReq(r.name) };
   // per friend: everything this project needs that I don't have and he does
   const bulk={};
@@ -821,7 +819,7 @@ function renderPlugins(){
     let h=`<span class="tag ${stTag[m.state]}">${stName[m.state]}${m.version?' '+esc(m.version):''}</span>${m.note&&m.state!=='unknown'?`<div class="muted small">${esc(m.note)}</div>`:''}`;
     if(u===me && m.state!=='ok' && r.format!=='FL'){
       const q=myReq(r.name);
-      if(q) h+=`<div style="margin-top:4px">${q.status==='approved'?(q.kind==='installer'?`<button class="sm primary" onclick="installReq('${q.id}')">⬇ Скачать установщик</button>`:`<span class="tag blue">устанавливается…</span>`):`<span class="tag v">запрошен у ${esc(q.toNick)}</span> <a class="small muted" onclick="cancelReq('${q.id}')">отменить</a>`}</div>`;
+      if(q) h+=`<div style="margin-top:4px">${q.status==='streaming'?`<span class="tag blue">передаётся…</span>`:q.status==='approved'?`<span class="tag blue">разрешён${q.toOnline?'':' — ждём, когда '+esc(q.toNick)+' будет в сети'}</span>`:`<span class="tag v">запрошен у ${esc(q.toNick)}</span> <a class="small muted" onclick="cancelReq('${q.id}')">отменить</a>`}</div>`;
       else for(const o of (r.machines||[]).filter(x=>x.user!==me&&x.state==='ok')){
         const same=osOf(o.user)===S.state.os;
         h+=`<div style="margin-top:4px"><button class="sm" onclick="requestPlugins('${enc(o.user)}',[['${enc(r.name)}','${r.format}','${enc(r.vendor||'')}']])"><span class="ic">🔌</span> Скачать у ${esc(o.user)}</button>${same?'':`<div class="muted small" title="Файлы плагинов Mac и Windows разные">у него ${esc(osOf(o.user))} — пришлёт версию для твоей системы или установщик</div>`}</div>`;
@@ -841,15 +839,15 @@ function renderPlugins(){
       <td><span class="tag">${esc(r.format)}</span></td>${users.map(u=>`<td>${cell(r,u)}</td>`).join('')}
       <td>${r.link?`<a href="${esc(r.link)}">ссылка</a>`:''} <a class="small muted" onclick="editLink('${enc(r.name)}','${enc(r.link||'')}','${enc(r.linkNote||'')}')">${r.link?'✎':'+ ссылка'}</a>${r.linkNote?`<div class="muted small">${esc(r.linkNote)}</div>`:''}</td></tr>`).join('')}</table>`:'<p class="muted">Плагинов не найдено.</p>'}
     ${projReqs.length?`<h3>Передачи плагинов этого проекта</h3>${reqTable(projReqs.slice(0,30))}`:''}
-    <div class="card small muted">💡 Плагины передаются через сервер проги. Между одинаковыми системами плагин переносится и ставится сам. Между Mac и Windows — если в пакете плагина есть версия для обеих систем (так бывает у VST3), иначе друг пришлёт установщик, и прога его запустит. Библиотеки сэмплов и лицензии не переносятся.</div>`;
+    <div class="card small muted">💡 Плагин идёт напрямую с компьютера друга на твой (через сервер проги потоком, там ничего не хранится), поэтому оба компьютера должны быть включены и прога открыта. Плагин сам ложится в папку, где у тебя лежат плагины этого формата, и добавляется в базу плагинов FL. Между одинаковыми системами плагин переносится и ставится сам. Между Mac и Windows — если в пакете плагина есть версия для обеих систем (так бывает у VST3), иначе друг пришлёт установщик, и прога его запустит. Библиотеки сэмплов и лицензии не переносятся.</div>`;
 }
 function reqTable(list){
   const myId=S.state.userId;
   return `<table><tr><th>Когда</th><th>Плагин</th><th>Кто → у кого</th><th>Статус</th><th></th></tr>${list.map(r=>`<tr><td class="muted">${fmtTime(r.created)}</td><td>${esc(r.plugin)} <span class="tag">${esc(r.format)}</span></td><td>${esc(r.fromNick)} → ${esc(r.toNick)}</td>
       <td><span class="tag ${RS[r.status]?.[1]||''}">${RS[r.status]?.[0]||r.status}</span>${r.note?`<div class="muted small">${esc(r.note)}</div>`:''}</td>
-      <td>${r.to===myId&&r.status==='pending'?(S.busy?.[r.id]==='sending'?'<span class="tag blue">отправляется…</span>':`<button class="sm primary" onclick="reviewReq('${r.id}')">Ответить</button>`):''}
-        ${r.from===myId&&r.status==='approved'?(r.kind==='installer'||S.busy?.[r.id]==='human'?`<button class="sm primary" onclick="installReq('${r.id}')">⬇ Установить</button>`:'<span class="tag blue">устанавливается…</span>'):''}
-        ${r.from===myId&&r.status==='pending'?`<a class="small muted" onclick="cancelReq('${r.id}')">отменить</a>`:''}</td></tr>`).join('')}</table>`;
+      <td>${r.to===myId&&r.status==='pending'?(S.busy?.[r.id]==='approving'?'<span class="tag blue">разрешаю…</span>':`<button class="sm primary" onclick="reviewReq('${r.id}')">Ответить</button>`):''}
+        ${r.status==='approved'?`<span class="muted small">${r.to===myId?(r.fromOnline?'сейчас уйдёт':esc(r.fromNick)+' не в сети'):(r.toOnline?'сейчас придёт':esc(r.toNick)+' не в сети')}</span>`:''}
+        ${r.from===myId&&(r.status==='pending'||r.status==='approved')?` <a class="small muted" onclick="cancelReq('${r.id}')">отменить</a>`:''}</td></tr>`).join('')}</table>`;
 }
 // items: [[encName, format, encVendor], ...]
 async function requestPlugins(encTo, items){
@@ -862,31 +860,31 @@ async function requestPlugins(encTo, items){
 function requestBulk(encU){ const list=(S.bulk||{})[decodeURIComponent(encU)]||[]; if(list.length) requestPlugins(encU, list.map(r=>[enc(r.name),r.format,enc(r.vendor||'')])) }
 async function cancelReq(id){ try{ await api('/api/plugin/cancel',{id}); loadReqs() }catch(e){ fail(e) } }
 function reviewReq(id){ const r=(S.reqs||[]).find(x=>x.id===id); if(r) askPermission(r) }
-function installReq(id){ const r=(S.reqs||[]).find(x=>x.id===id); if(r) offerInstall(r) }
 // ---------- setup of a folder that is not a repo yet ----------
 function renderSetup(){
   const p=S.proj, reg=S.state.registered;
   $('#main').innerHTML=`<div class="card phead"><h1>${esc(p.name)}</h1><div class="muted small mono">${esc(p.path)}</div></div>${layoutBanners(p)}
   <div class="card"><h3 style="margin-top:0">Подключить проект к синхронизации</h3>
-    <p class="muted">Проект будет храниться на GitHub (в общей организации проги), а приглашения, участники и плагины — на сервере проги. Аудио идёт через Git LFS, .flp — с историей версий.</p>
+    <p class="muted">Создастся приватный репозиторий на твоём GitHub — один репозиторий на этот проект. Друзей прога позовёт сама: приглашение придёт им в прогу, а доступ к репозиторию на GitHub выдастся и примется автоматически. Аудио идёт через Git LFS, .flp — с историей версий.</p>
     ${reg?'':`<div class="warnbox small">Сначала зарегистрируйся — <a onclick="openRegister(true)">регистрация</a>.</div>`}
     <label>Название проекта</label><input id="g_name" value="${esc(p.name)}">
     <label>Ники друзей в проге (через запятую)</label><input id="g_inv" placeholder="friend" list="nicks2"><datalist id="nicks2"></datalist>
     <div class="lookup" id="g_look"></div>
-    <div style="margin-top:10px"><button class="primary" ${reg?'':'disabled'} onclick="createOnServer()">Создать на сервере и отправить</button></div>
-    <details style="margin-top:14px"><summary class="muted small" style="cursor:pointer">У меня свой git-репозиторий (без сервера проги)</summary>
+    <div style="margin-top:10px"><button class="primary" ${reg?'':'disabled'} onclick="createOnServer()">Создать репозиторий и отправить</button></div>
+    <details style="margin-top:14px"><summary class="muted small" style="cursor:pointer">У меня уже есть репозиторий для этого проекта</summary>
       <label>Ссылка на репозиторий (HTTPS)</label><input id="g_url" placeholder="https://github.com/you/track.git">
       <div style="margin-top:10px"><button onclick="initWith($('#g_url').value)">Подключить и отправить</button></div>
-      <div class="muted small" style="margin-top:8px">Так не будет приглашений и участников в проге. Доступ — через git на твоём компьютере (или GitHub-токен в ⚙ Настройках).</div></details></div>
+      <div class="muted small" style="margin-top:8px">Если это твой репозиторий на GitHub, потом нажми «Подключить к серверу» — тогда можно будет звать участников через прогу.</div></details></div>
   <div class="card small muted">💡 Если друг уже позвал тебя в свой проект — приглашение появится слева сверху, принимать и скачивать его нужно там, а не подключать эту папку.</div>`;
   const gi=$('#g_inv'); if(gi&&reg) bindLookup(gi,$('#g_look'),$('#nicks2'));
 }
 async function createOnServer(){
-  await runJob('/api/project/server-create',{path:S.sel,name:$('#g_name').value,invite:$('#g_inv').value},{title:'Создаю проект и отправляю'});
+  await runJob('/api/project/server-create',{path:S.sel,name:$('#g_name').value,invite:$('#g_inv').value},{title:'Создаю репозиторий и отправляю'});
 }
 async function moveToServer(){
-  if(!await uiConfirm(`Перенести проект на сервер проги? Создастся новое место на GitHub в организации проги, туда уйдёт текущая версия и история. Старый репозиторий останется как был.<div class="muted small" style="margin-top:6px">После переноса позови участников кнопкой «👥 Участники».</div>`,{ok:'Перенести',title:'Перенос на сервер'})) return;
-  await runJob('/api/project/move-to-server',{path:S.sel},{title:'Переношу проект на сервер'});
+  const p=S.proj;
+  if(!await uiConfirm(p.remote?`Подключить проект к серверу проги? Репозиторий остаётся тем же, на твоём GitHub. Те, у кого уже есть доступ к нему и кто зарегистрирован в проге, сразу станут участниками.<div class="muted small" style="margin-top:6px">Подключить может только владелец репозитория.</div>`:`У проекта ещё нет репозитория — создать приватный репозиторий на твоём GitHub и подключить его к серверу?`,{ok:'Подключить',title:'Подключение к серверу'})) return;
+  await runJob('/api/project/move-to-server',{path:S.sel},{title:'Подключаю проект к серверу'});
 }
 async function initWith(url){
   if(!url.trim()) return uiAlert('Вставь ссылку на репозиторий');
@@ -954,12 +952,12 @@ async function openSettings(){
   const st=S.state, c=st.config, t=st.tools;
   const m=modal(`<div class="row" style="justify-content:space-between"><h2>Настройки</h2><button class="ghost sm" id="x">✕</button></div>
     <h3>Профиль</h3>
-    ${st.registered?`<div class="row">${avatar({nick:c.userName},34)}<div><b style="font-size:16px">${esc(c.userName)}</b><div class="muted small">сервер ${esc(st.server)} ${S.serverError?`<span style="color:var(--bad)">· ${esc(S.serverError)}</span>`:'<span style="color:var(--ok)">· на связи</span>'}</div></div><span class="spacer"></span><button class="sm" id="rn">Сменить ник</button></div>
+    ${st.registered?`<div class="row">${avatar({nick:c.userName},34)}<div><b style="font-size:16px">${esc(c.userName)}</b><div class="muted small">GitHub @${esc(st.githubLogin||'?')} · сервер ${esc(st.server)} ${S.serverError?`<span style="color:var(--bad)">· ${esc(S.serverError)}</span>`:'<span style="color:var(--ok)">· на связи</span>'}</div></div><span class="spacer"></span><button class="sm" id="rn">Сменить ник</button><button class="sm" id="rt">Сменить GitHub-токен</button></div>
       <div class="muted small" style="margin-top:6px">Одно устройство — один пользователь: этот компьютер и есть твой аккаунт.</div>`
       :`<div class="row"><span class="muted">Не зарегистрирован</span><button class="sm primary" id="regb">Зарегистрироваться</button></div>`}
     <h3>Кто может скачивать плагины с моего компьютера</h3>
     <div id="share">${Object.entries(SHARE).map(([k,[t1,d]])=>`<label class="radio ${st.sharing===k?'on':''}"><input type="radio" name="sh" value="${k}" ${st.sharing===k?'checked':''} ${st.registered?'':'disabled'}><span><b>${t1}</b><div class="muted small">${d}</div></span></label>`).join('')}</div>
-    <div class="muted small">Без вопросов отправляется только то, что подойдёт на систему друга как есть. Если нужен установщик — прога всё равно спросит. Передавай только бесплатные плагины или те, на которые у друга есть лицензия.</div>
+    <div class="muted small">Плагин идёт напрямую с твоего компьютера на компьютер друга, когда у обоих открыта прога. Без вопросов отправляется только то, что подойдёт на систему друга как есть. Если нужен установщик — прога всё равно спросит. Передавай только бесплатные плагины или те, на которые у друга есть лицензия.</div>
     <h3>Где ищу плагины</h3>
     <div class="muted small">Папки берутся из базы плагинов FL Studio (там все папки, которые ты добавлял в FL), из настроек FL, системного пути VST и стандартных мест.</div>
     <div id="pfolders" class="small" style="margin-top:6px">Сканирую…</div>
@@ -967,9 +965,6 @@ async function openSettings(){
     <h3>Компоненты</h3>
     <div class="small">${t.gitOk?'✅ '+esc(t.git):'❌ git не найден'}<br>${t.lfsOk?'✅ '+esc(t.lfs):'❌ git-lfs не найден'}</div>
     ${(!t.gitOk||!t.lfsOk)?`<div style="margin-top:8px"><button onclick="installTools()">Установить автоматически</button></div>`:''}
-    <details style="margin-top:12px"><summary class="muted small" style="cursor:pointer">Старые проекты на личном GitHub</summary>
-      <div class="muted small" style="margin-top:6px">Нужен только для проектов из старой версии, которые ещё не перенесены на сервер проги (кнопка «Перенести на сервер» в проекте). ${st.legacyToken?'Токен сохранён.':''}</div>
-      <input id="ltok" type="password" placeholder="${st.legacyToken?'оставь пустым, чтобы не менять':'ghp_… (необязательно)'}"></details>
     <div class="card small muted">💡 Один раз в FL Studio: <i>Options → File settings → Browser extra search folders</i> — добавь папку, где лежат все проекты. И в каждом проекте: <i>Project → General settings → Data folder</i> = папка <b>Audio</b> проекта, тогда записи сразу будут падать туда.</div>
     <div class="muted small">Версия ${esc(st.version)} · настройки: <span class="mono">${esc(st.configDir)}</span></div>
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button id="cancel">Закрыть</button><button class="primary" id="ok">Сохранить</button></div>`);
@@ -977,12 +972,13 @@ async function openSettings(){
   const rb=m.querySelector('#regb'); if(rb) rb.onclick=()=>{ m.close(); openRegister(true) };
   const rn=m.querySelector('#rn'); if(rn) rn.onclick=async()=>{ const n=await uiPrompt('Новый ник',{value:c.userName}); if(!n||!n.trim()||n.trim()===c.userName) return;
     try{ await api('/api/account/update',{nick:n.trim()}); toast('Ник изменён'); m.close(); refreshAll() }catch(e){ fail(e) } };
+  const rt=m.querySelector('#rt'); if(rt) rt.onclick=async()=>{ const t=await uiPrompt('Новый GitHub-токen',{label:'Tokens (classic), галочка repo',placeholder:'ghp_…'}); if(!t||!t.trim()) return;
+    try{ const u=await api('/api/account/update',{token:t.trim()}); toast('Токен обновлён — GitHub @'+esc(u.github)); m.close(); refreshAll() }catch(e){ fail(e) } };
   m.querySelectorAll('input[name=sh]').forEach(i=>i.onchange=async()=>{
     try{ await api('/api/account/update',{sharing:i.value}); S.state.sharing=i.value; m.querySelectorAll('.radio').forEach(l=>l.classList.toggle('on',l.querySelector('input').checked)); toast('Сохранено') }catch(e){ fail(e) } });
   api('/api/pluginfolders').then(f=>renderFolders(m.querySelector('#pfolders'),f)).catch(()=>{});
   m.querySelector('#ok').onclick=async()=>{
     const body={extraPluginDirs:m.querySelector('#pd').value.split('\n').map(s=>s.trim()).filter(Boolean)};
-    const lt=m.querySelector('#ltok').value.trim(); if(lt) body.token=lt;
     await api('/api/settings',body); m.close(); refreshAll();
   };
 }
@@ -990,18 +986,23 @@ function openRegister(first){
   const st=S.state;
   if(st.registered) return openSettings();
   const m=modal(`<h2>${first?'Привет! Давай зарегистрируемся':'Регистрация'}</h2>
-    <div class="muted small">Одно устройство — один пользователь: аккаунт привязывается к этому компьютеру, паролей и токенов не нужно. Друзья будут звать тебя в проекты по этому нику, через него же вы обмениваетесь плагинами.</div>
-    <label>Ник</label><input id="un" placeholder="напр. tetramino" maxlength="32">
+    <div class="muted small">Одно устройство — один пользователь: аккаунт привязывается к этому компьютеру. Друзья зовут тебя в проекты по нику, через него же вы обмениваетесь плагинами.</div>
+    <label>Ник</label><input id="un" placeholder="напр. tetramino" maxlength="32" value="${esc(st.config.userName||'')}">
+    <label>GitHub-токен ${st.hasToken?'<span class="tag ok">уже сохранён</span>':''}</label><input id="tk" type="password" placeholder="${st.hasToken?'оставь пустым, чтобы использовать сохранённый':'ghp_…'}">
+    <div class="muted small">Проекты лежат на твоём GitHub — по репозиторию на проект. Токен: github.com → Settings → Developer settings → Personal access tokens → <b>Tokens (classic)</b>, галочка <b>repo</b>. <a href="${'https://github.com/settings/tokens/new?scopes=repo&description=prog-uzbeka'}">Открыть страницу создания</a>. Токен хранится только на этом компьютере; сервер лишь один раз сверяет, чей он.</div>
     <details style="margin-top:10px" ${st.serverDefault?'':'open'}><summary class="muted small" style="cursor:pointer">Сервер</summary>
-      <div class="muted small" style="margin-top:6px">${st.serverDefault?'Адрес встроен в прогу — менять не нужно.':'Адрес сервера проги (его даёт тот, кто его поднял).'}</div>
-      <input id="srv" value="${esc(st.server||'')}" placeholder="https://uzbek.example.com"></details>
+      <div class="muted small" style="margin-top:6px">${st.serverDefault?'Адрес встроен в прогу — менять не нужно.':'Адрес и код сервера даёт тот, кто его поднял.'}</div>
+      <label>Адрес</label><input id="srv" value="${esc(st.server||'')}" placeholder="https://1-2-3-4.sslip.io">
+      ${st.serverCodeBuiltIn?'':'<label>Код сервера</label><input id="code" placeholder="напр. 3f9a1c7b">'}</details>
     <div class="row" style="justify-content:flex-end;margin-top:14px">${first?'<button id="later" class="ghost">Позже</button>':''}<button class="primary" id="ok">Зарегистрироваться</button></div>`);
   const l=m.querySelector('#later'); if(l) l.onclick=()=>m.close();
   const un=m.querySelector('#un'); un.focus();
   const go=async()=>{
     const nick=un.value.trim(); if(!nick) return uiAlert('Придумай ник');
+    const token=m.querySelector('#tk').value.trim(); if(!token && !st.hasToken) return uiAlert('Нужен GitHub-токен — проекты хранятся на твоём GitHub');
+    const ce=m.querySelector('#code');
     const btn=m.querySelector('#ok'); btn.disabled=true; btn.textContent='Регистрирую…';
-    try{ const u=await api('/api/account/register',{nick,server:m.querySelector('#srv').value.trim()}); m.close(); toast(`Готово! Ты — ${esc(u.nick)}`); await refreshAll(); pollNotes(); loadAvailable(true) }
+    try{ const u=await api('/api/account/register',{nick,token,server:m.querySelector('#srv').value.trim(),code:ce?ce.value.trim():''}); m.close(); toast(`Готово! Ты — ${esc(u.nick)} (GitHub @${esc(u.github)})`); await refreshAll(); pollNotes(); loadAvailable(true) }
     catch(e){ btn.disabled=false; btn.textContent='Зарегистрироваться'; fail(e) }
   };
   m.querySelector('#ok').onclick=go; un.onkeydown=e=>{ if(e.key==='Enter') go() };
@@ -1016,7 +1017,7 @@ async function openPeople(){
   let us; try{ us=await getUsers(true) }catch(e){ m.querySelector('#pp').innerHTML=`<div class="badbox">${esc(e.message)}</div>`; return }
   const shareTxt={off:'не делится плагинами',ask:'спрашивает перед отправкой',members:'делится с участниками своих проектов',all:'делится плагинами со всеми'};
   m.querySelector('#pp').innerHTML=us.map(u=>`<div class="person">${avatar(u)}<div style="flex:1"><b>${esc(u.nick)}</b>${u.id===S.state.userId?' <span class="muted small">(ты)</span>':''}
-      <div class="muted small">${esc(u.os||'')} · ${u.online?'<span style="color:var(--ok)">в сети</span>':'был '+fmtTime(u.lastSeen)} · ${shareTxt[u.sharing]||''}</div></div>
+      <div class="muted small">GitHub @${esc(u.github||'?')} · ${esc(u.os||'')} · ${u.online?'<span style="color:var(--ok)">в сети</span>':'был '+fmtTime(u.lastSeen)} · ${shareTxt[u.sharing]||''}</div></div>
       ${u.id!==S.state.userId&&u.sharing!=='off'?`<button class="sm" onclick="openMissing('${u.id}')"><span class="ic">🔌</span> Чего у меня нет…</button>`:''}</div>`).join('');
 }
 async function openMissing(id){

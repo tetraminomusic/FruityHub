@@ -1,5 +1,5 @@
 # Пушишь тег vX.Y.Z → GitHub собирает exe, mac-версии и сервер и выкладывает в Releases.
-# Адрес сервера: Settings → Secrets and variables → Actions → Variables → UZBEK_SERVER.
+# Адрес сервера: Settings → Secrets and variables → Actions → Variables → UZBEK_SERVER, код — Secrets → UZBEK_SERVER_CODE.
 name: release
 on:
   push:
@@ -18,6 +18,6 @@ jobs:
           curl -sSL https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign%2F0.29.0/apple-codesign-0.29.0-x86_64-unknown-linux-musl.tar.gz | tar -xz
           sudo cp apple-codesign-*/rcodesign /usr/local/bin/
       - run: ./build.sh "${GITHUB_REF_NAME#v}"
-        env: { SERVER: "${{ vars.UZBEK_SERVER }}" }
+        env: { SERVER: "${{ vars.UZBEK_SERVER }}", SERVER_CODE: "${{ secrets.UZBEK_SERVER_CODE }}" }
       - run: gh release create "$GITHUB_REF_NAME" dist/ProgaUzbeka-*.zip dist/uzbek-server.tar.gz --generate-notes
         env: { GH_TOKEN: "${{ github.token }}" }

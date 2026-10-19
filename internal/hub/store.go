@@ -1,7 +1,8 @@
 // Package hub is the "прога узбека" server: users (one device = one user),
-// projects and members, invitations, plugin transfers. FL projects
-// themselves stay on GitHub — the server only hands out short-lived access
-// tokens for them via a GitHub App.
+// projects and their members, invitations, plugin transfers. FL projects
+// themselves stay on GitHub (one repo per project, on the owner's account);
+// the server only knows where they are. Plugins are streamed from one
+// computer to the other through the server without being stored.
 package hub
 
 import (
@@ -20,6 +21,7 @@ import (
 type User struct {
 	ID         string    `json:"id"`
 	Nick       string    `json:"nick"`
+	GitHub     string    `json:"github"` // GitHub login (checked at registration)
 	OS         string    `json:"os"`
 	Device     string    `json:"device"`
 	TokenHash  string    `json:"tokenHash"`
@@ -40,7 +42,7 @@ type InvItem struct {
 type Project struct {
 	ID       string   `json:"id"`
 	Name     string   `json:"name"`
-	Repo     string   `json:"repo"` // org/name on GitHub
+	Repo     string   `json:"repo"` // owner/name on GitHub
 	CloneURL string   `json:"cloneUrl"`
 	Owner    string   `json:"owner"`
 	Members  []string `json:"members"`
@@ -63,7 +65,7 @@ type PluginReq struct {
 	Plugin   string `json:"plugin"`
 	Format   string `json:"format"`
 	Vendor   string `json:"vendor,omitempty"`
-	Status   string `json:"status"` // pending approved declined installed failed cancelled
+	Status   string `json:"status"` // pending approved streaming declined installed failed cancelled
 	Kind     string `json:"kind,omitempty"`
 	FileName string `json:"fileName,omitempty"`
 	Size     int64  `json:"size,omitempty"`
@@ -165,6 +167,25 @@ func isMember(p *Project, uid string) bool {
 		}
 	}
 	return false
+}
+
+func (s *Store) projectByRepo(repo string) *Project {
+	for _, p := range s.db.Projects {
+		if strings.EqualFold(p.Repo, repo) {
+			return p
+		}
+	}
+	return nil
+}
+
+func (s *Store) usersByGitHub(login string) []*User {
+	var out []*User
+	for _, u := range s.db.Users {
+		if login != "" && strings.EqualFold(u.GitHub, login) {
+			out = append(out, u)
+		}
+	}
+	return out
 }
 
 func (s *Store) sharedProject(a, b string) bool {

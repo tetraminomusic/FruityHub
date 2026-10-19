@@ -2,18 +2,16 @@ package hub_test
 
 import (
 	"bytes"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
 	"encoding/json"
-	"encoding/pem"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"flsync/internal/fakegh"
 	"flsync/internal/hub"
@@ -54,13 +52,12 @@ func TestHubRules(t *testing.T) {
 	root := t.TempDir()
 	gh := fakegh.New(root)
 	defer gh.Close()
+	gh.AddUser("tA", "alogin")
+	gh.AddUser("tB", "blogin")
+	gh.AddUser("tC", "clogin")
 	data := filepath.Join(root, "data")
 	os.MkdirAll(data, 0o700)
-	key, _ := rsa.GenerateKey(rand.Reader, 2048)
-	pemKey := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-	b, _ := json.Marshal(map[string]any{"appId": 1, "org": gh.Org, "pem": string(pemKey)})
-	os.WriteFile(filepath.Join(data, "github-app.json"), b, 0o600)
-	s, err := hub.New(hub.Options{DataDir: data, PublicURL: "http://x", GitHubAPI: gh.Srv.URL, MaxFile: 10})
+	s, err := hub.New(hub.Options{DataDir: data, GitHubAPI: gh.Srv.URL, Code: "secret", StreamWait: 2 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,79 +65,113 @@ func TestHubRules(t *testing.T) {
 	defer srv.Close()
 
 	anon := &client{t: t, base: srv.URL}
-	reg := func(nick string) *client {
-		code, r := anon.do("POST", "/api/register", map[string]string{"nick": nick, "os": "macOS"})
+	reg := func(nick, tok string) *client {
+		code, r := anon.do("POST", "/api/register", map[string]string{"nick": nick, "os": "macOS", "code": "secret", "githubToken": tok})
 		if code != 200 {
 			t.Fatalf("register %s: %d %v", nick, code, r)
 		}
 		return &client{t: t, base: srv.URL, tok: r["token"].(string)}
 	}
-	if code, _ := anon.do("POST", "/api/register", map[string]string{"nick": "a/b"}); code != 400 {
+	if code, _ := anon.do("POST", "/api/register", map[string]string{"nick": "x1", "code": "wrong", "githubToken": "tA"}); code != 403 {
+		t.Fatal("wrong code accepted")
+	}
+	if code, _ := anon.do("POST", "/api/register", map[string]string{"nick": "x1", "code": "secret", "githubToken": "nope"}); code != 400 {
+		t.Fatal("bad GitHub token accepted")
+	}
+	if code, _ := anon.do("POST", "/api/register", map[string]string{"nick": "a/b", "code": "secret", "githubToken": "tA"}); code != 400 {
 		t.Fatal("bad nick accepted")
 	}
 	if code, _ := anon.do("GET", "/api/me", nil); code != 401 {
 		t.Fatal("anonymous access")
 	}
-	a, bb, c := reg("alpha"), reg("beta"), reg("gamma")
-	if code, _ := bb.do("PATCH", "/api/me", map[string]string{"nick": "ALPHA"}); code != 400 {
+	a, b, c := reg("alpha", "tA"), reg("beta", "tB"), reg("gamma", "tC")
+	if _, me := b.do("GET", "/api/me", nil); me["github"] != "blogin" {
+		t.Fatalf("github login not verified: %v", me)
+	}
+	if code, _ := b.do("PATCH", "/api/me", map[string]string{"nick": "ALPHA"}); code != 400 {
 		t.Fatal("rename to a taken nick")
 	}
-	code, p := a.do("POST", "/api/projects", map[string]string{"name": "Трек"})
-	if code != 200 || !strings.HasPrefix(p["repo"].(string), gh.Org+"/trek-alpha") {
-		t.Fatalf("create: %d %v", code, p)
+	code, p := a.do("POST", "/api/projects", map[string]string{"name": "Трек", "repo": "alogin/trek", "cloneUrl": "x"})
+	if code != 200 {
+		t.Fatalf("add project: %d %v", code, p)
 	}
 	pid := p["id"].(string)
-	if code, _ := bb.do("GET", "/api/projects/"+pid+"/token", nil); code != 403 {
-		t.Fatal("non-member got a token")
+	if code, _ := b.do("POST", "/api/projects", map[string]string{"name": "чужой", "repo": "ALOGIN/trek"}); code != 409 {
+		t.Fatal("someone else registered the same repo")
 	}
-	if code, r := a.do("GET", "/api/projects/"+pid+"/token", nil); code != 200 || !strings.HasPrefix(r["token"].(string), "ghs_") {
-		t.Fatalf("owner token: %d %v", code, r)
+	// collaborators that are already on GitHub become members
+	if code, r := a.do("POST", "/api/projects/"+pid+"/sync-members", map[string]any{"logins": []string{"clogin", "stranger"}}); code != 200 || len(r["members"].([]any)) != 2 {
+		t.Fatalf("sync: %d %v", code, r)
 	}
 	_, inv := a.do("POST", "/api/projects/"+pid+"/invite", map[string]string{"nick": "beta"})
+	if inv["to"].(map[string]any)["github"] != "blogin" {
+		t.Fatalf("invite must tell the GitHub login: %v", inv)
+	}
 	if code, _ := c.do("POST", "/api/invites/"+inv["id"].(string)+"/accept", nil); code != 404 {
 		t.Fatal("someone else accepted the invite")
 	}
-	bb.do("POST", "/api/invites/"+inv["id"].(string)+"/accept", nil)
+	b.do("POST", "/api/invites/"+inv["id"].(string)+"/accept", nil)
 	_, me := c.do("GET", "/api/me", nil)
-	_, inv2 := a.do("POST", "/api/projects/"+pid+"/invite", map[string]string{"nick": "gamma"})
-	c.do("POST", "/api/invites/"+inv2["id"].(string)+"/accept", nil)
-	_, beta := bb.do("GET", "/api/me", nil)
+	_, beta := b.do("GET", "/api/me", nil)
 	if code, _ := c.do("DELETE", "/api/projects/"+pid+"/members/"+beta["id"].(string), nil); code != 403 {
 		t.Fatal("a member removed another member")
 	}
 	if code, _ := c.do("DELETE", "/api/projects/"+pid+"/members/"+me["id"].(string), nil); code != 200 {
 		t.Fatal("leaving a project failed")
 	}
-	// plugin files: size limit, only the requester downloads
-	_, list := bb.do("POST", "/api/plugin-requests", map[string]any{"to": "alpha", "items": []map[string]string{{"plugin": "Serum", "format": "VST3"}}})
-	_ = list
-	code2, all := bb.do("GET", "/api/inbox", nil)
-	_ = all
-	if code2 != 200 {
-		t.Fatal("inbox")
-	}
+
+	// plugin stream: bytes go through, nothing is stored
+	b.do("POST", "/api/plugin-requests", map[string]any{"to": "alpha", "items": []map[string]string{{"plugin": "Serum", "format": "VST3"}}})
 	_, ainbox := a.do("GET", "/api/inbox", nil)
 	q := ainbox["incoming"].([]any)[0].(map[string]any)
-	if code, _ := a.do("PUT", "/api/plugin-requests/"+q["id"].(string)+"/file?kind=plugin", []byte("this is more than ten bytes")); code != 413 {
-		t.Fatalf("big file accepted: %d", code)
+	id := q["id"].(string)
+	if code, _ := b.do("GET", "/api/plugin-requests/"+id+"/stream", nil); code != 400 {
+		t.Fatal("download before approval")
 	}
-	if code, _ := a.do("PUT", "/api/plugin-requests/"+q["id"].(string)+"/file?kind=plugin&name=s.zip", []byte("zipdata")); code != 200 {
-		t.Fatal("upload failed")
+	payload := bytes.Repeat([]byte("plugin-bytes-"), 50000)
+	if code, _ := a.do("POST", "/api/plugin-requests/"+id+"/approve", map[string]any{"kind": "plugin", "name": "Serum.vst3.zip", "size": len(payload)}); code != 200 {
+		t.Fatal("approve")
 	}
-	if code, _ := c.do("GET", "/api/plugin-requests/"+q["id"].(string)+"/file", nil); code != 404 && code != 403 {
-		t.Fatal("stranger downloaded the plugin")
+	// the receiver is offline: the sender gives up after the wait
+	if code, _ := a.do("PUT", "/api/plugin-requests/"+id+"/stream", payload); code != 408 {
+		t.Fatalf("send without a receiver: %d", code)
 	}
-	if code, r := bb.do("GET", "/api/plugin-requests/"+q["id"].(string)+"/file", nil); code != 200 || r["raw"] != "zipdata" {
-		t.Fatalf("download: %d %v", code, r)
+	if code, _ := c.do("GET", "/api/plugin-requests/"+id+"/stream", nil); code != 403 {
+		t.Fatal("a stranger got the stream")
 	}
-	// setup page needs the admin key; the install callback asks GitHub itself
-	if code, r := anon.do("GET", "/setup", nil); code != 200 || !strings.Contains(r["raw"].(string), "ключ администратора") {
-		t.Fatal("setup without key")
+	var wg sync.WaitGroup
+	var got []byte
+	var gotCode int
+	wg.Add(1)
+	go func() { // receiver first, sender a bit later
+		defer wg.Done()
+		req, _ := http.NewRequest("GET", srv.URL+"/api/plugin-requests/"+id+"/stream", nil)
+		req.Header.Set("Authorization", "Bearer "+b.tok)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		gotCode = resp.StatusCode
+		got, _ = io.ReadAll(resp.Body)
+		resp.Body.Close()
+	}()
+	time.Sleep(300 * time.Millisecond)
+	if code, r := a.do("PUT", "/api/plugin-requests/"+id+"/stream", payload); code != 200 {
+		t.Fatalf("send: %d %v", code, r)
 	}
-	if code, r := anon.do("GET", "/setup/installed?installation_id=999", nil); code != 200 || !strings.Contains(r["raw"].(string), "Готово") {
-		t.Fatalf("installed: %v", r)
+	wg.Wait()
+	if gotCode != 200 || !bytes.Equal(got, payload) {
+		t.Fatalf("received %d bytes, code %d", len(got), gotCode)
 	}
-	if s.GitHubApp().InstallationID != 7 {
-		t.Fatalf("installation id taken from the URL: %d", s.GitHubApp().InstallationID)
+	b.do("POST", "/api/plugin-requests/"+id+"/done", map[string]any{"ok": true})
+	if _, r := b.do("GET", "/api/plugin-requests/"+id, nil); r["status"] != "installed" {
+		t.Fatalf("status: %v", r)
+	}
+	ents, _ := os.ReadDir(data)
+	for _, e := range ents {
+		if e.Name() != "db.json" && e.Name() != "server-code" && !strings.HasSuffix(e.Name(), ".tmp") {
+			t.Fatalf("unexpected file on the server: %s", e.Name())
+		}
 	}
 }

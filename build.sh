@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # Собирает «прогу узбека» под Windows и macOS, а сервер — под Linux (из любой ОС, нужен только Go 1.22+).
-#   SERVER=https://uzbek.example.com ./build.sh 0.5.0
-# SERVER — адрес вашего сервера, он вшивается в прогу (можно не указывать: тогда адрес спросят при регистрации).
+#   SERVER=https://1-2-3-4.sslip.io SERVER_CODE=a1b2c3d4 ./build.sh 0.6.0
+# SERVER и SERVER_CODE (из server.txt после deploy-server.sh) вшиваются в прогу — друзьям ничего не вписывать.
+# Можно не указывать: тогда адрес и код спросят при регистрации.
 set -euo pipefail
 cd "$(dirname "$0")"
 VERSION="${1:-$(date +%Y.%m.%d)}"
 SERVER="${SERVER:-}"
-LD="-s -w -X main.version=$VERSION -X flsync/internal/app.DefaultServer=$SERVER"
+SERVER_CODE="${SERVER_CODE:-}"
+LD="-s -w -X main.version=$VERSION -X flsync/internal/app.DefaultServer=$SERVER -X flsync/internal/app.DefaultServerCode=$SERVER_CODE"
 NAME="прога узбека"
 rm -rf dist && mkdir -p dist
-[[ -z "$SERVER" ]] && echo "⚠ SERVER не задан: адрес сервера нужно будет вписать при регистрации"
+[[ -z "$SERVER" ]] && echo "⚠ SERVER не задан: адрес и код сервера нужно будет вписать при регистрации"
 export CGO_ENABLED=0
 
 echo "→ Windows"
@@ -58,6 +60,7 @@ mkdir -p dist/server
 for a in amd64 arm64; do
   GOOS=linux GOARCH=$a go build -trimpath -ldflags "-s -w" -o "dist/server/uzbek-server-linux-$a" ./cmd/uzbek-server
 done
-cp deploy/install.sh dist/server/install.sh
+cp deploy/install.sh deploy/deploy-server.sh dist/server/
+chmod +x dist/server/*.sh
 (cd dist && tar -czf uzbek-server.tar.gz server)
 ls -lh dist dist/server

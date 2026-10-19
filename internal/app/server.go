@@ -337,7 +337,7 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 		}
 		return map[string]any{"config": cfg, "registered": s.cfg.Hub().Registered(), "projects": list, "windowed": s.Windowed,
 			"tools": CheckTools(), "os": OSName(), "me": s.cfg.MachineID(), "userId": s.cfg.UserID, "version": Version, "configDir": ConfigDir(),
-			"groups": s.cfg.Groups, "server": s.cfg.ServerURL(), "serverDefault": DefaultServer, "sharing": sharing, "legacyToken": s.cfg.Token != ""}, nil
+			"groups": s.cfg.Groups, "server": s.cfg.ServerURL(), "serverDefault": DefaultServer, "sharing": sharing, "hasToken": s.cfg.Token != "", "githubLogin": s.cfg.GitHubLogin, "serverCodeBuiltIn": DefaultServerCode != ""}, nil
 	})
 	api("/api/settings", func(r *http.Request) (any, error) {
 		var req struct {

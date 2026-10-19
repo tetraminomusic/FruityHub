@@ -1,18 +1,12 @@
 // devstack: fake GitHub + our server on localhost, for trying the app
-// without real GitHub (developer tool).
+// without real GitHub (developer tool). GitHub tokens: tokA (alogin), tokB (blogin).
 package main
 
 import (
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
-	"encoding/json"
-	"encoding/pem"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
 
 	"flsync/internal/fakegh"
@@ -24,15 +18,9 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:47900", "server address")
 	flag.Parse()
 	gh := fakegh.New(*root)
-	data := filepath.Join(*root, "hub")
-	os.MkdirAll(data, 0o700)
-	if _, err := os.Stat(filepath.Join(data, "github-app.json")); err != nil {
-		key, _ := rsa.GenerateKey(rand.Reader, 2048)
-		pemKey := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-		b, _ := json.Marshal(map[string]any{"appId": 1, "slug": "dev", "org": gh.Org, "pem": string(pemKey)})
-		os.WriteFile(filepath.Join(data, "github-app.json"), b, 0o600)
-	}
-	s, err := hub.New(hub.Options{DataDir: data, PublicURL: "http://" + *addr, GitHubAPI: gh.Srv.URL})
+	gh.AddUser("tokA", "alogin")
+	gh.AddUser("tokB", "blogin")
+	s, err := hub.New(hub.Options{DataDir: filepath.Join(*root, "hub"), GitHubAPI: gh.Srv.URL, Code: "uzbek"})
 	if err != nil {
 		log.Fatal(err)
 	}
