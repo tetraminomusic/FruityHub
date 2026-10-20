@@ -29,16 +29,23 @@ install -d -o uzbek -g uzbek -m 700 "$DATA"
 systemctl stop uzbek-server 2>/dev/null || true
 install -m 755 "$BIN" /usr/local/bin/uzbek-server
 
-# порт 443 нужен для HTTPS; если его уже занимает другой веб-сервер — работаем по HTTP на 47900
-busy443=""
-if command -v ss >/dev/null && ss -ltn '( sport = :443 )' | grep -q LISTEN; then busy443=1; fi
-if [[ -z "$busy443" ]]; then
+# Порт 443 нужен для HTTPS. На VPN-сервере он обычно занят самим VPN — тогда HTTPS на порту 47943
+# (сертификат получаем через порт 80). Заняты оба — работаем по HTTP на 47900.
+busy() { command -v ss >/dev/null && ss -ltn "( sport = :$1 )" | grep -q LISTEN; }
+PORTS="80 443"
+if ! busy 443; then
   ARGS="-data $DATA -domain $DOMAIN"
   ADDRESS="https://$DOMAIN"
+elif ! busy 80; then
+  ARGS="-data $DATA -domain $DOMAIN -https-port 47943"
+  ADDRESS="https://$DOMAIN:47943"
+  PORTS="80 47943"
+  echo "→ Порт 443 занят (наверное, VPN) — сервер будет на HTTPS-порту 47943."
 else
   ARGS="-data $DATA -addr :47900"
   ADDRESS="http://$IP:47900"
-  echo "⚠ Порт 443 занят другой программой — сервер будет работать без HTTPS на порту 47900."
+  PORTS="47900"
+  echo "⚠ Порты 80 и 443 заняты другими программами — сервер будет работать без HTTPS на порту 47900."
 fi
 
 cat > /etc/systemd/system/uzbek-server.service <<UNIT
@@ -63,7 +70,17 @@ WantedBy=multi-user.target
 UNIT
 
 if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
-  ufw allow 80/tcp >/dev/null; ufw allow 443/tcp >/dev/null; ufw allow 47900/tcp >/dev/null
+  for p in $PORTS; do ufw allow "$p/tcp" >/dev/null; done
+fi
+if command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
+  for p in $PORTS; do firewall-cmd --permanent --add-port="$p/tcp" >/dev/null; done
+  firewall-cmd --reload >/dev/null
+fi
+# голый iptables с политикой DROP (частая настройка на VPN-серверах)
+if ! command -v ufw >/dev/null && ! command -v firewall-cmd >/dev/null && command -v iptables >/dev/null \
+   && iptables -S INPUT 2>/dev/null | grep -q '^-P INPUT DROP'; then
+  for p in $PORTS; do iptables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport "$p" -j ACCEPT; done
+  command -v netfilter-persistent >/dev/null && netfilter-persistent save >/dev/null 2>&1 || true
 fi
 systemctl daemon-reload
 systemctl enable --now uzbek-server >/dev/null 2>&1
@@ -78,7 +95,7 @@ for i in $(seq 1 30); do
   sleep 2
 done
 if [[ -z "$ok" ]]; then
-  echo "⚠ Сервер запущен, но снаружи пока не отвечает. Проверь, что в панели хостинга открыты порты 80 и 443,"
+  echo "⚠ Сервер запущен, но снаружи пока не отвечает. Проверь, что в панели хостинга открыты порты: $PORTS,"
   echo "  и посмотри логи: journalctl -u uzbek-server -n 50"
 fi
 

@@ -23,6 +23,7 @@ func main() {
 	domain := flag.String("domain", "", "домен для автоматического HTTPS (Let's Encrypt), напр. uzbek.example.com")
 	cert := flag.String("cert", "", "свой сертификат (вместо Let's Encrypt)")
 	key := flag.String("key", "", "ключ к сертификату")
+	httpsPort := flag.Int("https-port", 443, "порт HTTPS вместе с -domain (если 443 занят, например VPN; тогда для сертификата нужен свободный порт 80)")
 	code := flag.String("code", "", "код для регистрации (по умолчанию — из файла server-code в папке данных)")
 	flag.Parse()
 
@@ -44,8 +45,8 @@ func main() {
 		}()
 		tc := m.TLSConfig()
 		tc.MinVersion = tls.VersionTLS12
-		srv := &http.Server{Addr: ":443", Handler: h, TLSConfig: tc, ReadHeaderTimeout: 20 * time.Second}
-		log.Printf("слушаю https://%s", *domain)
+		srv := &http.Server{Addr: fmt.Sprintf(":%d", *httpsPort), Handler: h, TLSConfig: tc, ReadHeaderTimeout: 20 * time.Second}
+		log.Printf("слушаю https://%s:%d", *domain, *httpsPort)
 		log.Fatal(srv.ListenAndServeTLS("", ""))
 	case *cert != "":
 		log.Printf("слушаю %s (TLS)", *addr)

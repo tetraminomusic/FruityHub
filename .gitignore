@@ -2,3 +2,4 @@ dist/
 *.exe
 dist/
 _to_delete/
+server.txt
