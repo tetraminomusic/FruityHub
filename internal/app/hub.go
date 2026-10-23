@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// DefaultServer is the address of "прога узбека" server baked in at build time.
+// DefaultServer is the address of "FruityHub" server baked in at build time.
 var DefaultServer = ""
 
 // DefaultServerCode is the registration code baked in at build time.
@@ -34,6 +34,17 @@ type Hub struct {
 	inbox    *Inbox
 	invSig   string
 	invAt    time.Time
+	discAt   time.Time
+	locks    map[string]*HubLock // id проекта → замок (nil — свободен); nil-карта — сервер замков не знает
+}
+
+// HubLock — проект «в работе» у участника (замок на сервере).
+type HubLock struct {
+	UserID string `json:"userId"`
+	User   string `json:"user"`
+	OS     string `json:"os,omitempty"`
+	Since  int64  `json:"since"`
+	Note   string `json:"note,omitempty"`
 }
 
 type HubUser struct {
@@ -66,6 +77,7 @@ type HubProject struct {
 	Members  []HubUser   `json:"members"`
 	Invited  []HubInvite `json:"invited"`
 	IsOwner  bool        `json:"isOwner"`
+	Lock     *HubLock    `json:"lock"`
 }
 
 // PluginRequest is a plugin transfer between two users (through the server).
@@ -89,6 +101,9 @@ type PluginRequest struct {
 	ToNick     string `json:"toNick"`
 	ToOS       string `json:"toOs"`
 	ToOnline   bool   `json:"toOnline"`
+	OfferSeq   int    `json:"offerSeq,omitempty"`
+	Reinstall  bool   `json:"reinstall,omitempty"`
+	Partial    bool   `json:"partial,omitempty"`
 }
 
 // Statuses
@@ -103,11 +118,14 @@ const (
 )
 
 type Inbox struct {
-	Invites  []HubInvite     `json:"invites"`
-	Incoming []PluginRequest `json:"incoming"` // asked from me, waiting for my answer
-	ToSend   []PluginRequest `json:"toSend"`   // I allowed: my app sends them
-	Ready    []PluginRequest `json:"ready"`    // my requests that were allowed: my app receives them
-	Me       HubUser         `json:"me"`
+	Invites  []HubInvite         `json:"invites"`
+	Incoming []PluginRequest     `json:"incoming"` // asked from me, waiting for my answer
+	ToSend   []PluginRequest     `json:"toSend"`   // I allowed: my app sends them
+	Ready    []PluginRequest     `json:"ready"`    // my requests that were allowed: my app receives them
+	Me       HubUser             `json:"me"`
+	MoveTo   string              `json:"moveTo,omitempty"` // сервер переехал
+	Update   string              `json:"update,omitempty"` // последняя версия приложения на сервере
+	Locks    map[string]*HubLock `json:"locks"`            // замки проектов (сервер 0.7.4+)
 }
 
 var hubsMu sync.Mutex
@@ -145,7 +163,7 @@ func (e *HubError) Error() string { return e.Msg }
 func (h *Hub) do(method, path string, body any, out any) error {
 	base := h.cfg.ServerURL()
 	if base == "" {
-		return errors.New("не указан адрес сервера (⚙ Настройки → Сервер)")
+		return errors.New("не указан адрес сервера (Настройки → Сервер)")
 	}
 	var rd io.Reader
 	if body != nil {
@@ -206,7 +224,7 @@ func (h *Hub) Ping(server string) error {
 	}
 	json.NewDecoder(resp.Body).Decode(&r)
 	if r.Service != "prog-uzbeka" {
-		return fmt.Errorf("по адресу %s не сервер проги узбека", hostOf(server))
+		return fmt.Errorf("по адресу %s не сервер FruityHub", hostOf(server))
 	}
 	return nil
 }
@@ -326,6 +344,27 @@ func (h *Hub) Projects(maxAge time.Duration) ([]HubProject, error) {
 	return ps, nil
 }
 
+// Discover просит сервер добавить меня во все проекты, к репозиториям которых у моего GitHub уже есть доступ
+// (тот же GitHub-аккаунт на другом устройстве или коллаборатор). Не чаще раза в 30 секунд, если не force.
+func (h *Hub) Discover(force bool) ([]HubProject, error) {
+	if h.cfg.Token == "" || !h.Registered() {
+		return nil, nil
+	}
+	h.mu.Lock()
+	if !force && time.Since(h.discAt) < 30*time.Second {
+		h.mu.Unlock()
+		return nil, nil
+	}
+	h.discAt = time.Now()
+	h.mu.Unlock()
+	var added []HubProject
+	err := h.do("POST", "/api/projects/discover", map[string]string{"githubToken": h.cfg.Token}, &added)
+	if len(added) > 0 {
+		h.forget()
+	}
+	return added, err
+}
+
 func (h *Hub) forget() {
 	h.mu.Lock()
 	h.projAt = time.Time{}
@@ -436,12 +475,40 @@ func (h *Hub) Inbox() (*Inbox, error) {
 	}
 	h.mu.Lock()
 	h.inbox = &in
+	if in.Locks != nil {
+		h.locks = in.Locks
+	}
 	h.mu.Unlock()
 	if in.Me.Nick != "" && (in.Me.Nick != h.cfg.UserName || in.Me.Sharing != h.cfg.Sharing) {
 		h.cfg.UserName, h.cfg.Sharing = in.Me.Nick, in.Me.Sharing
 		h.cfg.Save()
 	}
 	return &in, nil
+}
+
+// FollowMove: сервер сообщил, что переехал. Переключаемся, только если новый сервер отвечает
+// и узнаёт это устройство (туда восстановлен бэкап).
+func (h *Hub) FollowMove(to string) error {
+	to = strings.TrimRight(strings.TrimSpace(to), "/")
+	if to == "" || to == h.cfg.ServerURL() {
+		return nil
+	}
+	if err := h.Ping(to); err != nil {
+		return err
+	}
+	req, _ := http.NewRequest("GET", to+"/api/me", nil)
+	req.Header.Set("Authorization", "Bearer "+h.cfg.DeviceToken)
+	resp, err := h.cl.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if err := readHubResp(resp, nil); err != nil {
+		return fmt.Errorf("новый сервер не узнаёт это устройство: %w", err)
+	}
+	h.cfg.Server = to
+	h.forget()
+	return h.cfg.Save()
 }
 
 // LastInbox is the most recent inbox (nil before the first successful poll).
@@ -452,9 +519,10 @@ func (h *Hub) LastInbox() *Inbox {
 }
 
 type ReqItem struct {
-	Plugin string `json:"plugin"`
-	Format string `json:"format"`
-	Vendor string `json:"vendor,omitempty"`
+	Plugin    string `json:"plugin"`
+	Format    string `json:"format"`
+	Vendor    string `json:"vendor,omitempty"`
+	Reinstall bool   `json:"reinstall,omitempty"`
 }
 
 func (h *Hub) RequestPlugins(toNick string, items []ReqItem) ([]PluginRequest, error) {
@@ -477,12 +545,130 @@ func (h *Hub) DeclineRequest(id, reason string) error {
 	return h.do("POST", "/api/plugin-requests/"+url.PathEscape(id)+"/decline", map[string]string{"reason": reason}, nil)
 }
 
+var errCancelled = errors.New("передача отменена")
+
+// ----- замки проектов -----
+
+var errNoHubLocks = errors.New("сервер не умеет замки проектов")
+
+// LocksKnown: сервер присылает замки (иначе — старый сервер, замок по-старому через git).
+func (h *Hub) LocksKnown() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.locks != nil
+}
+
+// ProjectLock — замок проекта из последнего опроса сервера.
+func (h *Hub) ProjectLock(id string) (*HubLock, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.locks == nil {
+		return nil, false
+	}
+	return h.locks[id], true
+}
+
+func (h *Hub) setLock(id string, l *HubLock) {
+	h.mu.Lock()
+	if h.locks == nil {
+		h.locks = map[string]*HubLock{}
+	}
+	h.locks[id] = l
+	h.mu.Unlock()
+}
+
+func (h *Hub) TakeLock(id string, force bool, note string) (*HubLock, error) {
+	var l HubLock
+	err := h.do("POST", "/api/projects/"+url.PathEscape(id)+"/lock", map[string]any{"force": force, "note": note, "os": OSName()}, &l)
+	if he, ok := err.(*HubError); ok && (he.Code == 404 || he.Code == 405) && !strings.Contains(he.Msg, "проект") {
+		return nil, errNoHubLocks
+	}
+	if err != nil {
+		return nil, err
+	}
+	h.setLock(id, &l)
+	return &l, nil
+}
+
+func (h *Hub) ReleaseLock(id string, force bool) error {
+	q := ""
+	if force {
+		q = "?force=1"
+	}
+	err := h.do("DELETE", "/api/projects/"+url.PathEscape(id)+"/lock"+q, nil, nil)
+	if he, ok := err.(*HubError); ok && (he.Code == 404 || he.Code == 405) && !strings.Contains(he.Msg, "проект") {
+		return errNoHubLocks
+	}
+	if err == nil {
+		h.setLock(id, nil)
+	}
+	return err
+}
+
+// ----- какие зависимости плагина уже есть у получателя -----
+
+var errNoNego = errors.New("сервер не умеет сверять зависимости")
+
+func (h *Hub) PutOffer(id string, offer any) (int, error) {
+	var out struct {
+		Seq int `json:"seq"`
+	}
+	err := h.do("PUT", "/api/plugin-requests/"+url.PathEscape(id)+"/offer", offer, &out)
+	if he, ok := err.(*HubError); ok && (he.Code == 404 || he.Code == 405) {
+		return 0, errNoNego
+	}
+	return out.Seq, err
+}
+
+func (h *Hub) GetOffer(id string) (int, json.RawMessage, error) {
+	var out struct {
+		Seq   int             `json:"seq"`
+		Offer json.RawMessage `json:"offer"`
+	}
+	err := h.do("GET", "/api/plugin-requests/"+url.PathEscape(id)+"/offer", nil, &out)
+	return out.Seq, out.Offer, err
+}
+
+func (h *Hub) PutHave(id string, seq int, have any) error {
+	return h.do("PUT", "/api/plugin-requests/"+url.PathEscape(id)+"/have", map[string]any{"seq": seq, "have": have}, nil)
+}
+
+// GetHave ждёт ответа получателя (сервер держит запрос до 20 секунд). ok=false — ещё не ответил.
+func (h *Hub) GetHave(id string, out any) (seq int, ok bool, err error) {
+	var r struct {
+		Seq  int             `json:"seq"`
+		Have json.RawMessage `json:"have"`
+	}
+	err = h.do("GET", "/api/plugin-requests/"+url.PathEscape(id)+"/have", nil, &r)
+	if he, isHE := err.(*HubError); isHE && he.Code == 408 {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return r.Seq, true, json.Unmarshal(r.Have, out)
+}
+
+func (h *Hub) RetryRequest(id string) error {
+	return h.do("POST", "/api/plugin-requests/"+url.PathEscape(id)+"/retry", nil, nil)
+}
+
+// RetryReinstall — передать ещё раз начисто (все зависимости, с заменой файлов) или обычным повтором.
+func (h *Hub) RetryReinstall(id string, reinstall bool) error {
+	return h.do("POST", "/api/plugin-requests/"+url.PathEscape(id)+"/retry", map[string]bool{"reinstall": reinstall}, nil)
+}
+
 func (h *Hub) CancelRequest(id string) error {
 	return h.do("POST", "/api/plugin-requests/"+url.PathEscape(id)+"/cancel", nil, nil)
 }
 
 func (h *Hub) DoneRequest(id string, ok bool, note string) error {
 	return h.do("POST", "/api/plugin-requests/"+url.PathEscape(id)+"/done", map[string]any{"ok": ok, "note": note}, nil)
+}
+
+// DonePartial — плагин встал, но не всё из его данных легло.
+func (h *Hub) DonePartial(id, note string) error {
+	return h.do("POST", "/api/plugin-requests/"+url.PathEscape(id)+"/done", map[string]any{"ok": true, "partial": true, "note": note}, nil)
 }
 
 // Approve: yes, and this is what will come (kind "plugin" or "installer").
@@ -495,6 +681,10 @@ var errNotOnline = errors.New("получатель не в сети")
 
 // StreamSend pushes the file through the server straight to the requester.
 // The server keeps nothing: it waits for the other side and pipes the bytes.
+var errStalled = errors.New("связь оборвалась: полторы минуты не шли данные (сеть, сон ноутбука?) — попробую ещё раз")
+
+const stallAfter = 90 * time.Second
+
 func (h *Hub) StreamSend(job *Job, id, path string) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -502,8 +692,10 @@ func (h *Hub) StreamSend(job *Job, id, path string) error {
 	}
 	defer f.Close()
 	st, _ := f.Stat()
-	req, err := http.NewRequest("PUT", h.cfg.ServerURL()+"/api/plugin-requests/"+url.PathEscape(id)+"/stream",
-		&progressReader{r: f, total: st.Size(), job: job, verb: "Передаю"})
+	ctx, touch, stop, stalled := stallGuard(job.Ctx(), stallAfter)
+	defer stop()
+	req, err := http.NewRequestWithContext(ctx, "PUT", h.cfg.ServerURL()+"/api/plugin-requests/"+url.PathEscape(id)+"/stream",
+		&progressReader{r: f, total: st.Size(), job: job, verb: "Передаю", touch: touch})
 	if err != nil {
 		return err
 	}
@@ -511,28 +703,48 @@ func (h *Hub) StreamSend(job *Job, id, path string) error {
 	req.Header.Set("X-Size", fmt.Sprint(st.Size()))
 	req.Header.Set("Authorization", "Bearer "+h.cfg.DeviceToken)
 	req.Header.Set("Content-Type", "application/octet-stream")
-	resp, err := (&http.Client{}).Do(req)
+	req.Header.Set("Expect", "100-continue") // данные пойдут, только когда получатель подключится
+	job.SetProgress("Жду, пока получатель подключится к передаче…", -1)
+	resp, err := streamClient().Do(req)
 	if err != nil {
+		if stalled() {
+			return errStalled
+		}
+		if job.Ctx().Err() != nil {
+			return errCancelled
+		}
 		return fmt.Errorf("передача прервалась: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == 408 {
 		return errNotOnline
 	}
+	if resp.StatusCode == 410 {
+		return errCancelled
+	}
 	return readHubResp(resp, nil)
 }
 
 // StreamRecv takes the file while the owner's app is sending it.
 func (h *Hub) StreamRecv(job *Job, r *PluginRequest, dst string) error {
-	req, _ := http.NewRequest("GET", h.cfg.ServerURL()+"/api/plugin-requests/"+url.PathEscape(r.ID)+"/stream", nil)
+	ctx, touch, stop, stalled := stallGuard(job.Ctx(), stallAfter)
+	defer stop()
+	req, _ := http.NewRequestWithContext(ctx, "GET", h.cfg.ServerURL()+"/api/plugin-requests/"+url.PathEscape(r.ID)+"/stream", nil)
 	req.Header.Set("Authorization", "Bearer "+h.cfg.DeviceToken)
-	resp, err := (&http.Client{}).Do(req)
+	resp, err := streamClient().Do(req)
 	if err != nil {
+		if job.Ctx().Err() != nil {
+			return errCancelled
+		}
 		return fmt.Errorf("сервер недоступен: %v", err)
 	}
 	defer resp.Body.Close()
+	touch() // с этого момента ждём данных не дольше stallAfter
 	if resp.StatusCode == 408 {
 		return errors.New("отправитель сейчас не в сети")
+	}
+	if resp.StatusCode == 410 {
+		return errCancelled
 	}
 	if resp.StatusCode >= 300 {
 		return readHubResp(resp, nil)
@@ -543,13 +755,19 @@ func (h *Hub) StreamRecv(job *Job, r *PluginRequest, dst string) error {
 	if err != nil {
 		return err
 	}
-	n, err := io.Copy(f, &progressReader{r: resp.Body, total: resp.ContentLength, job: job, verb: "Получаю"})
+	n, err := io.CopyBuffer(f, &progressReader{r: resp.Body, total: resp.ContentLength, job: job, verb: "Получаю", touch: touch}, make([]byte, 1<<20))
+	if err != nil && stalled() {
+		err = errStalled
+	}
 	f.Close()
 	if err == nil && resp.ContentLength > 0 && n != resp.ContentLength {
 		err = fmt.Errorf("получено %d из %d байт", n, resp.ContentLength)
 	}
 	if err != nil {
 		os.Remove(tmp)
+		if job.Ctx().Err() != nil {
+			return errCancelled
+		}
 		return fmt.Errorf("передача прервалась: %v", err)
 	}
 	os.Remove(dst)

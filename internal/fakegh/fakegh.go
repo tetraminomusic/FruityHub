@@ -28,6 +28,7 @@ type repo struct {
 	owner, name, dir string
 	collab           map[string]bool
 	relID            int64
+	topics           []string
 }
 
 type invitation struct {
@@ -42,17 +43,19 @@ type Server struct {
 	Srv    *httptest.Server
 	root   string
 	Tokens map[string]string // token -> login
-	repos  map[string]*repo  // owner/name (lower case)
-	invs   map[int64]*invitation
-	Assets map[int64]*Asset
-	owner  map[int64]*repo
-	blobs  map[int64][]byte
-	nextID int64
+	// NoDeleteScope: у этих логинов токен без галочки delete_repo
+	NoDeleteScope map[string]bool
+	repos         map[string]*repo // owner/name (lower case)
+	invs          map[int64]*invitation
+	Assets        map[int64]*Asset
+	owner         map[int64]*repo
+	blobs         map[int64][]byte
+	nextID        int64
 }
 
 // New starts a fake GitHub (close it with Close).
 func New(root string) *Server {
-	f := &Server{root: root, Tokens: map[string]string{}, repos: map[string]*repo{}, invs: map[int64]*invitation{},
+	f := &Server{root: root, Tokens: map[string]string{}, NoDeleteScope: map[string]bool{}, repos: map[string]*repo{}, invs: map[int64]*invitation{},
 		Assets: map[int64]*Asset{}, owner: map[int64]*repo{}, blobs: map[int64][]byte{}, nextID: 100}
 	f.Srv = httptest.NewServer(http.HandlerFunc(f.serve))
 	return f
@@ -80,8 +83,13 @@ func (f *Server) Collaborators(full string) []string {
 }
 
 func (f *Server) repoJSON(r *repo) map[string]any {
-	return map[string]any{"full_name": r.owner + "/" + r.name, "name": r.name, "clone_url": r.dir,
-		"html_url": "https://github.com/" + r.owner + "/" + r.name, "owner": map[string]any{"login": r.owner}}
+	topics := r.topics
+	if topics == nil {
+		topics = []string{}
+	}
+	return map[string]any{"full_name": r.owner + "/" + r.name, "name": r.name, "clone_url": r.dir, "private": true,
+		"html_url": "https://github.com/" + r.owner + "/" + r.name, "owner": map[string]any{"login": r.owner},
+		"topics": topics, "size": 10, "pushed_at": "2026-10-20T10:00:00Z"}
 }
 
 func (f *Server) serve(w http.ResponseWriter, r *http.Request) {
@@ -125,6 +133,16 @@ func (f *Server) serve(w http.ResponseWriter, r *http.Request) {
 		rp := &repo{owner: login, name: name, dir: dir, collab: map[string]bool{}}
 		f.repos[key] = rp
 		js(201, f.repoJSON(rp))
+	case p == "/user/repos" && r.Method == "GET":
+		out := []map[string]any{}
+		if r.URL.Query().Get("page") == "1" || r.URL.Query().Get("page") == "" {
+			for _, rp := range f.repos {
+				if strings.EqualFold(rp.owner, login) {
+					out = append(out, f.repoJSON(rp))
+				}
+			}
+		}
+		js(200, out)
 	case p == "/user/repository_invitations" && r.Method == "GET":
 		out := []map[string]any{}
 		for _, iv := range f.invs {
@@ -173,7 +191,27 @@ func (f *Server) serve(w http.ResponseWriter, r *http.Request) {
 			m := f.repoJSON(rp)
 			m["permissions"] = map[string]bool{"admin": isOwner, "push": true}
 			js(200, m)
+		case rest == "/" && r.Method == "DELETE":
+			if !isOwner {
+				js(403, map[string]string{"message": "Must have admin rights to Repository."})
+				return
+			}
+			if f.NoDeleteScope[strings.ToLower(login)] {
+				js(403, map[string]string{"message": "Must have admin rights to Repository."})
+				return
+			}
+			delete(f.repos, strings.ToLower(rp.owner+"/"+rp.name))
+			os.RemoveAll(rp.dir)
+			w.WriteHeader(204)
 		case rest == "/topics":
+			if r.Method == "PUT" {
+				if names, ok := body["names"].([]any); ok {
+					rp.topics = nil
+					for _, n := range names {
+						rp.topics = append(rp.topics, fmt.Sprint(n))
+					}
+				}
+			}
 			js(200, map[string]any{})
 		case rest == "/collaborators" && r.Method == "GET":
 			out := []map[string]any{{"login": rp.owner, "permissions": map[string]bool{"admin": true}}}

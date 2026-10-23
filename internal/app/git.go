@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -30,6 +32,23 @@ type Job struct {
 	Started  int64     `json:"started"`
 	raw      []string
 	mu       sync.Mutex
+	ctx      context.Context
+	cancel   context.CancelFunc
+}
+
+// Ctx — контекст задачи: отменяется кнопкой «Отменить» (передача плагина).
+func (j *Job) Ctx() context.Context {
+	if j == nil || j.ctx == nil {
+		return context.Background()
+	}
+	return j.ctx
+}
+
+// Cancel прерывает задачу (то, что умеет прерываться, — сетевые передачи).
+func (j *Job) Cancel() {
+	if j != nil && j.cancel != nil {
+		j.cancel()
+	}
 }
 
 type Progress struct {
@@ -168,6 +187,11 @@ func gitEnvToken(cfg *Config, token string) []string {
 	}
 	env = setEnv(env, "PATH", path)
 	env = setEnv(env, "GIT_TERMINAL_PROMPT", "0")
+	if u, _ := GitHubProxy(); u != nil {
+		for _, k := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"} {
+			env = setEnv(env, k, u.String())
+		}
+	}
 	if token != "" {
 		env = setEnv(env, "GIT_ASKPASS", selfExe())
 		env = setEnv(env, "FLSYNC_ASKPASS", "1")
@@ -269,6 +293,14 @@ func (g *Git) run(stdin io.Reader, echo bool, args ...string) (string, error) {
 		full = append(full, "-c", "credential.helper=")
 	}
 	full = append(full, args...)
+	if g.Dir != "" && !dirExists(g.Dir) { // папку проекта удалили или перенесли — git тут не поможет, не мучаем его повторами
+		return "", &GitError{Args: args, Msg: "папка не найдена: " + g.Dir, Err: os.ErrNotExist}
+	}
+	if gitMissing() { // git ещё не установлен (новый компьютер) — ставим MinGit сами, а не падаем «неизвестной ошибкой»
+		if err := ensureGit(g.Job); err != nil {
+			return "", &GitError{Args: args, Msg: "git не установлен и не получилось поставить его автоматически: " + err.Error(), Err: err}
+		}
+	}
 	cmd := exec.Command(gitBinary(), full...)
 	cmd.Dir = g.Dir
 	cmd.Env = append(gitEnvToken(g.Cfg, tok), g.Env...)
@@ -282,7 +314,37 @@ func (g *Git) run(stdin io.Reader, echo bool, args ...string) (string, error) {
 	} else {
 		cmd.Stderr = &errb
 	}
+	started := time.Now()
 	err := cmd.Run()
+	// Windows иногда не даёт запустить git (антивирус проверяет exe, «Отказано в доступе», сбой 0xc0000005).
+	// Git при этом ничего не успел сделать, поэтому безопасно попробовать ещё раз.
+	for try := 1; try <= 3 && stdin == nil && launchFailed(err, errb.String(), time.Since(started)); try++ {
+		gitCrashes.Add(1)
+		DevLog("git", time.Since(started).Milliseconds(), true, "[%s] git %s не запустился (%v: %s) — попытка %d", filepath.Base(g.Dir), strings.Join(args, " "), err, firstLine(errb.String()), try+1)
+		time.Sleep(time.Duration(try*try) * 400 * time.Millisecond)
+		out.Reset()
+		errb.Reset()
+		cmd = exec.Command(gitBinary(), full...)
+		cmd.Dir = g.Dir
+		cmd.Env = append(gitEnvToken(g.Cfg, tok), g.Env...)
+		cmd.Stdin = stdin
+		hideWindow(cmd)
+		cmd.Stdout = &out
+		if g.Job != nil && echo {
+			cmd.Stderr = &jobWriter{j: g.Job, all: &errb}
+		} else {
+			cmd.Stderr = &errb
+		}
+		started = time.Now()
+		err = cmd.Run()
+	}
+	where := filepath.Base(g.Dir)
+	quietMiss := err != nil && readOnlyGit(args) && !DevVerbose.Load() // запросы «только чтение» (нет ветки, не репозиторий) — не ошибки
+	if err != nil && !quietMiss {
+		DevLog("git", time.Since(started).Milliseconds(), true, "[%s] git %s → %v: %s", where, strings.Join(args, " "), err, firstLine(errb.String()))
+	} else if DevVerbose.Load() || !readOnlyGit(args) {
+		DevLog("git", time.Since(started).Milliseconds(), false, "[%s] git %s", where, strings.Join(args, " "))
+	}
 	if err != nil {
 		msg := strings.TrimSpace(errb.String())
 		if msg == "" {
@@ -327,6 +389,9 @@ func humanGitError(msg string) string {
 		return "На диске закончилось место."
 	case strings.Contains(l, "permission denied"), strings.Contains(l, "operation not permitted"):
 		return "Нет прав на запись в папку проекта (возможно, файл открыт в FL Studio)."
+	case strings.Contains(l, "access is denied"), strings.Contains(l, "отказано в доступе"), strings.Contains(l, "error launching"),
+		strings.Contains(l, "0xc0000005"), strings.Contains(l, "getting git version"):
+		return "Windows не дал запустить git — скорее всего, его проверяет или блокирует антивирус. Попробуй ещё раз через минуту. Если повторяется — добавь папку %APPDATA%\\FruityHub\\tools в исключения антивируса или установи Git for Windows с git-scm.com."
 	case strings.Contains(l, "index.lock"):
 		return "Проект занят другой операцией. Подожди пару секунд и попробуй ещё раз."
 	}
@@ -565,4 +630,79 @@ func isPushRejected(err error) bool {
 
 func nowStamp() string {
 	return time.Now().Format("2006-01-02 15-04")
+}
+
+func firstLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	if len(s) > 300 {
+		s = s[:300] + "…"
+	}
+	return s
+}
+
+// launchFailed: git не стартовал вовсе (а не отработал с ошибкой) — такое бывает из-за антивируса.
+func launchFailed(err error, stderr string, took time.Duration) bool {
+	if err == nil {
+		return false
+	}
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) {
+		return !errors.Is(err, exec.ErrNotFound) // exe не запустился (но не «git не установлен»)
+	}
+	code := uint32(ee.ExitCode())
+	if code == 0xc0000005 || code == 0xc0000142 || code == 0xc0000022 {
+		return true
+	}
+	l := strings.ToLower(stderr)
+	quick := took < 3*time.Second
+	return quick && (strings.Contains(l, "error launching") || strings.Contains(l, "access is denied") ||
+		strings.Contains(l, "отказано в доступе") || strings.Contains(l, "getting git version"))
+}
+
+var (
+	ensureGitMu sync.Mutex
+	gitOKCache  atomic.Bool
+	gitCrashes  atomic.Int64 // сколько раз git не запустился (антивирус, защита Windows) с запуска приложения
+)
+
+// gitMissing — git нигде не найден (ни в системе, ни наш MinGit).
+func gitMissing() bool {
+	if gitOKCache.Load() {
+		return false
+	}
+	b := gitBinary()
+	if b != "git" {
+		gitOKCache.Store(true)
+		return false
+	}
+	if _, err := exec.LookPath("git"); err == nil {
+		gitOKCache.Store(true)
+		return false
+	}
+	return true
+}
+
+// ensureGit ставит git (на Windows — портативный MinGit с Git LFS), если его нет. Один раз за раз.
+func ensureGit(job *Job) error {
+	ensureGitMu.Lock()
+	defer ensureGitMu.Unlock()
+	if !gitMissing() {
+		return nil
+	}
+	if job == nil {
+		job = &Job{}
+	}
+	job.Logf("На этом компьютере нет git — устанавливаю (один раз, ≈40 МБ)…")
+	DevLog("info", 0, false, "git не найден — ставлю автоматически")
+	if err := InstallTools(job); err != nil {
+		return err
+	}
+	if gitMissing() {
+		return errors.New("после установки git всё ещё не найден")
+	}
+	job.Logf("✓ Git установлен")
+	return nil
 }

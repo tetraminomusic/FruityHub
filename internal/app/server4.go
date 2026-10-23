@@ -56,20 +56,33 @@ func (s *Server) HubLoop(every time.Duration) {
 			if err == nil {
 				for _, i := range in.Invites {
 					if !seenInv[i.ID] && !first {
-						LogActivity("", "info", fmt.Sprintf("📨 %s приглашает в проект «%s»", i.From.Nick, i.Name))
+						LogActivity("", "info", fmt.Sprintf("%s приглашает в проект «%s»", i.From.Nick, i.Name))
 					}
 					seenInv[i.ID] = true
 				}
 				first = false
+				if in.MoveTo != "" {
+					old := s.cfg.ServerURL()
+					if err := h.FollowMove(in.MoveTo); err == nil && s.cfg.ServerURL() != old {
+						LogActivity("", "ok", "Сервер переехал: теперь "+s.cfg.ServerURL())
+						DevLog("info", 0, false, "сервер переехал: %s → %s", old, s.cfg.ServerURL())
+					} else if err != nil {
+						DevLog("info", 0, true, "сервер просит переехать на %s, но там не получилось: %v", in.MoveTo, err)
+					}
+				}
 				s.autoApprove(in.Incoming)
 				s.sendAllowed(in.ToSend)
 				s.receiveAllowed(in.Ready)
+				s.answerOffers(in.Ready)
+				s.reconcileClaims(in.Ready)
+				go flushErrorReports(s.cfg)
+				s.maybeAutoUpdate(in.Update)
 				go h.PutInventory(ScanInstalled(s.cfg, false))
 				if len(in.Incoming)+len(in.ToSend)+len(in.Ready) > 0 {
 					wait = 2 * time.Second // a transfer is going on: react fast
 				}
 			} else if he, ok := err.(*HubError); ok && he.Code == 401 {
-				s.setHubErr(errors.New("сервер не узнаёт это устройство — зарегистрируйся заново (⚙ Настройки)"))
+				s.setHubErr(errors.New("сервер не узнаёт это устройство — зарегистрируйся заново (Настройки)"))
 			}
 		}
 		time.Sleep(wait)
@@ -135,8 +148,13 @@ func (s *Server) sendAllowed(list []PluginRequest) {
 		s.busyReq.Store(r.ID, "sending")
 		rr := r
 		s.startJobOpt("Передаю "+rr.Plugin+" → "+rr.FromNick, "", false, func(j *Job) (any, error) {
+			s.reqJobs.Store(rr.ID, j)
 			err := SendApproved(s.cfg, j, &rr)
+			s.reqJobs.Delete(rr.ID)
 			s.busyReq.Delete(rr.ID)
+			if errors.Is(err, errCancelled) {
+				return nil, err
+			}
 			if err != nil {
 				retryAt.Store(rr.ID, time.Now().Add(30*time.Second))
 			}
@@ -160,7 +178,9 @@ func (s *Server) receiveAllowed(list []PluginRequest) {
 		rr := r
 		title := "Получаю " + rr.Plugin + " от " + rr.ToNick
 		s.startJobOpt(title, "", false, func(j *Job) (any, error) {
+			s.reqJobs.Store(rr.ID, j)
 			dst, err := ReceiveRequest(s.cfg, j, &rr)
+			s.reqJobs.Delete(rr.ID)
 			s.busyReq.Delete(rr.ID)
 			if err == nil && rr.Kind == "installer" {
 				installersMu.Lock()
@@ -183,6 +203,8 @@ func pendingInstallers() []ReceivedInstaller {
 	defer installersMu.Unlock()
 	return append([]ReceivedInstaller{}, installers...)
 }
+
+var availMu sync.Mutex
 
 // ---------- local API: account, people, projects, plugins ----------
 
@@ -300,8 +322,25 @@ func (s *Server) routes4(api func(string, func(*http.Request) (any, error))) {
 			return nil, err
 		}
 		mine := map[string]bool{}
+		myVer := map[string]InstalledPlugin{}
 		for _, p := range ScanInstalled(s.cfg, false) {
 			mine[normName(p.Name)] = true
+			if p.Version != "" {
+				myVer[normName(p.Name)+"|"+p.Format] = p
+			}
+		}
+		// есть у обоих, но версии разные — тоже можно скачать
+		versions := []map[string]string{}
+		seenV := map[string]bool{}
+		for _, p := range inv.Plugins {
+			k := normName(p.Name)
+			m, ok := myVer[k+"|"+p.Format]
+			if !ok || p.Version == "" || p.Version == m.Version || seenV[k] {
+				continue
+			}
+			seenV[k] = true
+			versions = append(versions, map[string]string{"name": p.Name, "format": p.Format, "vendor": p.Vendor, "version": p.Version, "mine": m.Version,
+				"newer": fmt.Sprint(newerVersion(p.Version, m.Version))})
 		}
 		best := map[string]InstalledPlugin{}
 		for _, p := range inv.Plugins {
@@ -320,7 +359,10 @@ func (s *Server) routes4(api func(string, func(*http.Request) (any, error))) {
 			}
 		}
 		sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
-		return map[string]any{"user": inv.User, "updated": inv.Updated, "missing": out, "total": len(inv.Plugins)}, nil
+		sort.Slice(versions, func(i, j int) bool {
+			return strings.ToLower(versions[i]["name"]) < strings.ToLower(versions[j]["name"])
+		})
+		return map[string]any{"user": inv.User, "updated": inv.Updated, "missing": out, "versions": versions, "total": len(inv.Plugins)}, nil
 	})
 
 	// ----- projects: own GitHub repo per project, people through the server -----
@@ -329,7 +371,7 @@ func (s *Server) routes4(api func(string, func(*http.Request) (any, error))) {
 		if err != nil {
 			return nil, err
 		}
-		return p.CreateOnGitHub(str(b, "name"), strings.FieldsFunc(str(b, "invite"), func(r rune) bool { return r == ',' || r == ';' || r == ' ' }))
+		return p.CreateOnGitHub(str(b, "name"), inviteList(b["invite"]))
 	})
 	jobAPI("/api/project/move-to-server", "Подключаю проект к серверу", true, func(b map[string]any, j *Job) (any, error) {
 		p, err := s.project(str(b, "path"), j)
@@ -345,7 +387,7 @@ func (s *Server) routes4(api func(string, func(*http.Request) (any, error))) {
 		}
 		hp := h().ProjectForRemote(p.git().Remote())
 		if hp == nil {
-			return nil, errors.New("проект не подключён к серверу проги — участников можно звать только в проекты на сервере")
+			return nil, errors.New("проект не подключён к серверу FruityHub — участников можно звать только в проекты на сервере")
 		}
 		return map[string]any{"project": hp, "me": s.cfg.UserID}, nil
 	})
@@ -360,6 +402,19 @@ func (s *Server) routes4(api func(string, func(*http.Request) (any, error))) {
 			LogActivity(p.Dir, "ok", "Приглашение отправлено: "+inv.To.Nick)
 		}
 		return inv, err
+	})
+	api("/api/project/invite-all", func(r *http.Request) (any, error) {
+		p, err := s.project(str(body(r), "path"), nil)
+		if err != nil {
+			return nil, err
+		}
+		res, err := p.InviteAll()
+		if err == nil {
+			if l, _ := res["invited"].([]string); len(l) > 0 {
+				LogActivity(p.Dir, "ok", "Приглашения отправлены: "+strings.Join(l, ", "))
+			}
+		}
+		return res, err
 	})
 	api("/api/project/remove-participant", func(r *http.Request) (any, error) {
 		b := body(r)
@@ -399,21 +454,37 @@ func (s *Server) routes4(api func(string, func(*http.Request) (any, error))) {
 		if !h().Registered() {
 			return []any{}, nil
 		}
+		if added, err := h().Discover(r.URL.Query().Get("force") == "1"); err == nil {
+			for _, a := range added {
+				LogActivity("", "info", "Найден проект твоего GitHub: «"+a.Name+"» — появился в «Доступных»")
+			}
+		}
+		availMu.Lock() // частые «обновить» не должны перемешивать списки
+		defer availMu.Unlock()
 		ps, err := h().Projects(10 * time.Second)
 		if err != nil {
 			return nil, err
 		}
-		local := map[string]bool{}
+		// «уже на этом компьютере» сверяем с тем же списком ps, а не с отдельно запрошенным
+		var remotes []string
 		for _, lp := range s.cfg.Projects {
 			if exists(lp.Path) {
-				if hp := h().ProjectForRemote((&Git{Dir: lp.Path, Cfg: s.cfg}).Remote()); hp != nil {
-					local[hp.ID] = true
+				if r := (&Git{Dir: lp.Path, Cfg: s.cfg}).Remote(); r != "" {
+					remotes = append(remotes, r)
 				}
 			}
 		}
 		out := []HubProject{}
 		for _, p := range ps {
-			if !local[p.ID] {
+			here := false
+			for _, r := range remotes {
+				o, n, isGH := repoSlug(r)
+				if normRemote(r) == normRemote(p.CloneURL) || isGH && strings.EqualFold(p.Repo, o+"/"+n) {
+					here = true
+					break
+				}
+			}
+			if !here {
 				out = append(out, p)
 			}
 		}
@@ -435,6 +506,21 @@ func (s *Server) routes4(api func(string, func(*http.Request) (any, error))) {
 		return map[string]string{"path": dir}, err
 	})
 
+	// ----- что проверено после установки плагина, и система -----
+	api("/api/plugin/report-seen", func(r *http.Request) (any, error) {
+		markReportSeen(str(body(r), "id"))
+		return "ok", nil
+	})
+	api("/api/plugin/reports", func(r *http.Request) (any, error) { return allReports(), nil })
+	api("/api/system/check", func(r *http.Request) (any, error) {
+		sysGit := gitBinary() != filepath.Join(toolsDir(), "mingit", "cmd", "git.exe")
+		return map[string]any{"os": OSName(), "arch": hostArch(), "vcredistMissing": VCRedistMissing(), "gpus": GPUs(), "basicGpu": BasicGPU(),
+			"gitCrashes": gitCrashes.Load(), "systemGit": sysGit}, nil
+	})
+	jobAPI("/api/system/install-vcredist", "Ставлю Microsoft Visual C++", true, func(b map[string]any, j *Job) (any, error) {
+		return "ok", InstallVCRedist(j)
+	})
+
 	// ----- plugin transfers -----
 	api("/api/plugin/request", func(r *http.Request) (any, error) {
 		var req struct {
@@ -446,7 +532,7 @@ func (s *Server) routes4(api func(string, func(*http.Request) (any, error))) {
 		}
 		out, err := h().RequestPlugins(req.To, req.Items)
 		if err == nil && len(out) > 0 {
-			LogActivity("", "info", fmt.Sprintf("🔌 Запрошено у %s плагинов: %d", req.To, len(out)))
+			LogActivity("", "info", fmt.Sprintf("Запрошено у %s плагинов: %d", req.To, len(out)))
 		}
 		go h().Inbox()
 		if out == nil {
@@ -465,6 +551,32 @@ func (s *Server) routes4(api func(string, func(*http.Request) (any, error))) {
 		}
 		return map[string]any{"requests": rs, "me": s.cfg.UserID, "busy": s.busyMap()}, nil
 	})
+	jobAPI("/api/plugin/retry-data", "Кладу данные плагина", false, func(req map[string]any, j *Job) (any, error) {
+		return "ok", RetryPendingData(j, str(req, "id"))
+	})
+	jobAPI("/api/plugin/diag", "Диагностика плагина", false, func(b map[string]any, j *Job) (any, error) {
+		return PluginDiag(s.cfg, j, str(b, "name"), str(b, "format"))
+	})
+	api("/api/plugin/diag/send", func(r *http.Request) (any, error) { // отчёт — в журнал сервера (админка → Логи сервера)
+		txt := str(body(r), "text")
+		var lines []reportLine
+		for len(txt) > 0 && len(lines) < 60 {
+			n := min(len(txt), 2800)
+			for n < len(txt) && n > 0 && txt[n]&0xC0 == 0x80 { // не резать букву пополам
+				n--
+			}
+			lines = append(lines, reportLine{time.Now().UnixMilli(), "[диагностика] " + txt[:n]})
+			txt = txt[n:]
+		}
+		return "ok", h().do("POST", "/api/log", map[string]any{"lines": lines, "version": Version, "os": OSName()}, nil)
+	})
+	jobAPI("/api/plugin/check", "Проверяю плагин", false, func(b map[string]any, j *Job) (any, error) {
+		return CheckPlugin(s.cfg, j, str(b, "name"), str(b, "format"))
+	})
+	api("/api/plugin/deps", func(r *http.Request) (any, error) {
+		q := r.URL.Query()
+		return PluginDeps(s.cfg, q.Get("name"), q.Get("format"))
+	})
 	api("/api/plugin/inspect", func(r *http.Request) (any, error) {
 		q, err := s.cfg.myRequest(r.URL.Query().Get("id"), true)
 		if err != nil {
@@ -479,9 +591,41 @@ func (s *Server) routes4(api func(string, func(*http.Request) (any, error))) {
 		return "ok", err
 	})
 	api("/api/plugin/cancel", func(r *http.Request) (any, error) {
-		err := h().CancelRequest(str(body(r), "id"))
+		id := str(body(r), "id")
+		err := h().CancelRequest(id) // сервер обрывает поток у обеих сторон
+		if j, ok := s.reqJobs.Load(id); ok {
+			j.(*Job).Cancel()
+		}
 		go h().Inbox()
 		return "ok", err
+	})
+	api("/api/plugin/retry", func(r *http.Request) (any, error) {
+		b := body(r)
+		id := str(b, "id")
+		retryAt.Delete(id)
+		var err error
+		if re, ok := b["reinstall"].(bool); ok {
+			err = h().RetryReinstall(id, re)
+		} else {
+			err = h().RetryRequest(id)
+		}
+		go h().Inbox()
+		return "ok", err
+	})
+	// идущие сейчас передачи плагинов — чтобы предупредить перед закрытием или обновлением
+	api("/api/transfers/active", func(r *http.Request) (any, error) {
+		out := []map[string]string{}
+		s.reqJobs.Range(func(k, v any) bool {
+			j := v.(*Job)
+			j.mu.Lock()
+			done := j.Done
+			j.mu.Unlock()
+			if !done {
+				out = append(out, map[string]string{"id": k.(string), "title": j.Title})
+			}
+			return true
+		})
+		return out, nil
 	})
 	api("/api/plugin/approve", func(r *http.Request) (any, error) {
 		b := body(r)
@@ -532,25 +676,44 @@ func (p *Project) CreateOnGitHub(name string, invite []string) (any, error) {
 	// check the nicks first, so a typo doesn't leave a half-made project
 	var people []*HubUser
 	for _, n := range invite {
+		if strings.TrimSpace(n) == "*" {
+			us, err := h.Users()
+			if err != nil {
+				return nil, err
+			}
+			for i := range us {
+				if us[i].ID != p.Cfg.UserID {
+					people = append(people, &us[i])
+				}
+			}
+			continue
+		}
 		if strings.TrimSpace(n) == "" {
 			continue
 		}
 		u := h.UserByNick(n)
 		if u == nil {
-			return nil, fmt.Errorf("пользователь «%s» не зарегистрирован в проге", n)
+			return nil, fmt.Errorf("пользователь «%s» не зарегистрирован в FruityHub", n)
 		}
 		people = append(people, u)
 	}
-	j.Logf("Создаю приватный репозиторий на твоём GitHub…")
-	full, clone, err := GitHubCreateRepo(p.Cfg, name)
-	if err != nil {
-		return nil, err
+	var hp *HubProject
+	if prev := p.unfinishedServerProject(name); prev != nil {
+		// прошлая попытка создала репозиторий и записала проект на сервер, но не дошла до конца — продолжаем её
+		hp = prev
+		j.Logf("Продолжаю с уже созданным репозиторием %s", hp.Repo)
+	} else {
+		j.Logf("Создаю приватный репозиторий на твоём GitHub…")
+		full, clone, err := GitHubCreateRepo(p.Cfg, name)
+		if err != nil {
+			return nil, err
+		}
+		j.Logf("Создан репозиторий %s", full)
+		if hp, err = h.AddProject(name, full, clone); err != nil {
+			return nil, err
+		}
 	}
-	j.Logf("Создан репозиторий %s", full)
-	hp, err := h.AddProject(name, full, clone)
-	if err != nil {
-		return nil, err
-	}
+	clone := hp.CloneURL
 	if err := p.Init(clone); err != nil {
 		return nil, err
 	}
@@ -563,12 +726,12 @@ func (p *Project) CreateOnGitHub(name string, invite []string) (any, error) {
 	}
 	for _, u := range people {
 		if _, err := p.inviteTo(hp, u.Nick); err != nil {
-			j.Logf("⚠ Не удалось пригласить %s: %v", u.Nick, err)
+			j.Logf("Внимание: Не удалось пригласить %s: %v", u.Nick, err)
 		} else {
 			j.Logf("Приглашение отправлено: %s", u.Nick)
 		}
 	}
-	LogActivity(p.Dir, "ok", "Проект создан: "+full)
+	LogActivity(p.Dir, "ok", "Проект создан: "+hp.Repo)
 	return res, nil
 }
 
@@ -620,14 +783,14 @@ func (p *Project) ConnectToServer(name string) (any, error) {
 		nicks = append(nicks, m.Nick)
 	}
 	j.Logf("Проект на сервере. Участники: %s", strings.Join(nicks, ", "))
-	LogActivity(p.Dir, "ok", "Проект подключён к серверу проги")
+	LogActivity(p.Dir, "ok", "Проект подключён к серверу FruityHub")
 	return hp, nil
 }
 
 func (p *Project) serverProject() (*HubProject, error) {
 	hp := p.Cfg.Hub().ProjectForRemote(p.git().Remote())
 	if hp == nil {
-		return nil, errors.New("проект не подключён к серверу проги")
+		return nil, errors.New("проект не подключён к серверу FruityHub")
 	}
 	return hp, nil
 }
@@ -641,6 +804,37 @@ func (p *Project) Invite(nick string) (*HubInvite, error) {
 	return p.inviteTo(hp, nick)
 }
 
+// InviteAll зовёт в проект всех зарегистрированных, кто ещё не участник и не приглашён.
+func (p *Project) InviteAll() (map[string]any, error) {
+	hp, err := p.serverProject()
+	if err != nil {
+		return nil, err
+	}
+	us, err := p.Cfg.Hub().Users()
+	if err != nil {
+		return nil, err
+	}
+	skip := map[string]bool{p.Cfg.UserID: true}
+	for _, m := range hp.Members {
+		skip[m.ID] = true
+	}
+	for _, i := range hp.Invited {
+		skip[i.To.ID] = true
+	}
+	var done, failed []string
+	for _, u := range us {
+		if skip[u.ID] {
+			continue
+		}
+		if _, err := p.inviteTo(hp, u.Nick); err != nil {
+			failed = append(failed, u.Nick+": "+err.Error())
+		} else {
+			done = append(done, u.Nick)
+		}
+	}
+	return map[string]any{"invited": done, "failed": failed}, nil
+}
+
 func (p *Project) inviteTo(hp *HubProject, nick string) (*HubInvite, error) {
 	h := p.Cfg.Hub()
 	u := h.UserByNick(nick)
@@ -648,7 +842,7 @@ func (p *Project) inviteTo(hp *HubProject, nick string) (*HubInvite, error) {
 		return nil, fmt.Errorf("пользователь «%s» не найден", strings.TrimSpace(nick))
 	}
 	if u.ID == p.Cfg.UserID {
-		return nil, errors.New("это ты сам 🙂")
+		return nil, errors.New("это ты сам ")
 	}
 	if !strings.EqualFold(u.GitHub, p.Cfg.GitHubLogin) {
 		if err := ghAddCollaborator(p.Cfg, hp.Repo, u.GitHub); err != nil {
@@ -679,11 +873,73 @@ func (p *Project) RemoveParticipant(userID string) error {
 // CloneServerProject accepts the GitHub invitation (if any) and downloads.
 func CloneServerProject(cfg *Config, j *Job, hp *HubProject, parent string) (string, error) {
 	if err := ghAcceptInvitation(cfg, hp.Repo); err != nil {
-		j.Logf("⚠ GitHub: %v", err)
+		j.Logf("Внимание: GitHub: %v", err)
 	}
 	url := hp.CloneURL
 	if url == "" {
 		url = "https://github.com/" + hp.Repo + ".git"
 	}
 	return CloneNamed(cfg, j, url, parent, hp.Name)
+}
+
+// unfinishedServerProject — проект на сервере, который эта папка уже начала создавать, но не доделала:
+// у папки уже прописан его репозиторий, либо это мой проект с таким же именем репозитория,
+// которого нет ни в одной папке на этом компьютере (прошлая попытка упала до записи адреса в папку).
+func (p *Project) unfinishedServerProject(name string) *HubProject {
+	h := p.Cfg.Hub()
+	g := p.git()
+	if g.IsRepo() {
+		if r := g.Remote(); r != "" {
+			if hp := h.ProjectForRemote(r); hp != nil && hp.IsOwner {
+				return hp
+			}
+			return nil // у папки уже есть другой репозиторий — его не трогаем
+		}
+	}
+	ps, err := h.Projects(0)
+	if err != nil {
+		return nil
+	}
+	used := map[string]bool{}
+	for _, lp := range p.Cfg.Projects {
+		if r := (&Git{Dir: lp.Path, Cfg: p.Cfg}).Remote(); r != "" {
+			used[normRemote(r)] = true
+		}
+	}
+	want := strings.ToLower(repoNameFor(name))
+	for i := range ps {
+		hp := ps[i]
+		if !hp.IsOwner || used[normRemote(hp.CloneURL)] {
+			continue
+		}
+		_, repo, _ := strings.Cut(hp.Repo, "/")
+		if strings.EqualFold(hp.Name, name) || strings.ToLower(repo) == want {
+			return &hp
+		}
+	}
+	return nil
+}
+
+// inviteList — ники из запроса: список (ники могут быть с пробелами — «Кирюха на MSI») или, по-старому,
+// строка через запятую / точку с запятой / перевод строки. По пробелам не делим.
+func inviteList(v any) []string {
+	var out []string
+	add := func(n string) {
+		if n = strings.TrimSpace(n); n != "" {
+			out = append(out, n)
+		}
+	}
+	switch x := v.(type) {
+	case []any:
+		for _, e := range x {
+			if s, ok := e.(string); ok {
+				add(s)
+			}
+		}
+	case string:
+		for _, n := range strings.FieldsFunc(x, func(r rune) bool { return r == ',' || r == ';' || r == '\n' }) {
+			add(n)
+		}
+	}
+	return out
 }

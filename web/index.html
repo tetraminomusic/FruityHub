@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>прога узбека</title>
+<title>FruityHub</title>
 <style>
 :root{
   --bg:#0d0e11; --panel:rgba(16,17,22,.74); --panel2:rgba(40,43,52,.72); --solid:#1a1c21; --line:rgba(255,255,255,.10); --line2:rgba(255,255,255,.16);
@@ -15,10 +15,9 @@
 *{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0;color:var(--text);display:flex;flex-direction:column;user-select:none;-webkit-user-select:none;background:#0d0e11}
-/* background picture: the whole meme stays visible (fit to height), a blurred copy fills the rest */
-body::before{content:"";position:fixed;inset:-60px;z-index:-2;pointer-events:none;background:#0d0e11 url('/assets/bg') center/cover no-repeat;filter:blur(36px) brightness(.42) saturate(1.1)}
-body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
-  background:linear-gradient(90deg,rgba(10,11,14,.55) 0,rgba(10,11,14,.18) 38%,rgba(10,11,14,.30) 100%),linear-gradient(180deg,rgba(10,11,14,.10) 40%,rgba(10,11,14,.55) 100%),url('/assets/bg') right center/auto 100% no-repeat}
+/* фон: фотография на всё окно, поверх затемнение, чтобы текст оставался чётким */
+body::before{content:"";position:fixed;inset:0;z-index:-2;pointer-events:none;background:#0d0e11 url('/assets/bg?v=__V__') center/cover no-repeat}
+body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:rgba(10,11,14,var(--dim,.5))}
 body.nobg::before,body.nobg::after{background:radial-gradient(90% 70% at 80% 0%,#3a2a12 0%,#141518 55%);filter:none}
 main>h1,main>.muted,main>.row{text-shadow:0 1px 3px rgba(0,0,0,.85),0 0 14px rgba(0,0,0,.6)}
 input,textarea,.selectable,.mono,td{user-select:text;-webkit-user-select:text}
@@ -106,6 +105,18 @@ tr:hover td{background:rgba(255,255,255,.035)}
 .switch input{width:auto}
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:rgba(30,32,38,.9);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);border:1px solid var(--line2);padding:10px 14px;border-radius:10px;z-index:30;max-width:420px;box-shadow:0 10px 30px rgba(0,0,0,.4)}
 .top{display:grid;grid-template-columns:1fr 360px;gap:14px;margin-top:14px}
+input[type=range]{accent-color:var(--accent)}
+.sortbar{font-size:12px;color:var(--muted);padding:2px 12px 4px}.sortbar a{color:var(--text);cursor:pointer}
+.upick{border:1px solid var(--line);border-radius:9px;max-height:220px;overflow:auto;padding:2px 6px}
+.urow{display:flex;align-items:center;gap:8px;padding:5px 2px;margin:0;color:var(--text);font-size:13px;cursor:pointer}.urow input{width:auto;margin:0}
+.droplist{border:1px solid var(--line);border-radius:9px;padding:4px 8px;max-height:180px;overflow:auto}
+.drow{display:flex;align-items:center;gap:8px;padding:3px 0}.drow .mono{flex:1;min-width:0}
+.dropping{outline:2px dashed var(--accent);outline-offset:-4px}
+.devlog{font:12px/1.45 ui-monospace,Menlo,Consolas,monospace;max-height:58vh;overflow:auto;background:rgba(5,6,8,.75);border:1px solid var(--line);border-radius:9px;padding:6px 8px;user-select:text;-webkit-user-select:text}
+.devlog .e{white-space:pre-wrap;word-break:break-all;padding:1px 0}.devlog .e.err{color:#ff9d9d}.devlog .k{display:inline-block;min-width:38px;color:var(--blue)}.devlog .t{color:var(--muted)}
+.upbar{display:flex;align-items:center;gap:10px;padding:8px 14px;background:rgba(247,165,49,.16);border-bottom:1px solid rgba(247,165,49,.35)}
+.launch{display:flex;flex-direction:column;gap:8px;justify-content:center}
+.launch .big{font-size:16px;padding:12px 16px}
 .preview{border:1px dashed rgba(255,255,255,.22);border-radius:var(--r);padding:12px 14px;background:var(--panel);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);transition:.15s}
 .preview.drag{border-color:var(--accent);background:rgba(60,40,10,.6)}
 .preview audio{width:100%;height:36px;margin:6px 0}
@@ -163,28 +174,30 @@ tr:hover td{background:rgba(255,255,255,.035)}
 .radio.on{border-color:rgba(247,165,49,.6);background:rgba(247,165,49,.08)}
 @media (max-width:980px){.top{grid-template-columns:1fr}}
 @media (max-width:760px){aside{width:210px}.grid2{grid-template-columns:1fr}}
+tr.prow{cursor:pointer} tr.prow:hover td{background:rgba(255,255,255,.04)} tr.prow:hover .pname{text-decoration:underline}
 </style>
 </head>
 <body>
 <header class="glass">
-  <div class="logo"><img src="/assets/icon" alt="" onerror="this.outerHTML='<span class=mark>♪</span>'">прога узбека</div>
+  <div class="logo"><img src="/assets/icon?v=__V__" alt="" onerror="this.outerHTML='<span class=mark></span>'">FruityHub</div>
   <span class="chip" id="who" style="cursor:pointer">—</span>
   <span class="spacer"></span>
   <span class="chip" id="toolsChip" style="display:none"></span>
-  <button class="ghost" onclick="openPeople()"><span class="ic">👥</span> Люди</button>
-  <button class="ghost" onclick="openTransfers()"><span class="ic">🔌</span> Передачи</button>
-  <button class="ghost" onclick="openJournal()"><span class="ic">📜</span> Журнал</button>
-  <button class="ghost" onclick="openSettings()"><span class="ic">⚙</span> Настройки</button>
+  <button class="ghost" onclick="openPeople()">Люди</button>
+  <button class="ghost" onclick="openTransfers()">Передачи</button>
+  <button class="ghost" onclick="openJournal()">Журнал</button>
+  <button class="ghost" onclick="openSettings()">Настройки</button>
   <button class="ghost" id="quitBtn" title="Закрыть" onclick="quitApp()" style="display:none">⏻</button>
 </header>
 <div class="wrap">
   <aside class="glass">
     <div id="invites"></div>
     <div class="stabs"><div class="stab sel" id="st_my" onclick="sideTab('my')">Мои проекты</div><div class="stab" id="st_av" onclick="sideTab('av')">Доступные<span class="badge" id="avcnt" style="display:none"></span></div></div>
+    <div class="sortbar" id="sortbar"></div>
     <div class="list" id="plist"></div>
     <div class="list" id="alist" style="display:none"></div>
     <div class="bottom">
-      <div class="row" style="flex-wrap:nowrap;gap:6px"><button style="flex:1" onclick="addProject()">＋ Добавить проект</button><button title="Новая папка в списке" onclick="newGroup()"><span class="ic">📁</span>＋</button></div>
+      <div class="row" style="flex-wrap:nowrap;gap:6px"><button style="flex:1" onclick="addProject()">＋ Добавить проект</button><button title="Новая папка в списке" onclick="newGroup()">＋</button></div>
     </div>
   </aside>
   <main id="main"></main>
@@ -197,7 +210,7 @@ const TOKEN = "__FLSYNC_TOKEN__";
 const STAGES = ["Идея","Набросок","Аранжировка","Запись","Сведение","Мастеринг","Готово"];
 let S = {state:null, sel:null, proj:null, analysis:null, history:null, comments:null, preview:null, previewErr:null, previewProgress:null,
          tab:'changes', showService:false, notes:{}, invites:[], incoming:[], ready:[], busy:{}, followed:{}, shownReq:{}, trashSel:{}, ckind:'note', cfilter:'all'};
-const BG=new Image(); BG.onerror=()=>document.body.classList.add('nobg'); BG.src='/assets/bg';
+const BG=new Image(); BG.onerror=()=>document.body.classList.add('nobg'); BG.src='/assets/bg?v=__V__';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtSize = n => n==null?'':n<1024?n+' Б':n<1048576?(n/1024).toFixed(0)+' КБ':n<1073741824?(n/1048576).toFixed(1)+' МБ':(n/1073741824).toFixed(2)+' ГБ';
@@ -252,14 +265,14 @@ function finishTask(el, j){
   const tt=el.querySelector('.t');
   if(j.error){
     el.classList.add('err');
-    tt.innerHTML=`<span>⚠</span><span class="tt">${esc(j.title)} — не получилось</span><span class="spacer"></span><button class="ghost sm" onclick="this.closest('.task').remove()">✕</button>`;
+    tt.innerHTML=`<span class="tt">${esc(j.title)} — не получилось</span><span class="spacer"></span><button class="ghost sm" onclick="this.closest('.task').remove()">✕</button>`;
     el.querySelector('.s').innerHTML=`<div style="color:#ffc4c4;font-size:13px;margin-top:2px">${esc(j.error)}</div>`+(j.details?`<a class="small muted" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">Подробности для знающих</a><div class="details" hidden>${esc(j.details)}</div>`:'');
   } else {
     el.classList.add('ok');
     tt.innerHTML=`<span style="color:var(--ok)">✓</span><span class="tt">${esc(j.title)}</span>`;
     const st=(j.steps||[]).filter(x=>!/^✓/.test(x)).slice(-3);
     el.querySelector('.s').innerHTML = st.length? st.map(x=>`<div>${esc(x)}</div>`).join('') : 'Готово';
-    setTimeout(()=>{ el.style.transition='opacity .4s'; el.style.opacity=0; setTimeout(()=>el.remove(),400) }, st.some(x=>x.startsWith('⚠'))?9000:3500);
+    setTimeout(()=>{ el.style.transition='opacity .4s'; el.style.opacity=0; setTimeout(()=>el.remove(),400) }, st.some(x=>x.startsWith('Внимание'))?9000:3500);
   }
 }
 async function followJob(id, title, onDone){
@@ -271,13 +284,49 @@ async function followJob(id, title, onDone){
     if(!j.done){ paintTask(el,j); await new Promise(r=>setTimeout(r,400)); continue }
     finishTask(el,j);
     const r=j.result||{};
-    if(!j.error && r.conflicts && r.conflicts.length) uiAlert(`Версия с сервера осталась под исходным именем, твоя сохранена рядом:\n\n${r.conflicts.map(c=>'• '+c).join('\n')}\n\nОткрой обе в FL Studio и перенеси нужное.`,'Вы оба поменяли один и тот же проект');
+    if(!j.error && r.conflicts && r.conflicts.length) showConflicts(r.conflicts);
     onDone && onDone(j); refreshAll(); return j;
   }
 }
 async function runJob(path, body, {title, onDone}={}){
   let job; try{ job = await api(path, body) }catch(e){ fail(e); return null }
-  return followJob(job.id, title||job.title, onDone);
+  const j=await followJob(job.id, title||job.title, onDone);
+  // проект здесь и на GitHub начаты отдельно — спрашиваем, какую версию оставить, и повторяем
+  if(j && !j.error && j.result && j.result.needChoice==='unrelated' && body && !body.resolve){
+    const how=await chooseVersion(); if(!how) return j;
+    return runJob(path, {...body, resolve:how}, {title, onDone});
+  }
+  return j;
+}
+function chooseVersion(){
+  return new Promise(res=>{
+    const m=modal(`<h2>Какую версию оставить?</h2>
+      <div class="muted small">Проект на этом компьютере и на GitHub начаты отдельно (например, папку скопировали и подключили заново) — у них разные истории, и git не может их просто сложить.</div>
+      <label class="radio on"><input type="radio" name="vv" value="theirs" checked><span><b>Только версию с GitHub</b><div class="muted small">Проект станет как на GitHub. Твои отличающиеся файлы не пропадут — сохранятся в папку <b>Backup</b> проекта.</div></span></label>
+      <label class="radio"><input type="radio" name="vv" value="mine"><span><b>Только мою версию</b><div class="muted small">Твоя версия останется и при отправке заменит ту, что на GitHub (история на GitHub сохранится — старое можно будет вернуть из «Истории»).</div></span></label>
+      <label class="radio"><input type="radio" name="vv" value="both"><span><b>Обе</b><div class="muted small">Одинаковые файлы сольются; где .flp разные — с GitHub под исходным именем, твой рядом копией. Потом выберешь, какой оставить.</div></span></label>
+      <div class="row" style="justify-content:flex-end;margin-top:12px"><button id="no">Отмена</button><button class="primary" id="yes">Продолжить</button></div>`);
+    m.querySelectorAll('input[name=vv]').forEach(i=>i.onchange=()=>m.querySelectorAll('.radio').forEach(l=>l.classList.toggle('on',l.querySelector('input').checked)));
+    m.querySelector('#no').onclick=()=>{ m.close(); res(null) };
+    m.querySelector('#yes').onclick=()=>{ const v=m.querySelector('input[name=vv]:checked').value; m.close(); res(v) };
+  });
+}
+// после конфликта: по каждому файлу — оставить версию с GitHub, свою или обе
+function showConflicts(list){
+  const path=S.sel;
+  const m=modal(`<h2>Вы оба поменяли одно и то же</h2>
+    <div class="muted small">Сейчас под исходным именем лежит версия с GitHub, твоя — рядом копией «(конфликт — …)». Выбери по каждому файлу, что оставить, или оставь обе и сравни в FL Studio.</div>
+    <table style="margin-top:8px">${list.map((c,i)=>`<tr data-i="${i}"><td class="small"><b>${esc(c.replace(/ \(конфликт — [^)]*\)(\.[^.]*)$/,'$1'))}</b><div class="muted">${esc(c)}</div></td>
+      <td style="white-space:nowrap"><button class="sm" data-k="theirs">С GitHub</button> <button class="sm" data-k="mine">Мою</button> <button class="sm ghost" data-k="both">Обе</button></td></tr>`).join('')}</table>
+    <div class="muted small" style="margin-top:6px">Выбор «Мою» уйдёт на GitHub при следующей отправке.</div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="primary" id="ok">Готово</button></div>`);
+  m.querySelector('#ok').onclick=()=>m.close();
+  m.querySelectorAll('tr[data-i] button').forEach(b=>b.onclick=async()=>{
+    const tr=b.closest('tr'), c=list[+tr.dataset.i], k=b.dataset.k;
+    if(k!=='both'){ try{ await api('/api/project/conflict-keep',{path,copy:c,keep:k}) }catch(e){ return fail(e) } }
+    tr.querySelector('td:last-child').innerHTML=`<span class="tag ok">${k==='theirs'?'оставлена с GitHub':k==='mine'?'оставлена твоя':'оставлены обе'}</span>`;
+    if(S.sel) loadProject(S.sel);
+  });
 }
 // job without a modal (progress shown inline)
 async function silentJob(path, body, onTick){
@@ -290,11 +339,12 @@ async function refreshAll(){
   S.state = await api('/api/state');
   const st=S.state;
   renderWho();
+  setDim(st.config.bgDim||50); renderDevBtn();
   $('#quitBtn').style.display = st.windowed ? 'none' : '';
   const t=st.tools, tc=$('#toolsChip');
-  if(!t.gitOk||!t.lfsOk){ tc.style.display=''; tc.innerHTML=`<span style="color:var(--warn)">⚠ ${!t.gitOk?'нет git':'нет git-lfs'}</span> <a onclick="installTools()">установить</a>` } else tc.style.display='none';
+  if(!t.gitOk||!t.lfsOk){ tc.style.display=''; tc.innerHTML=`<span style="color:var(--warn)">${!t.gitOk?'нет git':'нет git-lfs'}</span> <a onclick="installTools()">установить</a>` } else tc.style.display='none';
   renderList(); renderInvites();
-  if(S.side==='av') loadAvailable(true); else if(st.registered && !S.avail) api('/api/available').then(a=>{ S.avail=a||[]; renderAvailable() }).catch(()=>{});
+  if(S.side==='av' || (st.registered && !S.avail)) loadAvailable(true);
   if(S.sel) await loadProject(S.sel); else renderMain();
   if(!st.registered && !S.askedName){ S.askedName=true; openRegister(true) }
 }
@@ -303,18 +353,53 @@ function projItem(p){
   if(p.lock){ cls = p.lock.user===S.state.me?'me':'other'; tip = 'в работе у '+p.lock.user }
   else if(p.isRepo){ cls='ok'; tip='свободен' }
   const n=S.notes[p.path]||{};
-  const badges=(n.unread?`<span class="badge" title="новые комментарии">💬 ${n.unread}</span>`:'')+
+  const badges=(n.unread?`<span class="badge" title="новые комментарии">${n.unread}</span>`:'')+
     (n.behind>0?`<span class="badge" title="на сервере новое">⤓</span>`:'');
-  return `<div class="pitem ${S.sel===p.path?'sel':''}" draggable="true" data-path="${esc(p.path)}" title="${esc(p.path)}" onclick="selectProject('${enc(p.path)}')">
+  return `<div class="pitem ${S.sel===p.path?'sel':''}" draggable="true" data-path="${esc(p.path)}" title="${esc(p.path)}${p.modified?'\nизменён '+esc(fmtTime(p.modified)):''}" onclick="selectProject('${enc(p.path)}')">
     <span class="dot ${cls}" title="${esc(tip)}"></span><span class="n">${esc(p.name)}</span>${badges}${p.exists?'':'<span class="tag bad">нет папки</span>'}
     <span class="more" onclick="event.stopPropagation();projMenu(event,'${enc(p.path)}')">⋯</span></div>`;
 }
+const SORTS=[['manual','как добавлены'],['name','по названию А–Я'],['name-desc','по названию Я–А'],['modified','по дате изменения — новые сверху'],['modified-asc','по дате изменения — старые сверху']];
+const SORT_SHORT={manual:'как добавлены',name:'А–Я','name-desc':'Я–А',modified:'сначала свежие','modified-asc':'сначала давние'};
+function sortMode(){ return S.state?.config?.sortMode||'manual' }
+function sortProjects(list){
+  const m=sortMode(), byName=(a,b)=>a.name.localeCompare(b.name,'ru',{sensitivity:'base',numeric:true});
+  const l=[...list];
+  if(m==='name') l.sort(byName);
+  else if(m==='name-desc') l.sort((a,b)=>byName(b,a));
+  else if(m==='modified') l.sort((a,b)=>(b.modified||0)-(a.modified||0)||byName(a,b));
+  else if(m==='modified-asc') l.sort((a,b)=>(a.modified||0)-(b.modified||0)||byName(a,b));
+  return l;
+}
+// папки: по названию — по своему имени; по дате — по самому свежему (или самому старому) проекту внутри; пустые — в конце
+function sortGroups(groups, ps){
+  const m=sortMode(), byName=(a,b)=>a.name.localeCompare(b.name,'ru',{sensitivity:'base',numeric:true});
+  const l=[...groups];
+  if(m==='name') l.sort(byName);
+  else if(m==='name-desc') l.sort((a,b)=>byName(b,a));
+  else if(m.startsWith('modified')){
+    const key=g=>{ const t=ps.filter(p=>p.group===g.id).map(p=>p.modified||0); return t.length?(m==='modified'?Math.max(...t):Math.min(...t)):null };
+    l.sort((a,b)=>{ const ka=key(a), kb=key(b);
+      if(ka===null||kb===null) return (ka===null)-(kb===null)||byName(a,b);
+      return (m==='modified'?kb-ka:ka-kb)||byName(a,b) });
+  }
+  return l;
+}
+function renderSortBar(){
+  const el=$('#sortbar'); if(!el) return;
+  const ps=S.state?.projects||[];
+  if(ps.length<2){ el.innerHTML=''; return }
+  el.innerHTML=`Сортировка: <a onclick="sortMenu(event)">${esc(SORT_SHORT[sortMode()]||SORT_SHORT.manual)}</a>`;
+}
+function sortMenu(ev){ popMenu(ev, SORTS.map(([k,t])=>[(k===sortMode()?'✓ ':'')+t, ()=>setSort(k)])) }
+async function setSort(k){ S.state.config.sortMode=k; renderList(); try{ await api('/api/settings',{sortMode:k}) }catch(e){ fail(e) } }
 function renderList(){
-  const ps=S.state?.projects||[], groups=S.state?.groups||[];
+  renderSortBar();
+  const ps=sortProjects(S.state?.projects||[]), groups=sortGroups(S.state?.groups||[], S.state?.projects||[]);
   const ids=new Set(groups.map(g=>g.id));
   let h=groups.map(g=>{
     const inG=ps.filter(p=>p.group===g.id);
-    return `<div class="ghead" data-group="${g.id}" onclick="toggleGroup('${g.id}',${!g.collapsed})"><span>${g.collapsed?'▸':'▾'}</span><span>📁</span><span class="gn">${esc(g.name)}</span><span class="muted">${inG.length}</span><span class="more" onclick="event.stopPropagation();groupMenu(event,'${g.id}')">⋯</span></div>
+    return `<div class="ghead" data-group="${g.id}" onclick="toggleGroup('${g.id}',${!g.collapsed})"><span>${g.collapsed?'▸':'▾'}</span><span class="gn">${esc(g.name)}</span><span class="muted">${inG.length}</span><span class="more" onclick="event.stopPropagation();groupMenu(event,'${g.id}')">⋯</span></div>
       ${g.collapsed?'':`<div class="gbody" data-group="${g.id}">${inG.map(projItem).join('')||'<div class="muted small" style="padding:6px 10px">перетащи сюда проект</div>'}</div>`}`}).join('');
   const top=ps.filter(p=>!p.group||!ids.has(p.group));
   h+=`<div data-group="" class="topzone" style="min-height:${groups.length?24:0}px">${top.map(projItem).join('')}</div>`;
@@ -344,22 +429,21 @@ function popMenu(ev, items){
 function groupMenu(ev,id){
   const g=(S.state.groups||[]).find(x=>x.id===id);
   popMenu(ev,[['✎ Переименовать', async()=>{ const n=await uiPrompt('Переименовать папку',{value:g.name}); if(n&&n.trim()){ await api('/api/groups/update',{id,name:n}); refreshAll() } }],
-    ['🗑 Удалить папку (проекты останутся)', async()=>{ if(await uiConfirm(`Удалить папку «${esc(g.name)}» из списка? Проекты из неё переместятся наверх, файлы не трогаются.`,{ok:'Удалить'})){ await api('/api/groups/delete',{id}); refreshAll() } }]]);
+    ['Удалить папку (проекты останутся)', async()=>{ if(await uiConfirm(`Удалить папку «${esc(g.name)}» из списка? Проекты из неё переместятся наверх, файлы не трогаются.`,{ok:'Удалить'})){ await api('/api/groups/delete',{id}); refreshAll() } }]]);
 }
 function projMenu(ev,encPath){
   const path=decodeURIComponent(encPath);
   const groups=S.state.groups||[], cur=(S.state.projects||[]).find(p=>p.path===path)?.group||'';
-  const items=groups.filter(g=>g.id!==cur).map(g=>[`📁 Переместить в «${esc(g.name)}»`, ()=>moveProject(path,g.id)]);
-  if(cur) items.push(['⤴ Убрать из папки', ()=>moveProject(path,'')]);
-  items.push(['📁＋ В новую папку…', async()=>{ const n=await uiPrompt('Новая папка в списке',{label:'Название'}); if(n&&n.trim()){ const g=await api('/api/groups/create',{name:n}); moveProject(path,g.id) } }]);
-  items.push('-', ['📂 Открыть в Finder/Проводнике', ()=>api('/api/project/open',{path})], ['✕ Убрать из списка', async()=>{ if(await uiConfirm('Убрать проект из списка? Файлы не удаляются.',{ok:'Убрать'})){ await api('/api/projects/remove',{path}); if(S.sel===path) S.sel=null; refreshAll() } }]);
+  const items=groups.filter(g=>g.id!==cur).map(g=>[`Переместить в «${esc(g.name)}»`, ()=>moveProject(path,g.id)]);
+  if(cur) items.push(['Убрать из папки', ()=>moveProject(path,'')]);
+  items.push(['＋ В новую папку…', async()=>{ const n=await uiPrompt('Новая папка в списке',{label:'Название'}); if(n&&n.trim()){ const g=await api('/api/groups/create',{name:n}); moveProject(path,g.id) } }]);
+  items.push('-', ['Запустить в FL Studio', ()=>{ S.sel===path?launchProject():api('/api/project/launch',{path}).catch(fail) }], ['Переименовать…', ()=>renameProject(path)], ['Открыть в Finder/Проводнике', ()=>api('/api/project/open',{path})], ['✕ Убрать из списка', async()=>{ if(await uiConfirm('Убрать проект из списка? Файлы не удаляются.',{ok:'Убрать'})){ await api('/api/projects/remove',{path}); if(S.sel===path) S.sel=null; refreshAll() } }], ['Удалить файлы проекта…', ()=>trashProject(path)]);
   popMenu(ev, items);
 }
-async function selectProject(e){ PLAYER.pause(); PLAYER.removeAttribute('src'); PLAYER.dataset.src=''; S.sel=decodeURIComponent(e); S.analysis=null; S.history=null; S.comments=null; S.preview=null; S.previewErr=null; renderList(); await loadProject(S.sel); loadPreview(); if(S.tab==='talk') loadComments(true) }
+async function selectProject(e){ S.sel=decodeURIComponent(e); S.analysis=null; S.history=null; S.comments=null; renderList(); scrollSelIntoView(); await loadProject(S.sel); if(S.tab==='talk') loadComments(true) }
 async function loadProject(path){
   try{ S.proj = await api('/api/project?path='+enc(path)) }catch(e){ S.proj=null }
   renderMain();
-  if(S.preview===null && !S.previewLoading && S.proj?.isRepo && S.proj?.remote) loadPreview();
   api('/api/project/analysis?path='+enc(path)).then(a=>{ if(S.sel===path){ S.analysis=a; renderMain() } }).catch(()=>{});
   if(S.tab==='history') loadHistory();
   if(S.comments===null) loadComments(false);
@@ -370,27 +454,15 @@ async function loadComments(fetch){
   try{ const c = await api('/api/project/comments?path='+enc(path)+(fetch?'&fetch=1':'')); if(S.sel===path){ S.comments=c; renderMain() } }catch(e){}
   if(S.tab==='talk') api('/api/project/seen',{path}).then(pollNotes).catch(()=>{});
 }
-async function loadPreview(){
-  const path=S.sel; if(!path||!S.proj?.isRepo||!S.proj?.remote||S.previewLoading) return;
-  S.previewLoading=true; setTimeout(()=>S.previewLoading=false,1500);
-  try{
-    const p = await api('/api/project/preview?path='+enc(path)); if(S.sel!==path) return;
-    S.preview=p; S.previewErr=null; renderPreview();
-    if(p.asset && !p.cached){
-      S.previewProgress='скачиваю…'; renderPreview();
-      await silentJob('/api/project/preview/fetch',{path}, j=>{ S.previewProgress=j.progress?(j.progress.label+(j.progress.pct>=0?' — '+j.progress.pct+'%':'')):'скачиваю…'; renderPreview() });
-      S.previewProgress=null; S.preview.cached=true; renderPreview();
-    }
-  }catch(e){ S.previewErr=e.message; S.previewProgress=null; renderPreview() }
-}
-
 // ---------- notifications (from our server) ----------
 async function pollNotes(){
   let r; try{ r = await api('/api/notifications') }catch(e){ return }
+  renderUpdateBar(r.update);
   S.notes=r.projects||{}; S.invites=r.invites||[]; S.incoming=r.incoming||[]; S.ready=r.ready||[]; S.toSend=r.toSend||[]; S.busy=r.busy||{}; S.serverError=r.serverError||'';
   renderList(); renderInvites(); renderWho();
   for(const q of S.incoming) if(!S.shownReq[q.id] && S.busy[q.id]!=='approving'){ S.shownReq[q.id]=1; askPermission(q) }
   for(const it of r.installers||[]) if(!S.shownReq['inst'+it.id]){ S.shownReq['inst'+it.id]=1; offerInstaller(it) }
+  for(const rep of r.reports||[]) if(!S.shownReq['rep'+rep.id]){ S.shownReq['rep'+rep.id]=1; showReport(rep) }
   for(const inv of S.invites) if(!S.shownReq['inv'+inv.id]){ S.shownReq['inv'+inv.id]=1; acceptInvite(inv.id) }
   // background jobs (plugins sent/installed automatically) get their own cards
   api('/api/jobs').then(js=>{ for(const j of js) if(!j.done && !S.followed[j.id]) followJob(j.id, j.title, ()=>{ S.analysis=null; if(S.sel) loadProject(S.sel); if(S.tab==='plugins') loadReqs() }) }).catch(()=>{});
@@ -401,15 +473,15 @@ async function pollNotes(){
 function renderWho(){
   const st=S.state; if(!st) return;
   const c=st.config, w=$('#who');
-  if(!st.registered){ w.innerHTML='<span class="ic">👤</span> не зарегистрирован'; w.onclick=()=>openRegister(true); return }
+  if(!st.registered){ w.innerHTML='не зарегистрирован'; w.onclick=()=>openRegister(true); return }
   const ok=!S.serverError;
   w.innerHTML=`<span class="dot ${ok?'ok':'other'}" title="${ok?'сервер на связи':esc(S.serverError)}"></span> ${esc(c.userName)}`;
   w.title=ok?'Сервер: '+st.server:S.serverError; w.onclick=()=>openSettings();
 }
 function renderInvites(){
   const el=$('#invites'); if(!el) return;
-  el.innerHTML=(S.invites||[]).map(i=>`<div class="invite"><span class="ic">📨</span> <b>${esc(i.from.nick)}</b> приглашает в проект «${esc(i.name)}»<div class="row" style="margin-top:6px;gap:6px"><button class="sm primary" onclick="acceptInvite('${i.id}')">Принять и скачать</button><button class="sm ghost" onclick="declineInvite('${i.id}')">Отказаться</button></div></div>`).join('')
-    + (S.serverError && S.state?.registered ? `<div class="badbox small" style="margin:8px">⚠ ${esc(S.serverError)}</div>`:'');
+  el.innerHTML=(S.invites||[]).map(i=>`<div class="invite"><b>${esc(i.from.nick)}</b> приглашает в проект «${esc(i.name)}»<div class="row" style="margin-top:6px;gap:6px"><button class="sm primary" onclick="acceptInvite('${i.id}')">Принять и скачать</button><button class="sm ghost" onclick="declineInvite('${i.id}')">Отказаться</button></div></div>`).join('')
+    + (S.serverError && S.state?.registered ? `<div class="badbox small" style="margin:8px">${esc(S.serverError)}</div>`:'');
 }
 async function declineInvite(id){ const inv=(S.invites||[]).find(x=>x.id===id); if(!inv) return;
   if(!await uiConfirm(`Отказаться от приглашения в «${esc(inv.name)}» от ${esc(inv.from.nick)}?`,{ok:'Отказаться'})) return;
@@ -424,17 +496,20 @@ async function loadAvailable(silent){
   const el=$('#alist');
   if(!S.state?.registered){ el.innerHTML='<div class="muted small" style="padding:10px">Зарегистрируйся, и здесь появятся проекты, в которых ты участвуешь.</div>'; return }
   if(!silent) el.innerHTML='<div class="muted small" style="padding:10px">Смотрю, что есть на сервере…</div>';
-  try{ S.avail=(await api('/api/available'))||[] }catch(e){ el.innerHTML=`<div class="badbox small" style="margin:8px">${esc(e.message)}</div>`; return }
+  const seq=S.availSeq=(S.availSeq||0)+1;
+  let res; try{ res=(await api('/api/available'+(silent?'':'?force=1')))||[] }catch(e){ if(seq===S.availSeq) el.innerHTML=`<div class="badbox small" style="margin:8px">${esc(e.message)}</div>`; return }
+  if(seq!==S.availSeq) return; // пришёл ответ на старый запрос — более новый уже в пути
+  S.avail=res;
   renderAvailable();
 }
 function renderAvailable(){
   const el=$('#alist'), list=S.avail||[];
   const badge=$('#avcnt'); badge.textContent=list.length; badge.style.display=list.length?'':'none';
-  el.innerHTML=`<div class="muted small" style="padding:4px 4px 6px">Проекты на сервере, где ты участник, которых ещё нет на этом компьютере.</div>`+
+  el.innerHTML=`<div class="muted small" style="padding:4px 4px 6px">Проекты, где ты участник, и все проекты, к которым у твоего GitHub-аккаунта есть доступ (свои с других устройств и где ты коллаборатор), — которых ещё нет на этом компьютере.</div>`+
     (list.length?list.map(a=>`<div class="avail"><div class="an">${esc(a.name)}</div>
       <div class="muted small">${a.isOwner?'твой проект':'от '+esc(a.owner.nick)} · участники: ${(a.members||[]).map(m=>esc(m.nick)).join(', ')}</div>
-      <div style="margin-top:6px"><button class="sm primary" onclick="downloadAvailable('${a.id}')"><span class="ic">⤓</span> Скачать</button></div></div>`).join('')
-    :`<div class="muted small" style="padding:10px">Здесь пусто: всё уже скачано или тебя ещё никуда не позвали.</div>`)+
+      <div style="margin-top:6px"><button class="sm primary" onclick="downloadAvailable('${a.id}')">Скачать</button></div></div>`).join('')
+    :`<div class="muted small" style="padding:10px">Здесь пусто: всё уже скачано или тебя ещё никуда не позвали. Проект друга появится здесь, когда он позовёт тебя: в проекте Участники → ник или «Позвать всех».</div>`)+
     `<div style="padding:4px"><a class="small" onclick="loadAvailable()">↻ обновить</a></div>`;
 }
 function pickParentDialog(title, text, onGo, okText='Скачать'){
@@ -446,7 +521,7 @@ function pickParentDialog(title, text, onGo, okText='Скачать'){
   m.querySelector('#pick').onclick=async()=>{const r=await api('/api/pickfolder',{}).catch(()=>({}));if(r.path)m.querySelector('#cp').value=r.path};
   m.querySelector('#go').onclick=()=>{ const parent=m.querySelector('#cp').value.trim(); if(!parent) return uiAlert('Выбери папку, куда скачать проект'); m.close(); onGo(parent) };
 }
-async function openDownloaded(j){ if(j&&!j.error&&j.result&&j.result.path){ S.sel=j.result.path; S.comments=null; S.preview=null; sideTab('my'); await refreshAll(); loadPreview() } }
+async function openDownloaded(j){ if(j&&!j.error&&j.result&&j.result.path){ S.sel=j.result.path; S.comments=null; S.preview=null; sideTab('my'); await refreshAll() } }
 function downloadAvailable(id){
   const a=(S.avail||[]).find(x=>x.id===id); if(!a) return;
   pickParentDialog(`⤓ Скачать «${esc(a.name)}»`, `<div class="muted small">${a.isOwner?'Твой проект':'Проект '+esc(a.owner.nick)}. Аудио докачается автоматически.</div>`, async parent=>{
@@ -454,23 +529,24 @@ function downloadAvailable(id){
 }
 function acceptInvite(id){
   const inv=(S.invites||[]).find(x=>x.id===id); if(!inv) return;
-  pickParentDialog('📨 Приглашение в проект', `<b>${esc(inv.from.nick)}</b> приглашает тебя в проект <b>«${esc(inv.name)}»</b>.`, async parent=>{
+  pickParentDialog('Приглашение в проект', `<b>${esc(inv.from.nick)}</b> приглашает тебя в проект <b>«${esc(inv.name)}»</b>.`, async parent=>{
     const j=await runJob('/api/invitations/accept',{id,parent},{title:'Скачиваю «'+inv.name+'»'}); await openDownloaded(j); pollNotes() }, 'Принять и скачать');
 }
 // ---------- participants of a project ----------
 async function participantsDialog(){
   const path=S.sel;
-  const m=modal(`<div class="row" style="justify-content:space-between"><h2><span class="ic">👥</span> Участники проекта</h2><button class="ghost sm" id="x">✕</button></div>
+  const m=modal(`<div class="row" style="justify-content:space-between"><h2>Участники проекта</h2><button class="ghost sm" id="x">✕</button></div>
     <div id="plistp" class="muted small">Загружаю…</div>
-    <label>Позвать в проект — ник в проге</label>
-    <div class="row" style="flex-wrap:nowrap"><input id="pn" placeholder="ник друга" list="nicks"><button class="primary" id="pinv">Пригласить</button></div><div class="lookup" id="plk"></div>
-    <datalist id="nicks"></datalist>
-    <div class="muted small" style="margin-top:8px">Приглашение придёт прямо в прогу, доступ к репозиторию на GitHub выдастся сам. Звать и убирать участников может владелец проекта.</div>`);
+    <label>Позвать в проект</label>
+    <div id="ppick"></div>
+    <div class="row" style="margin-top:6px"><button class="primary" id="pinv">Пригласить выбранных</button></div>
+    <div style="margin-top:8px"><button id="pall">Позвать всех пользователей FruityHub</button></div>
+    <div class="muted small" style="margin-top:8px">Приглашение придёт прямо в FruityHub, доступ к репозиторию на GitHub выдастся сам. Звать и убирать участников может владелец проекта.</div>`);
   m.querySelector('#x').onclick=()=>m.close();
-  bindLookup(m.querySelector('#pn'), m.querySelector('#plk'), m.querySelector('#nicks'));
   const load=async()=>{
     let r; try{ r=await api('/api/project/participants?path='+enc(path)) }catch(e){ m.querySelector('#plistp').innerHTML=`<div class="badbox">${esc(e.message)}</div>`; return }
     const p=r.project, me=r.me;
+    userPicker(m.querySelector('#ppick'), {exclude:[...(p.members||[]).map(u=>u.id),...(p.invited||[]).map(i=>i.to.id)]});
     const rows=[...(p.members||[]).map(u=>({u,pending:false})),...(p.invited||[]).map(i=>({u:i.to,pending:true}))];
     m.querySelector('#plistp').innerHTML=rows.map(({u,pending})=>`<div class="person" style="color:var(--text)">${avatar(u)}
       <div style="flex:1"><b>${esc(u.nick)}</b>${u.id===me?' <span class="muted small">(ты)</span>':''} <span class="muted small">GitHub @${esc(u.github||'?')} · ${esc(u.os||'')}</span><div>${u.id===p.owner.id?'<span class="tag">владелец</span> ':''}${pending?'<span class="tag warn">приглашён, ещё не принял</span>':''}</div></div>
@@ -481,9 +557,87 @@ async function participantsDialog(){
       if(!await uiConfirm(self?'Выйти из проекта? Файлы на компьютере останутся, но получать и отправлять изменения ты больше не сможешь.':`${pend?'Отменить приглашение для':'Убрать из проекта'} <b>${esc(b.dataset.n)}</b>?${pend?'':' Файлы у него останутся, но получать и отправлять изменения он больше не сможет.'}`,{ok:'Да',danger:true})) return;
       try{ await api('/api/project/remove-participant',{path,userId:b.dataset.u,name:b.dataset.n}); load() }catch(e){ fail(e) } });
   };
-  m.querySelector('#pinv').onclick=async()=>{ const nick=m.querySelector('#pn').value.trim(); if(!nick) return;
-    try{ const i=await api('/api/project/invite',{path,nick}); toast(`Приглашение отправлено: ${esc(i.to.nick)}`); m.querySelector('#pn').value=''; m.querySelector('#plk').innerHTML=''; load() }catch(e){ fail(e) } };
+  m.querySelector('#pall').onclick=async()=>{
+    try{ const r=await api('/api/project/invite-all',{path}); const n=(r.invited||[]).length;
+      toast(n?`Приглашения отправлены: ${esc(r.invited.join(', '))}`:'Все уже участники или приглашены');
+      if((r.failed||[]).length) uiAlert('Не получилось позвать:<br>'+r.failed.map(esc).join('<br>')); load() }catch(e){ fail(e) } };
+  m.querySelector('#pinv').onclick=async()=>{ const nicks=pickedNicks(m.querySelector('#ppick')); if(!nicks.length) return toast('Отметь, кого позвать');
+    await inviteMany(path, nicks); load() };
   load();
+}
+// выбор людей из всех пользователей этого сервера — вместо ввода ника руками
+async function userPicker(el, {exclude=[]}={}){
+  if(!el) return;
+  el.innerHTML='<div class="muted small">Загружаю пользователей сервера…</div>';
+  let us=[]; try{ us=await getUsers(true) }catch(e){ el.innerHTML=`<div class="badbox small">${esc(e.message)}</div>`; return }
+  const list=us.filter(u=>u.id!==S.state.userId && !exclude.includes(u.id)).sort((a,b)=>a.nick.localeCompare(b.nick,'ru',{sensitivity:'base'}));
+  if(!list.length){ el.innerHTML=`<div class="muted small">${exclude.length?'Все пользователи сервера уже в проекте или приглашены.':'Кроме тебя на сервере пока никого нет — другу нужно установить FruityHub и зарегистрироваться.'}</div>`; return }
+  el.innerHTML=`<div class="upick">${list.map(u=>`<label class="urow"><input type="checkbox" value="${esc(u.nick)}">${avatar(u,24)}<b>${esc(u.nick)}</b><span class="muted small">@${esc(u.github||'?')} · ${esc(u.os||'')}${u.online?' · в сети':''}</span></label>`).join('')}</div>
+    ${list.length>1?'<a class="small" data-all>выбрать всех</a>':''}`;
+  const all=el.querySelector('[data-all]');
+  if(all) all.onclick=()=>{ const bs=[...el.querySelectorAll('input[type=checkbox]')]; const on=bs.some(b=>!b.checked); bs.forEach(b=>b.checked=on); all.textContent=on?'снять всех':'выбрать всех' };
+}
+function pickedNicks(el){ return el?[...el.querySelectorAll('input[type=checkbox]:checked')].map(i=>i.value):[] }
+async function inviteMany(path, nicks){
+  const ok=[], bad=[];
+  for(const nick of nicks){ try{ await api('/api/project/invite',{path,nick}); ok.push(nick) }catch(e){ bad.push(nick+': '+e.message) } }
+  if(ok.length) toast('Приглашения отправлены: '+esc(ok.join(', ')));
+  if(bad.length) uiAlert('Не получилось позвать:<br>'+bad.map(esc).join('<br>'));
+}
+// создать репозиторий на GitHub для папки (в том числе если прошлая попытка не дошла до конца)
+// удалить репозиторий проекта с GitHub (и с сервера); подтверждение — вводом названия
+function deleteRepoDialog(){
+  const p=S.proj; if(!p?.remote) return;
+  const repo=p.remote.replace(/^.*github\.com[:/]+/,'').replace(/\.git$/,'');
+  const m=modal(`<h2>Удалить репозиторий с GitHub</h2>
+    <div>Репозиторий <b class="mono">${esc(repo)}</b> будет удалён с GitHub <b>навсегда</b> вместе со всей историей версий, а проект — с сервера FruityHub (у участников он пропадёт из «Доступных»). Файлы проекта на компьютерах останутся.</div>
+    <label class="switch"><input type="checkbox" id="drt"> Заодно убрать папку проекта на этом компьютере в Корзину</label>
+    <label>Чтобы подтвердить, впиши название проекта: <b>${esc(p.name)}</b></label><input id="drn" autocomplete="off">
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button id="no">Отмена</button><button class="danger" id="ok" disabled>Удалить навсегда</button></div>`);
+  const inp=m.querySelector('#drn'), ok=m.querySelector('#ok'); inp.focus();
+  inp.oninput=()=>{ ok.disabled=inp.value.trim()!==p.name.trim() };
+  m.querySelector('#no').onclick=()=>m.close();
+  ok.onclick=async()=>{ ok.disabled=true; ok.textContent='Удаляю…';
+    try{ const r=await api('/api/github/delete-repo',{path:S.sel,trash:m.querySelector('#drt').checked}); m.close();
+      toast('Репозиторий '+esc(r.deleted)+' удалён'+(r.trashError?'. Папку в корзину не убрал: '+esc(r.trashError):''),6000);
+      if(m.querySelector('#drt').checked && !r.trashError){ S.sel=null; S.proj=null } await refreshAll() }
+    catch(e){ m.close(); fail(e) } };
+}
+// все репозитории проектов на моём GitHub: где используются, удалить ненужные
+async function openRepos(){
+  const m=modal(`<div class="row" style="justify-content:space-between"><h2>Репозитории проектов на GitHub</h2><button class="ghost sm" id="x">✕</button></div>
+    <div class="muted small">Репозитории на твоём GitHub, которые создал FruityHub. «Не используется» — его нет ни в одной папке на этом компьютере и ни в одном проекте на сервере: например, остался после оборванного создания.</div>
+    <div id="rl" style="margin-top:8px" class="muted">Загружаю…</div>`);
+  m.querySelector('.modal').style.width='min(900px,94vw)';
+  m.querySelector('#x').onclick=()=>m.close();
+  const load=async()=>{
+    let rs; try{ rs=await api('/api/github/repos') }catch(e){ m.querySelector('#rl').innerHTML=`<div class="badbox">${esc(e.message)}</div>`; return }
+    if(!rs.length){ m.querySelector('#rl').innerHTML='<div class="muted">Репозиториев проектов нет.</div>'; return }
+    m.querySelector('#rl').innerHTML=`<table><tr><th>Репозиторий</th><th>Где используется</th><th style="text-align:right">Размер</th><th>Изменён</th><th></th></tr>
+      ${rs.map(r=>`<tr><td class="mono small">${esc(r.fullName)}</td>
+        <td class="small">${r.local?`на этом компьютере: <span class="mono">${esc(r.local.split(/[\\/]/).pop())}</span><br>`:''}${r.server?`на сервере: ${esc(r.server)} (${r.members} уч.)`:''}${!r.local&&!r.server?'<span style="color:var(--warn)">не используется</span>':''}</td>
+        <td class="muted small" style="text-align:right">${fmtSize((r.sizeKb||0)*1024)}</td><td class="muted small">${r.pushedAt?esc(new Date(r.pushedAt).toLocaleDateString('ru-RU')):''}</td>
+        <td><button class="sm danger" data-r="${esc(r.fullName)}" data-u="${r.server||r.local?1:0}">Удалить</button></td></tr>`).join('')}</table>`;
+    m.querySelectorAll('[data-r]').forEach(b=>b.onclick=async()=>{
+      const used=b.dataset.u==='1';
+      if(!await uiConfirm(`Удалить репозиторий <b class="mono">${esc(b.dataset.r)}</b> с GitHub навсегда, со всей историей?${used?'<br><br><b>Он ещё используется</b> — проект уйдёт и с сервера FruityHub; файлы на компьютерах останутся.':''}`,{title:'Удалить репозиторий',ok:'Удалить навсегда',danger:true})) return;
+      b.disabled=true; b.textContent='удаляю…';
+      try{ await api('/api/github/delete-repo',{repo:b.dataset.r}); toast('Удалён: '+esc(b.dataset.r)); load(); refreshAll() }catch(e){ fail(e); b.disabled=false; b.textContent='Удалить' } });
+  };
+  load();
+}
+function createRepoDialog(){
+  const p=S.proj; if(!p) return;
+  if(!S.state.registered) return openRegister(true);
+  const m=modal(`<h2>Создать репозиторий на GitHub</h2>
+    <div class="muted small">Приватный репозиторий на твоём GitHub для этого проекта, запись на сервере FruityHub и первая отправка. Если прошлая попытка создать его оборвалась, FruityHub продолжит с уже созданным репозиторием, а не сделает второй.</div>
+    <label>Название</label><input id="crn" value="${esc(p.name)}">
+    <label>Кого позвать в проект</label><div id="crp"></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button id="no">Отмена</button><button class="primary" id="ok">Создать и отправить</button></div>`);
+  userPicker(m.querySelector('#crp'));
+  m.querySelector('#no').onclick=()=>m.close();
+  m.querySelector('#ok').onclick=async()=>{ const name=m.querySelector('#crn').value, invite=pickedNicks(m.querySelector('#crp')); m.close();
+    await runJob('/api/project/server-create',{path:S.sel,name,invite},{title:'Создаю репозиторий и отправляю'}); refreshAll() };
 }
 function avatar(u, size=30){ const n=u.nick||'?'; return `<span class="ava" style="width:${size}px;height:${size}px;background:${color(n)}">${esc(n[0].toUpperCase())}${u.online?'<i class="on" title="в сети"></i>':''}</span>` }
 async function getUsers(force){ if(!S.users||force||Date.now()-S.usersAt>30000){ const r=await api('/api/users'); S.users=r.users||[]; S.usersAt=Date.now() } return S.users }
@@ -493,24 +647,24 @@ function bindLookup(input, out, datalist){
     if(!v.length){ out.innerHTML=''; return }
     t=setTimeout(async()=>{ let us=[]; try{ us=await getUsers() }catch(e){}
       out.innerHTML=v.map(n=>{ const u=us.find(x=>x.nick.toLowerCase()===n.toLowerCase());
-        return u?`<span style="color:var(--ok)">✓ ${esc(u.nick)} <span class="muted">(${esc(u.os||'?')})</span></span>`:`<span style="color:var(--bad)">✗ «${esc(n)}» не зарегистрирован в проге</span>` }).join('<br>') },300) });
+        return u?`<span style="color:var(--ok)">✓ ${esc(u.nick)} <span class="muted">(${esc(u.os||'?')})</span></span>`:`<span style="color:var(--bad)">✗ «${esc(n)}» не зарегистрирован в FruityHub</span>` }).join('<br>') },300) });
 }
 async function openJournal(){
 
-  const m=modal(`<div class="row" style="justify-content:space-between"><h2>📜 Журнал</h2><button class="ghost sm" id="x">✕</button></div><div class="muted small">Что происходило: отправки, получения, приглашения, плагины.</div><div id="acts" style="margin-top:8px">Загружаю…</div>`);
+  const m=modal(`<div class="row" style="justify-content:space-between"><h2>Журнал</h2><button class="ghost sm" id="x">✕</button></div><div class="muted small">Что происходило: отправки, получения, приглашения, плагины.</div><div id="acts" style="margin-top:8px">Загружаю…</div>`);
   m.querySelector('#x').onclick=()=>m.close();
   const list=await api('/api/activity').catch(()=>[]);
-  const ic={ok:'✓',error:'⚠',info:'•'}, col={ok:'var(--ok)',error:'var(--bad)',info:'var(--blue)'};
+  const ic={ok:'✓',error:'!',info:'•'}, col={ok:'var(--ok)',error:'var(--bad)',info:'var(--blue)'};
   m.querySelector('#acts').innerHTML=list.length?list.slice(0,200).map(a=>`<div class="act"><span class="tm">${fmtTime(a.time)}</span><span style="color:${col[a.kind]}">${ic[a.kind]||'•'}</span><span style="flex:1">${a.project?`<b>${esc(a.project)}</b> — `:''}${esc(a.text)}</span></div>`).join(''):'<p class="muted">Пока пусто.</p>';
 }
 setInterval(pollNotes, 6000);
 function projName(path){ return (S.state?.projects||[]).find(p=>p.path===path)?.name || path }
 async function askPermission(r){
-  const m=modal(`<h2><span class="ic">🔌</span> ${esc(r.fromNick)} просит плагин</h2>
+  const m=modal(`<h2>${esc(r.fromNick)} просит плагин</h2>
     <div class="card" style="margin:8px 0"><b style="font-size:16px">${esc(r.plugin)}</b> <span class="tag">${esc(r.format)}</span>${r.vendor?` <span class="muted">${esc(r.vendor)}</span>`:''}<div class="muted small">у ${esc(r.fromNick)} ${esc(r.fromOs)}${r.fromOnline?' · в сети':' · сейчас не в сети — плагин уйдёт, когда он появится'}</div></div>
     <div id="insp" class="muted small">Проверяю, что можно отправить…</div>
-    <div class="warnbox small" style="margin-top:10px">⚖ Передавай только бесплатные плагины или те, на которые у ${esc(r.fromNick)} есть своя лицензия. Библиотеки сэмплов и активация не копируются.</div>
-    <div class="muted small" style="margin-top:6px">Чтобы не нажимать каждый раз — ⚙ Настройки → «Кто может скачивать плагины с моего компьютера».</div>
+    <div class="warnbox small" style="margin-top:10px">Передавай только бесплатные плагины или те, на которые у ${esc(r.fromNick)} есть своя лицензия. Данные плагина (пресеты, ресурсы) уйдут вместе с ним, а лицензии и активация — нет.</div>
+    <div class="muted small" style="margin-top:6px">Чтобы не нажимать каждый раз — Настройки → «Кто может скачивать плагины с моего компьютера».</div>
     <label>Причина отказа (если отказываешь)</label><input id="why" placeholder="напр.: он платный, купи на сайте">
     <div class="row" style="justify-content:flex-end;margin-top:14px"><button id="later" class="ghost">Позже</button><button id="no" class="danger">Отклонить</button><button id="yes" class="primary" disabled>Разрешить и отправить</button></div>`);
   m.sticky=true;
@@ -521,7 +675,11 @@ async function askPermission(r){
   if(insp.compatible) opts.push({v:'', t:`Сам плагин${insp.version?' (версия '+esc(insp.version)+')':''} — ${fmtSize(insp.size)}`, d:esc(insp.reason)});
   for(const c of insp.installers||[]) opts.push({v:c.path, t:`Установщик ${esc(c.name)} — ${fmtSize(c.size)}`, d:'нашёл в «Загрузках»/на рабочем столе'});
   opts.push({v:'__pick__', t:'Выбрать файл установщика…', d:`например, скачанный с сайта производителя для ${esc(r.fromOs)}`});
-  m.querySelector('#insp').innerHTML=`${insp.compatible?'':`<div class="warnbox small" style="color:var(--text)">${esc(insp.reason)}</div>`}
+  const dataInfo=(insp.data||[]).length||(insp.dataSkipped||[]).length?`<div class="small" style="margin-top:8px;color:var(--text)"><b>Данные плагина</b> (пресеты, ресурсы — нужны, чтобы он работал):
+      ${(insp.data||[]).map(d=>`<div>✓ ${esc(d.rel)} <span class="muted">${fmtSize(d.size)} — ${esc(d.why||'уйдёт вместе с плагином')}</span></div>`).join('')}
+      ${(insp.dataSkipped||[]).map(d=>`<div>— ${esc(d.rel)} <span class="muted">${fmtSize(d.size)}: ${esc(d.note)}</span></div>`).join('')}
+      <div class="muted">Файлы лицензий и активации не передаются.</div></div>`:'';
+  m.querySelector('#insp').innerHTML=dataInfo+`${insp.compatible?'':`<div class="warnbox small" style="color:var(--text)">${esc(insp.reason)}</div>`}
     <div style="margin-top:6px;color:var(--text)"><b>Что отправить:</b>${opts.map((o,i)=>`<label class="switch" style="align-items:flex-start"><input type="radio" name="what" value="${esc(o.v)}" ${i===0?'checked':''} style="margin-top:3px"><span>${o.t}<div class="muted small">${o.d}</div></span></label>`).join('')}</div>`;
   const yes=m.querySelector('#yes'); yes.disabled=false;
   yes.onclick=async()=>{
@@ -532,8 +690,41 @@ async function askPermission(r){
     pollNotes(); if(S.tab==='plugins') loadReqs();
   };
 }
+// что нужно плагину кроме его файла: библиотеки, папки, реестр
+const DEP_ST={take:['уйдёт с плагином','ok'],inside:['внутри плагина',''],system:['системная',''],runtime:['Visual C++','warn'],missing:['не найдено','bad'],skip:['не уйдёт','warn']};
+const DEP_KIND={lib:'Библиотека',path:'Путь в плагине',registry:'Реестр'};
+async function openDeps(encName, format){
+  const name=decodeURIComponent(encName);
+  const m=modal(`<h2>Зависимости: ${esc(name)}</h2><div id="dp" class="muted">Разбираю файл плагина…</div><div class="row" style="justify-content:flex-end;margin-top:12px"><button class="primary" id="ok">Закрыть</button></div>`);
+  m.querySelector('#ok').onclick=()=>m.close();
+  let d; try{ d=await api('/api/plugin/deps?name='+enc(name)+'&format='+enc(format)) }catch(e){ m.querySelector('#dp').innerHTML=`<div class="badbox">${esc(e.message)}</div>`; return }
+  const items=(d.items||[]).filter(x=>x.status!=='system');
+  const sys=(d.items||[]).length-items.length;
+  m.querySelector('#dp').innerHTML=`<div class="small mono" style="color:var(--text);word-break:break-all">${esc(d.binary)}${(d.arch||[]).length?` <span class="tag">${esc(d.arch.join(', '))}</span>`:''}</div>
+    <div class="small" style="margin-top:10px;color:var(--text)"><b>Уйдёт вместе с плагином</b>${(d.data||[]).length?(d.data||[]).map(x=>`<div>✓ ${esc(x.root==='PLUGINDIR'?x.rel+' (рядом с плагином)':x.rel)} <span class="muted">${fmtSize(x.size)} — ${esc(x.why||'')}</span></div>`).join(''):'<div class="muted">только сам плагин — ничего снаружи ему не нужно</div>'}
+      ${(d.dataSkip||[]).map(x=>`<div>— ${esc(x.rel)} <span class="muted">${fmtSize(x.size)}: ${esc(x.note)}</span></div>`).join('')}
+      ${(d.registry||[]).length?`<div style="margin-top:6px"><b>Пути в реестре</b> (запишутся у друга, если у него их нет):</div>${d.registry.map(r=>`<div class="mono small">${esc(r.hive+'\\'+r.key)} · ${esc(r.name||'(по умолчанию)')} = ${esc(r.data)}</div>`).join('')}`:''}</div>
+    ${items.length?`<table style="margin-top:10px"><tr><th>Что</th><th>Нашлось</th><th></th></tr>${items.map(x=>`<tr><td><span class="muted small">${DEP_KIND[x.kind]||x.kind}</span><div class="mono small" style="word-break:break-all">${esc(x.name)}</div></td><td class="mono small" style="word-break:break-all">${esc(x.path||'')}${x.note?`<div class="muted" style="font-family:inherit">${esc(x.note)}</div>`:''}</td><td><span class="tag ${DEP_ST[x.status]?.[1]||''}">${DEP_ST[x.status]?.[0]||x.status}</span></td></tr>`).join('')}</table>`:''}
+    <div class="muted small" style="margin-top:8px">${sys?`Системных библиотек: ${sys} — они есть на любом компьютере. `:''}Лицензии и активация не переносятся — их ставят у себя установщиком производителя.</div>`;
+}
+// итог установки полученного плагина: что разложено и что стоит проверить
+function showReport(rep, again, check){
+  const w=rep.warnings||[];
+  const m=modal(`<h2>${check?'Проверка: '+esc(rep.plugin)+(w.length?' — есть проблемы':' — всё в порядке'):esc(rep.plugin)+' установлен'+(w.length?' — есть что проверить':'')}</h2>
+    <div class="muted small">от ${esc(rep.from||'?')} · <span class="mono">${esc(rep.path)}</span></div>
+    ${(rep.data||[]).length?`<div class="small" style="margin-top:10px"><b>Данные плагина разложены:</b>${rep.data.map(d=>`<div class="mono">✓ ${esc(d)}</div>`).join('')}</div>`:''}
+    ${w.map((x,i)=>`<div class="warnbox small" style="margin-top:10px;color:var(--text);white-space:pre-line">${esc(x.text)}${x.action==='vcredist'?`<div style="margin-top:6px"><button class="sm primary" data-act="vcredist">Установить Visual C++</button></div>`:''}${x.action==='retrydata'?`<div style="margin-top:6px"><button class="sm primary" data-act="retrydata" data-arg="${esc(x.arg||'')}">Попробовать ещё раз</button></div>`:''}</div>`).join('')}
+    <div class="card small muted" style="margin-top:10px">Если FL был открыт — перезапусти его. Если плагин всё равно открывается серым окном: в окне плагина ▾ → <i>Wrapper settings → Troubleshooting</i> → включи <b>Make bridged</b> и загрузи плагин заново.</div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px">${!check&&rep.id&&!String(rep.id).startsWith('check-')?'<button class="ghost" id="rei" title="Плагин и все его данные придут заново">Переустановить начисто</button>':''}<button class="primary" id="ok">Понятно</button></div>`);
+  m.querySelector('#ok').onclick=()=>m.close();
+  const rei=m.querySelector('#rei'); if(rei) rei.onclick=()=>{ m.close(); reinstallReq(rep.id) };
+  m.querySelectorAll('[data-act=vcredist]').forEach(b=>b.onclick=()=>{ m.close(); runJob('/api/system/install-vcredist',{},{title:'Ставлю Microsoft Visual C++'}) });
+  m.querySelectorAll('[data-act=retrydata]').forEach(b=>b.onclick=()=>{ m.close(); runJob('/api/plugin/retry-data',{id:b.dataset.arg},{title:'Кладу данные '+rep.plugin}) });
+  if(!again) api('/api/plugin/report-seen',{id:rep.id}).catch(()=>{});
+}
+async function openReport(id){ try{ const all=await api('/api/plugin/reports'); if(all[id]) showReport(all[id],true) }catch(e){ fail(e) } }
 function offerInstaller(it){
-  const m=modal(`<h2><span class="ic">⬇</span> ${esc(it.from)} прислал установщик</h2><div><b>${esc(it.plugin)}</b></div>
+  const m=modal(`<h2>${esc(it.from)} прислал установщик</h2><div><b>${esc(it.plugin)}</b></div>
     <div class="muted small" style="margin-top:8px">Файл уже в «Загрузках»: <span class="mono">${esc(it.path)}</span>. Запусти и пройди установку как обычно. После установки в FL: Options → Manage plugins → Find installed plugins.</div>
     <div class="row" style="justify-content:flex-end;margin-top:14px"><button id="later" class="ghost">Потом сам</button><button id="yes" class="primary">Запустить установщик</button></div>`);
   m.querySelector('#later').onclick=()=>{ api('/api/plugin/run-installer',{id:it.id,skip:'1'}).catch(()=>{}); m.close() };
@@ -542,7 +733,7 @@ function offerInstaller(it){
 // ---------- main view ----------
 function renderMain(){
   const m=$('#main');
-  if(!S.sel||!S.proj){ m.innerHTML=`<div class="empty"><div class="box"><div style="font-size:42px" class="ic">🎛</div><div style="font-size:18px;color:var(--text)">Выбери или добавь проект</div>
+  if(!S.sel||!S.proj){ m.innerHTML=`<div class="empty"><div class="box"><div style="font-size:18px;color:var(--text)">Выбери или добавь проект</div>
     <div style="margin-top:6px">Один проект = одна папка с .flp и всем аудио.<br>Проекты друзей — во вкладке «Доступные» и в приглашениях.</div></div></div>`; return }
   const p=S.proj;
   if(!p.exists){ m.innerHTML=`<div class="card phead"><h1>${esc(p.name)}</h1></div><div class="badbox">Папка не найдена: ${esc(p.path)}</div><button onclick="removeProject()">Убрать из списка</button>`; return }
@@ -558,41 +749,76 @@ function renderMain(){
   const openTodos=(S.comments?.comments||[]).filter(c=>c.kind==='todo'&&!c.done).length;
   const unread=S.notes[S.sel]?.unread||0;
   let banner;
-  if(!lock) banner=`<div class="banner free"><div style="font-size:24px">🟢</div><div><div class="big">Проект свободен</div><div class="muted small">Нажми «Взять в работу» перед тем как открывать его в FL — друг увидит, что ты им занят.</div></div></div>`;
-  else if(mine) banner=`<div class="banner me"><div style="font-size:24px">🎧</div><div><div class="big">Проект в работе у тебя</div><div class="muted small">с ${fmtTime(lock.since)}. Закончил — «Отправить» с галочкой «освободить».</div></div></div>`;
-  else banner=`<div class="banner other"><div style="font-size:24px">⛔</div><div><div class="big">Сейчас работает ${esc(lock.user)} (${esc(lock.os)})</div><div class="muted small">с ${fmtTime(lock.since)}. Если откроешь и сохранишь проект сейчас — получится конфликт (ничего не потеряется, но придётся сводить вручную).</div></div></div>`;
+  if(!lock) banner=`<div class="banner free"><div><div class="big">Проект свободен</div><div class="muted small">Нажми «Взять в работу» перед тем как открывать его в FL — друг увидит, что ты им занят.</div></div></div>`;
+  else if(mine) banner=`<div class="banner me"><div><div class="big">Проект в работе у тебя</div><div class="muted small">с ${fmtTime(lock.since)}. Закончил — «Отправить» с галочкой «освободить».</div></div></div>`;
+  else banner=`<div class="banner other"><div><div class="big">Сейчас работает ${esc(lock.user)} (${esc(lock.os)})</div><div class="muted small">с ${fmtTime(lock.since)}. Если откроешь и сохранишь проект сейчас — получится конфликт (ничего не потеряется, но придётся сводить вручную).</div></div></div>`;
   const sync = p.ahead<0 ? 'на сервере ещё ничего нет' : (p.behind? `<b style="color:var(--accent)">на сервере новое: ${p.behind}</b>`:'с сервером совпадает') + (p.ahead>0?` · не отправлено коммитов: ${p.ahead}`:'');
   const tabs=[['changes','Изменения',visibleChanges.length,''],['talk','Обсуждение',unread||openTodos||null,unread?'hot':''],['samples','Сэмплы',(a?.samples||[]).length,missing.length?'bad':''],['plugins','Плагины',plugins.length,pluginProblems.length?'bad':''],['history','История',null,''],['settings','Настройки',null,'']];
   m.innerHTML=`<div class="card phead">
-    <div class="row"><h1>${esc(p.name)}</h1>${st?.stage?`<span class="stage" title="${esc(st.text||'')}">● ${esc(st.stage)}</span>`:''}<span class="spacer"></span>
-      ${p.onServer?`<button class="ghost" onclick="participantsDialog()"><span class="ic">👥</span> Участники</button>`:''}<button class="ghost" onclick="api('/api/project/open',{path:S.sel})"><span class="ic">📂</span> Открыть папку</button></div>
+    <div class="row"><h1>${esc(p.name)}</h1><button class="ghost sm" title="Переименовать (только на этом компьютере)" onclick="renameProject()">✎</button>${st?.stage?`<span class="stage" title="${esc(st.text||'')}">● ${esc(st.stage)}</span>`:''}<span class="spacer"></span>
+      ${p.onServer?`<button class="ghost" onclick="participantsDialog()">Участники</button>`:''}<button class="ghost" onclick="api('/api/project/open',{path:S.sel})">Открыть папку</button></div>
     <div class="muted small mono ellip" title="${esc(p.path)}">${esc(p.path)}</div>
     <div class="muted small" style="margin-top:4px">${p.remote?('⇅ '+esc(p.remote.replace(/https:\/\/[^@]*@/,'https://'))):'<span style="color:var(--warn)">сервер не указан — открой «Настройки» проекта</span>'} · ${sync}${p.lastSync?' · проверено '+p.lastSync:''}</div>
-    ${st?.text?`<div class="muted small" style="margin-top:6px">📌 ${esc(st.text)} <span class="muted">— ${esc(st.by)}, ${fmtTime(st.time)}</span></div>`:''}</div>
+    ${st?.text?`<div class="muted small" style="margin-top:6px">${esc(st.text)} <span class="muted">— ${esc(st.by)}, ${fmtTime(st.time)}</span></div>`:''}</div>
     <div class="top"><div>${banner}
       <div class="actions">
         <button onclick="receive()">⤓ Получить</button>
-        ${mine?'':`<button onclick="takeLock(${!!(lock&&!mine)})">🔒 Взять в работу</button>`}
+        ${mine?'':`<button onclick="takeLock(${!!(lock&&!mine)})">Взять в работу</button>`}
         <button class="primary" onclick="sendDialog()">⤒ Отправить${visibleChanges.length?' ('+visibleChanges.length+')':''}</button>
         ${mine?`<button class="ghost" onclick="unlock()">Освободить без отправки</button>`:''}
       </div></div>
-      <div class="preview" id="preview"></div></div>
+      <div class="card launch">${launchPanel(p)}</div></div>
     ${layoutBanners(p)}
-    ${missing.length?`<div class="badbox">⚠ Не найдено сэмплов: ${missing.length}. Они пропадут в FL — смотри вкладку «Сэмплы».</div>`:''}
+    ${p.fl?.tooOld?`<div class="badbox">${esc(p.fl.text)}</div>`:''}
+    ${missing.length?`<div class="badbox">Не найдено сэмплов: ${missing.length}. Они пропадут в FL — смотри вкладку «Сэмплы».</div>`:''}
     ${external.length?`<div class="warnbox">Сэмплов вне папки проекта: ${external.length} — при отправке они скопируются в <b>Audio/</b>.</div>`:''}
     ${pluginProblems.length?`<div class="warnbox">Проблемы с плагинами: ${pluginProblems.length} — смотри вкладку «Плагины».</div>`:''}
     <div class="tabs">${tabs.map(([k,n,c,cls])=>`<div class="tab ${S.tab===k?'sel':''}" onclick="setTab('${k}')">${n}${c!=null?`<span class="cnt ${cls}">${c}</span>`:''}</div>`).join('')}</div>
     <div id="tabbody">${renderTab()}</div>`;
-  renderPreview();
-  bindPreviewDrop();
-  const il=$('#invNick'); if(il) bindLookup(il,$('#invLook'),$('#nicks3'));
+  if(S.tab==='settings' && p.onServer && $('#invPick') && !$('#invPick').dataset.done){ $('#invPick').dataset.done=1; const ex=S.parts?.project?[...(S.parts.project.members||[]).map(u=>u.id),...(S.parts.project.invited||[]).map(i=>i.to.id)]:[]; userPicker($('#invPick'),{exclude:ex}) }
 }
-function setTab(t){ S.tab=t; if(t==='plugins') loadReqs(); if(t==='history'&&!S.history) loadHistory(); if(t==='talk') loadComments(true); if(t==='settings') S.parts=null; renderMain(); if(t==='settings') loadParticipants() }
+function launchPanel(p){
+  const fl=p.fl||{};
+  const info=fl.saved?`Сохранён в FL Studio ${esc(fl.saved.split('.').slice(0,2).join('.'))}${fl.installed?` · у тебя ${esc(fl.installed.split('.').slice(0,2).join('.'))}`:''}`:'';
+  return `<button class="primary big" onclick="launchProject()">Запустить проект</button>
+    <div class="muted small">${info||'Откроется в FL Studio'}${fl.tooOld?` · <span style="color:var(--bad)">твоя FL старее</span>`:''}</div>`;
+}
+async function launchProject(){
+  const p=S.proj; if(!p) return;
+  if(p.fl?.tooOld && !await uiConfirm(esc(p.fl.text)+'<br><br>Всё равно открыть?',{title:'Старая версия FL Studio',ok:'Открыть'})) return;
+  if(p.lock && p.lock.user!==p.me && !await uiConfirm(`Сейчас проектом занят ${esc(p.lock.user)}. Если сохранишь его у себя — получится конфликт. Открыть?`,{title:'Проект в работе у друга',ok:'Открыть'})) return;
+  try{ const r=await api('/api/project/launch',{path:S.sel}); toast('Открываю '+esc(r.flp)+' в FL Studio') }catch(e){ fail(e) }
+}
+async function renameProject(path){
+  path=path||S.sel; const cur=(S.state.projects||[]).find(x=>x.path===path); if(!cur) return;
+  const folder=path.split(/[\\/]/).pop();
+  const m=modal(`<h2>Переименовать проект</h2><div class="muted small">Название меняется только на этом компьютере — папка, репозиторий на GitHub и сервер остаются как были.</div>
+    <label>Название</label><input id="rn" value="${esc(cur.name)}" placeholder="${esc(folder)}">
+    <label class="switch"><input type="checkbox" id="rfl" checked> Записать это название и в FL Studio (Project info → Title)</label>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button id="no">Отмена</button><button class="primary" id="ok">Сохранить</button></div>`);
+  const i=m.querySelector('#rn'); i.focus(); i.select();
+  const go=async()=>{ try{ const r=await api('/api/project/rename',{path,name:i.value,flTitle:m.querySelector('#rfl').checked}); m.close();
+    if(r.flError) toast('В .flp не записал: '+esc(r.flError),6000); await refreshAll() }catch(e){ fail(e) } };
+  m.querySelector('#ok').onclick=go; i.onkeydown=e=>{ if(e.key==='Enter') go() }; m.querySelector('#no').onclick=()=>m.close();
+}
+async function trashProject(path){
+  path=path||S.sel; const cur=(S.state.projects||[]).find(x=>x.path===path); if(!cur) return;
+  if(!await uiConfirm(`Удалить проект <b>${esc(cur.name)}</b> с этого компьютера?<br><br>Папка <span class="mono">${esc(path)}</span> целиком уйдёт в Корзину — оттуда её можно вернуть. Репозиторий на GitHub и проект на сервере остаются: его можно снова скачать из «Доступных».`,{title:'Удалить файлы проекта',ok:'Удалить в корзину',danger:true})) return;
+  try{ await api('/api/project/delete-files',{path}); if(S.sel===path){ S.sel=null; S.proj=null } toast('Папка проекта в Корзине'); await refreshAll() }catch(e){ fail(e) }
+}
+async function loadFLTitle(){
+  const el=$('#fltitle'); if(!el) return;
+  try{ const r=await api('/api/project/fltitle',{path:S.sel}); el.value=r.title||''; el.placeholder=r.title?'':'не задано'; const n=$('#fltitleNote'); if(n) n.textContent=r.flp?('Файл: '+r.flp):'' }catch(e){ el.placeholder=e.message }
+}
+async function saveFLTitle(v){
+  try{ const r=await api('/api/project/fltitle',{path:S.sel,title:v}); toast(r.changed?'Записал в .flp. Если проект открыт в FL — закрой его без сохранения и открой снова.':'Без изменений',5000); loadProject(S.sel) }catch(e){ fail(e) }
+}
+function setTab(t){ S.tab=t; if(t==='plugins') loadReqs(); if(t==='history'&&!S.history) loadHistory(); if(t==='talk') loadComments(true); if(t==='settings') S.parts=null; renderMain(); if(t==='settings'){ loadParticipants(); loadFLTitle() } }
 function layoutBanners(p){
   let h='';
-  if(p.isRepo && p.adopted && !p.onServer && S.state?.registered) h+=`<div class="warnbox">☁ Проект не подключён к серверу проги — звать участников и видеть его в «Доступных» у друзей пока нельзя. <button class="sm" style="margin-left:6px" onclick="moveToServer()">Подключить к серверу</button></div>`;
-  if((p.extraFlps||[]).length) h+=`<div class="warnbox">📂 В папке проекта лежит несколько проектов FL: ${p.extraFlps.map(x=>'<b>'+esc(x)+'</b>').join(', ')}. Так их легко перепутать, а у друга всё смешается. <button class="sm" style="margin-left:6px" onclick="splitDialog()">Разобрать по папкам…</button></div>`;
-  if(p.rootAudio>0) h+=`<div class="warnbox">🎵 В корне проекта лежит аудио (${p.rootAudio}). Аудио должно жить в папке <b>Audio/</b> — перенесу и поправлю пути в .flp (закрой проект в FL). <button class="sm" style="margin-left:6px" onclick="runJob('/api/project/organize',{path:S.sel},{title:'Навожу порядок в папке'})">Перенести в Audio/</button></div>`;
+  if(p.isRepo && p.adopted && !p.onServer && S.state?.registered) h+=`<div class="warnbox">Проект не подключён к серверу FruityHub — звать участников и видеть его в «Доступных» у друзей пока нельзя. <button class="sm" style="margin-left:6px" onclick="moveToServer()">Подключить к серверу</button></div>`;
+  if((p.extraFlps||[]).length) h+=`<div class="warnbox">В папке проекта лежит несколько проектов FL: ${p.extraFlps.map(x=>'<b>'+esc(x)+'</b>').join(', ')}. Так их легко перепутать, а у друга всё смешается. <button class="sm" style="margin-left:6px" onclick="splitDialog()">Разобрать по папкам…</button></div>`;
+  if(p.rootAudio>0) h+=`<div class="warnbox">В корне проекта лежит аудио (${p.rootAudio}). Аудио должно жить в папке <b>Audio/</b> — перенесу и поправлю пути в .flp (закрой проект в FL). <button class="sm" style="margin-left:6px" onclick="runJob('/api/project/organize',{path:S.sel},{title:'Навожу порядок в папке'})">Перенести в Audio/</button></div>`;
   return h;
 }
 function splitDialog(){
@@ -601,9 +827,9 @@ function splitDialog(){
     <div class="muted small">Один проект = одна папка. Выбери главный проект этой папки, а для остальных — что с ними сделать. Аудио, которое нужно только вынесенному проекту, переедет вместе с ним; общее — скопируется. <b>Закрой эти проекты в FL Studio.</b></div>
     <div style="margin-top:10px">${list.map((f,i)=>`<div class="flpchoice"><div><b>${esc(f)}</b></div>
       <select data-f="${esc(f)}" style="width:auto">
-        <option value="main" ${f===main?'selected':''}>⭐ главный проект этой папки</option>
-        <option value="extract" ${f!==main?'selected':''}>📂 вынести в отдельный проект</option>
-        <option value="keep">📄 это версия — оставить здесь</option></select></div>`).join('')}</div>
+        <option value="main" ${f===main?'selected':''}>главный проект этой папки</option>
+        <option value="extract" ${f!==main?'selected':''}>вынести в отдельный проект</option>
+        <option value="keep">это версия — оставить здесь</option></select></div>`).join('')}</div>
     <div class="muted small" style="margin-top:8px">Новые проекты появятся рядом: ${esc(p.path.replace(/[\\/][^\\/]+$/,''))}/&lt;имя проекта&gt; и сразу добавятся в список.</div>
     <div class="row" style="justify-content:flex-end;margin-top:14px"><button id="no">Отмена</button><button class="primary" id="go">Разобрать</button></div>`);
   m.querySelector('#no').onclick=()=>m.close();
@@ -617,10 +843,11 @@ function splitDialog(){
 async function loadParticipants(){
   const path=S.sel; if(!path||!S.proj?.onServer) return;
   try{ S.parts=await api('/api/project/participants?path='+enc(path)) }catch(e){ S.parts={error:e.message} }
-  if(S.sel===path && S.tab==='settings'){ const el=$('#parts'); if(el) el.innerHTML=partsHtml() }
+  if(S.sel===path && S.tab==='settings'){ const el=$('#parts'); if(el) el.innerHTML=partsHtml();
+    const ip=$('#invPick'); if(ip && S.parts?.project){ ip.dataset.done=1; userPicker(ip,{exclude:[...(S.parts.project.members||[]).map(u=>u.id),...(S.parts.project.invited||[]).map(i=>i.to.id)]}) } }
 }
 function partsHtml(){
-  if(!S.proj?.onServer) return '<div class="muted small">Проект не на сервере проги — участников нет.</div>';
+  if(!S.proj?.onServer) return '<div class="muted small">Проект не на сервере FruityHub — участников нет.</div>';
   const r=S.parts;
   if(!r) return '<div class="muted small">Загружаю…</div>';
   if(r.error) return `<div class="muted small">${esc(r.error)}</div>`;
@@ -628,78 +855,35 @@ function partsHtml(){
   return [...(p.members||[]).map(u=>[u,false]),...(p.invited||[]).map(i=>[i.to,true])].map(([u,pend])=>`<div class="row" style="gap:6px;padding:3px 0">${avatar(u,22)}
     <b>${esc(u.nick)}</b> <span class="muted small">${esc(u.os||'')}</span>${u.id===p.owner.id?' <span class="tag">владелец</span>':''}${pend?' <span class="tag warn">приглашён, ещё не принял</span>':''}</div>`).join('');
 }
-async function inviteNick(){
-  const nick=$('#invNick').value.trim(); if(!nick) return;
-  try{ const i=await api('/api/project/invite',{path:S.sel,nick}); toast(`Приглашение отправлено: ${esc(i.to.nick)}`); $('#invNick').value=''; loadParticipants() }catch(e){ fail(e) }
+async function inviteFromSettings(){
+  const nicks=pickedNicks($('#invPick')); if(!nicks.length) return toast('Отметь, кого позвать');
+  await inviteMany(S.sel, nicks); S.parts=null; await loadParticipants(); renderMain()
 }
 function renderAdopt(){
   const p=S.proj;
-  $('#main').innerHTML=`<div class="card phead"><h1>${esc(p.name)}</h1><div class="muted small mono">${esc(p.path)}</div></div>${layoutBanners(p)}
-    <div class="card"><h3 style="margin-top:0">🔗 В этой папке уже есть git-репозиторий</h3><div id="adopt" class="muted">Смотрю, что в нём…</div></div>`;
+  $('#main').innerHTML=`<div class="card phead"><div class="row"><h1>${esc(p.name)}</h1><button class="ghost sm" title="Переименовать (только на этом компьютере)" onclick="renameProject()">✎</button><span class="spacer"></span>
+    <button class="primary" onclick="launchProject()">Запустить проект</button><button class="ghost" onclick="api('/api/project/open',{path:S.sel})">Открыть папку</button></div>
+    <div class="muted small mono">${esc(p.path)}</div>${p.fl?.saved?`<div class="muted small">Сохранён в FL Studio ${esc(p.fl.saved)}${p.fl.installed?` · у тебя ${esc(p.fl.installed)}`:''}</div>`:''}</div>
+    ${p.fl?.tooOld?`<div class="badbox">${esc(p.fl.text)}</div>`:''}${layoutBanners(p)}
+    <div class="card"><h3 style="margin-top:0">В этой папке уже есть git-репозиторий</h3><div id="adopt" class="muted">Смотрю, что в нём…</div></div>`;
   const path=p.path;
   api('/api/project/adopt-info?path='+enc(path)).then(i=>{
     if(S.sel!==path) return;
     $('#adopt').innerHTML=`<div style="color:var(--text)">
-      ${i.hasFlsync?'<div class="okbox">Это проект проги узбека — просто подключу его на этом компьютере.</div>':'<div class="muted small">Обычный git-репозиторий. Подключу как есть: история и сервер сохранятся, добавятся только служебные файлы проги (PLUGINS.txt, .flsync/).</div>'}
+      ${i.hasFlsync?'<div class="okbox">Это проект FruityHub — просто подключу его на этом компьютере.</div>':'<div class="muted small">Обычный git-репозиторий. Подключу как есть: история и сервер сохранятся, добавятся только служебные файлы FruityHub (PLUGINS.txt, .flsync/).</div>'}
       <table style="margin-top:8px"><tr><td class="muted">Сервер</td><td class="mono">${i.remote?esc(i.remote.replace(/https:\/\/[^@]*@/,'https://')):'<span style="color:var(--warn)">не указан — укажешь после подключения</span>'}</td></tr>
       <tr><td class="muted">Ветка</td><td>${esc(i.branch)}</td></tr>
       <tr><td class="muted">История</td><td>${i.commits} коммит(ов)${i.lastCommit?` · последний: ${esc(i.lastCommit)} — ${esc(i.lastAuthor)}`:''}</td></tr>
       <tr><td class="muted">Не отправлено</td><td>${i.dirty?`<span style="color:var(--warn)">${i.dirty} изменённых файлов</span>`:'ничего'}</td></tr>
       ${i.remote?`<tr><td class="muted">На сервере</td><td>${i.fetchError?`<span style="color:var(--bad)">${esc(i.fetchError)}</span>`:i.behind>0?`<b style="color:var(--accent)">новое: ${i.behind}</b> — после подключения нажми «Получить»`:'совпадает'}</td></tr>`:''}
-      <tr><td class="muted">Участники</td><td>${i.onServer?(i.participants||[]).map(x=>`<span class="row" style="gap:6px;display:inline-flex;margin-right:10px">${avatar(x,20)} <b>${esc(x.nick)}</b></span>`).join(''):`<span class="muted small">${i.remote?'проект не на сервере проги — после подключения его можно туда перенести':'нет'}</span>`}</td></tr></table>
-      ${(i.nonLfsAudio||[]).length?`<div class="warnbox small">⚠ ${i.nonLfsAudio.length} аудиофайлов уже лежат в истории git без LFS (${i.nonLfsAudio.slice(0,3).map(esc).join(', ')}${i.nonLfsAudio.length>3?'…':''}). Они останутся как есть; новые и изменённые аудио пойдут через LFS.</div>`:''}
-      <div class="row" style="margin-top:12px"><button class="primary" onclick="adopt()">Подключить как есть</button><button class="ghost" onclick="removeProject()">Не подключать, убрать из списка</button></div></div>`;
+      <tr><td class="muted">Участники</td><td>${i.onServer?(i.participants||[]).map(x=>`<span class="row" style="gap:6px;display:inline-flex;margin-right:10px">${avatar(x,20)} <b>${esc(x.nick)}</b></span>`).join(''):`<span class="muted small">${i.remote?'проект не на сервере FruityHub — после подключения его можно туда перенести':'нет'}</span>`}</td></tr></table>
+      ${(i.nonLfsAudio||[]).length?`<div class="warnbox small">${i.nonLfsAudio.length} аудиофайлов уже лежат в истории git без LFS (${i.nonLfsAudio.slice(0,3).map(esc).join(', ')}${i.nonLfsAudio.length>3?'…':''}). Они останутся как есть; новые и изменённые аудио пойдут через LFS.</div>`:''}
+      ${!i.remote?`<div class="warnbox small" style="margin-top:10px">У репозитория нет адреса на GitHub — например, создание проекта оборвалось на середине. Создай репозиторий: если он уже был создан в прошлый раз, FruityHub продолжит с ним.</div>`:''}
+      <div class="row" style="margin-top:12px">${!i.remote?`<button class="primary" onclick="createRepoDialog()">Создать репозиторий на GitHub…</button><button onclick="adopt()">Подключить без GitHub</button>`:`<button class="primary" onclick="adopt()">Подключить как есть</button>`}<button class="ghost" onclick="removeProject()">Не подключать, убрать из списка</button></div></div>`;
   }).catch(e=>{ $('#adopt').innerHTML=`<div class="badbox">${esc(e.message)}</div>` });
 }
 async function adopt(){ await runJob('/api/project/adopt',{path:S.sel},{title:'Подключаю репозиторий'}) }
-// ---------- preview player ----------
 // one persistent <audio>: it is moved between re-renders so playback never stops
-const PLAYER=document.createElement('audio'); PLAYER.controls=true; PLAYER.preload='metadata';
-function renderPreview(){
-  const el=$('#preview'); if(!el) return;
-  const p=S.preview;
-  let h=`<div class="row" style="justify-content:space-between"><b>🎧 Превью трека</b><span class="row" style="gap:6px">
-    <button class="sm" onclick="pickPreview()">${p?.asset?'Заменить':'Загрузить'}</button>${p?.asset?`<button class="sm ghost" title="Удалить превью" onclick="deletePreview()">🗑</button>`:''}</span></div>`;
-  let showPlayer=false;
-  if(S.previewErr) h+=`<div class="muted small" style="margin-top:6px">${esc(S.previewErr)}</div>`;
-  else if(!p) h+=`<div class="muted small" style="margin-top:6px">Загружаю…</div>`;
-  else if(!p.asset) h+=`<div class="muted small" style="margin-top:6px">Пока пусто. Перетащи сюда mp3, flac или wav — у проекта всегда один трек, новый заменяет старый.</div>`;
-  else {
-    const a=p.asset;
-    if(p.cached && !S.previewProgress){ h+=`<div id="playerSlot"></div>`; showPlayer=true;
-      const src=`/media/preview?path=${enc(S.sel)}&k=${TOKEN}&v=${a.id}`;
-      if(PLAYER.dataset.src!==src){ PLAYER.dataset.src=src; PLAYER.src=src } }
-    else h+=`<div class="muted small" style="margin:12px 0">⏳ ${esc(S.previewProgress||'скачиваю…')}</div>`;
-    h+=`<div class="muted small ellip" title="${esc(p.fileName)}">${esc(p.fileName)} · ${esc(p.by)} · ${fmtSize(a.size)} · ${a.updated_at?new Date(a.updated_at).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):''}</div>`;
-  }
-  el.innerHTML=h;
-  if(showPlayer) el.querySelector('#playerSlot').appendChild(PLAYER);
-  else if(!PLAYER.paused) PLAYER.pause();
-}
-function bindPreviewDrop(){
-  const el=$('#preview'); if(!el) return;
-  el.ondragover=e=>{e.preventDefault(); el.classList.add('drag')};
-  el.ondragleave=()=>el.classList.remove('drag');
-  el.ondrop=async e=>{
-    e.preventDefault(); el.classList.remove('drag');
-    const f=e.dataTransfer.files[0]; if(!f) return;
-    if(!/\.(mp3|flac|wav)$/i.test(f.name)) return uiAlert('Можно только mp3, flac или wav');
-    if(!await uiConfirm(`Заменить превью на «${esc(f.name)}» (${fmtSize(f.size)})? Старое удалится.`,{ok:'Заменить'})) return;
-    try{
-      const r=await fetch('/api/project/preview/upload-raw?path='+enc(S.sel)+'&name='+enc(f.name),{method:'POST',headers:{'X-FLSync':TOKEN},body:f});
-      const job=await r.json(); if(!r.ok) throw new Error(job.error);
-      await watchExisting(job.id,'Загрузка превью');
-    }catch(e){ fail(e) }
-  };
-}
-async function watchExisting(id, title){ const j=await followJob(id,title); if(j&&!j.error){ S.preview=null; loadPreview() } }
-async function pickPreview(){
-  const r=await api('/api/pickfile',{}).catch(()=>({path:''})); if(!r.path) return;
-  await runJob('/api/project/preview/upload',{path:S.sel,file:r.path},{title:'Загрузка превью'}); S.preview=null; loadPreview();
-}
-async function deletePreview(){ if(!await uiConfirm('Удалить превью трека у обоих?',{ok:'Удалить',danger:true})) return; try{ await api('/api/project/preview/delete',{path:S.sel}); S.preview=null; loadPreview() }catch(e){ fail(e) } }
-
-// ---------- tabs ----------
 function renderTab(){
   const p=S.proj, a=S.analysis?.analysis;
   if(S.tab==='changes'){
@@ -707,7 +891,7 @@ function renderTab(){
     const kinds={untracked:['новый','blue'],added:['новый','blue'],modified:['изменён','warn'],deleted:['удалён','bad'],conflict:['конфликт','bad']};
     return `<div class="row" style="margin-top:10px"><span class="muted small">Что уйдёт при следующей отправке${a?` · неиспользуемых аудио не отправляется: ${(a.audio||[]).filter(x=>x.ignored).length}`:''}</span><span class="spacer"></span>
       <label class="switch small"><input type="checkbox" ${S.showService?'checked':''} onchange="S.showService=this.checked;renderMain()"> служебные файлы</label></div>
-      ${ch.length?`<table><tr><th>Файл</th><th>Статус</th><th style="text-align:right">Размер</th></tr>${ch.map(c=>`<tr><td class="mono">${c.isFlp?'🎼 ':''}${esc(c.path)}</td><td><span class="tag ${kinds[c.kind]?.[1]||''}">${kinds[c.kind]?.[0]||c.kind}</span></td><td style="text-align:right" class="muted">${fmtSize(c.size)}</td></tr>`).join('')}</table>`
+      ${ch.length?`<table><tr><th>Файл</th><th>Статус</th><th style="text-align:right">Размер</th></tr>${ch.map(c=>`<tr><td class="mono">${esc(c.path)}</td><td><span class="tag ${kinds[c.kind]?.[1]||''}">${kinds[c.kind]?.[0]||c.kind}</span></td><td style="text-align:right" class="muted">${fmtSize(c.size)}</td></tr>`).join('')}</table>`
       :`<div class="okbox" style="margin-top:12px">Локальных изменений нет.</div>`}`;
   }
   if(S.tab==='talk') return renderTalk();
@@ -723,9 +907,9 @@ function renderTab(){
       <h3>Аудио в папке, которое проект не использует (${unused.length})</h3>
       <div class="muted small">Старые дубли, неудачные записи, рендеры. По умолчанию такие файлы не отправляются; «Отправлять» — отправить всё равно. Ненужное можно выделить и удалить в корзину.</div>
       ${unused.length?`<div class="row" style="margin-top:8px"><label class="switch small" style="margin:0"><input type="checkbox" onchange="selAllUnused(this.checked)"> выделить всё</label><span class="spacer"></span>
-        <button class="sm danger" ${Object.values(S.trashSel).some(Boolean)?'':'disabled'} onclick="trashSelected()">🗑 В корзину (${Object.values(S.trashSel).filter(Boolean).length})</button></div>
+        <button class="sm danger" ${Object.values(S.trashSel).some(Boolean)?'':'disabled'} onclick="trashSelected()">В корзину (${Object.values(S.trashSel).filter(Boolean).length})</button></div>
         <table><tr><th></th><th>Отправлять</th><th>Файл</th><th style="text-align:right">Размер</th></tr>${unused.map(f=>`<tr><td><input type="checkbox" style="width:auto" ${S.trashSel[f.rel]?'checked':''} onchange="S.trashSel[decodeURIComponent('${enc(f.rel)}')]=this.checked;renderMain()"></td>
-        <td>${f.tracked?'<span class="tag" title="уже на сервере">уже на сервере</span>':`<input type="checkbox" style="width:auto" ${!f.ignored?'checked':''} onchange="toggleInclude('${enc(f.rel)}',this.checked)">`}</td><td class="mono">${esc(f.rel)}</td><td style="text-align:right" class="muted">${fmtSize(f.size)}</td></tr>`).join('')}</table>`:'<p class="muted">Лишнего аудио нет 👌</p>'}`;
+        <td>${f.tracked?'<span class="tag" title="уже на сервере">уже на сервере</span>':`<input type="checkbox" style="width:auto" ${!f.ignored?'checked':''} onchange="toggleInclude('${enc(f.rel)}',this.checked)">`}</td><td class="mono">${esc(f.rel)}</td><td style="text-align:right" class="muted">${fmtSize(f.size)}</td></tr>`).join('')}</table>`:'<p class="muted">Лишнего аудио нет </p>'}`;
   }
   if(S.tab==='plugins') return renderPlugins();
   if(S.tab==='history'){
@@ -742,17 +926,27 @@ function renderTab(){
       <label class="switch"><input type="checkbox" id="s_ign" ${sh.ignoreUnused?'checked':''}> Не отправлять неиспользуемое аудио</label>
       <label class="switch"><input type="checkbox" id="s_col" ${sh.collectSamples?'checked':''}> Копировать внешние сэмплы в Audio/</label>
       <label class="switch"><input type="checkbox" id="s_org" ${sh.organizeAudio?'checked':''}> Держать аудио в папке Audio/ (корень — только .flp и служебное)</label>
+      <label class="switch"><input type="checkbox" id="s_bak" ${sh.sendBackup?'':'checked'}> Не отправлять папку Backup (автосохранения FL — много весят)</label>
       <label>Всегда отправлять (папки с «/» на конце, по одной в строке)</label><textarea id="s_inc" placeholder="Stems/&#10;Vocals/take3.wav">${esc((sh.alwaysInclude||[]).join('\n'))}</textarea>
       <label>Расширения для Git LFS</label><input id="s_lfs" value="${esc((sh.lfsExtensions||[]).join(', '))}">
       <div style="margin-top:12px"><button class="primary" onclick="saveShared()">Сохранить</button></div></div>
+      <div class="card"><h3 style="margin-top:0">Название в FL Studio</h3>
+      <div class="muted small">То, что FL показывает в Project info → Title. Записывается прямо в .flp и уходит другу со следующей отправкой.</div>
+      <div class="row" style="flex-wrap:nowrap;margin-top:6px"><input id="fltitle" placeholder="загружаю…" onkeydown="if(event.key==='Enter')saveFLTitle(this.value)"><button onclick="saveFLTitle($('#fltitle').value)">Записать</button></div>
+      <div class="row" style="margin-top:6px"><a class="small" onclick="$('#fltitle').value=S.proj.name;saveFLTitle(S.proj.name)">взять название проекта</a><span class="muted small" id="fltitleNote"></span></div>
+      <div class="muted small" style="margin-top:6px">${p.fl?.saved?`Проект сохранён в FL Studio ${esc(p.fl.saved)}${p.fl.installed?`, у тебя установлена ${esc(p.fl.installed)}`:''}.`:''}</div></div>
       <div class="card"><h3 style="margin-top:0">Этот компьютер</h3>
       <label class="switch"><input type="checkbox" ${p.relinkOnReceive?'checked':''} onchange="api('/api/project/settings',{path:S.sel,relinkOnReceive:this.checked}).then(()=>toast('Сохранено'))"> После получения направлять пути сэмплов в .flp на папку проекта</label>
       <div class="muted small">Резервная копия .flp перед правкой лежит в .flsync-local/backup.</div>
       <label>Сервер (git remote)</label><input id="s_remote" value="${esc(p.remote)}" placeholder="https://github.com/you/track.git">
-      <div style="margin-top:8px"><button onclick="api('/api/project/settings',{path:S.sel,remote:$('#s_remote').value}).then(()=>{toast('Сохранено');refreshAll()}).catch(fail)">Сохранить адрес</button></div>
+      <div class="row" style="margin-top:8px"><button onclick="api('/api/project/settings',{path:S.sel,remote:$('#s_remote').value}).then(()=>{toast('Сохранено');refreshAll()}).catch(fail)">Сохранить адрес</button>
+        ${!p.remote?`<button class="primary" onclick="createRepoDialog()">Создать репозиторий на GitHub…</button>`:''}</div>
+      ${!p.remote?'<div class="muted small">Репозитория у проекта нет (или его создание не дошло до конца) — можно указать адрес существующего или создать новый.</div>':''}
       <h3>Участники</h3><div id="parts">${partsHtml()}</div>
-      ${p.onServer?`<label>Пригласить по нику в проге</label><div class="row" style="flex-wrap:nowrap"><input id="invNick" placeholder="ник друга" list="nicks3" onkeydown="if(event.key==='Enter')inviteNick()"><button onclick="inviteNick()">Пригласить</button></div><datalist id="nicks3"></datalist><div class="lookup" id="invLook"></div>`:''}
-      <div style="margin-top:16px"><button class="ghost" onclick="removeProject()">Убрать проект из списка</button><div class="muted small">Файлы и репозиторий останутся на месте.</div></div></div></div>`;
+      ${p.onServer?`<label>Позвать в проект</label><div id="invPick"></div><div style="margin-top:6px"><button onclick="inviteFromSettings()">Пригласить выбранных</button></div>`:''}
+      <div style="margin-top:16px"><button class="ghost" onclick="renameProject()">Переименовать…</button> <button class="ghost" onclick="removeProject()">Убрать проект из списка</button><div class="muted small">«Убрать из списка» не трогает файлы и репозиторий.</div></div>
+      ${p.remote?`<div style="margin-top:14px"><button class="danger" onclick="deleteRepoDialog()">Удалить репозиторий с GitHub…</button><div class="muted small">Только владелец. Репозиторий исчезнет с GitHub и проект — с сервера FruityHub; файлы на компьютерах останутся.</div></div>`:''}
+      <div style="margin-top:14px"><button class="danger" onclick="trashProject()">Удалить файлы проекта…</button><div class="muted small">Вся папка проекта уйдёт в Корзину. На GitHub и сервере проект останется.</div></div></div></div>`;
   }
   return '';
 }
@@ -767,7 +961,7 @@ function renderTalk(){
   return `<div class="grid2" style="margin-top:12px;grid-template-columns:2fr 1fr">
     <div>
       <div class="card" style="margin-top:0">
-        <div class="row" style="justify-content:space-between"><div class="seg"><button class="${S.ckind==='note'?'on':''}" onclick="S.ckind='note';renderMain()">💬 Заметка</button><button class="${S.ckind==='todo'?'on':''}" onclick="S.ckind='todo';renderMain()">☐ Задача</button></div>
+        <div class="row" style="justify-content:space-between"><div class="seg"><button class="${S.ckind==='note'?'on':''}" onclick="S.ckind='note';renderMain()">Заметка</button><button class="${S.ckind==='todo'?'on':''}" onclick="S.ckind='todo';renderMain()">☐ Задача</button></div>
         <span class="muted small">⌘/Ctrl + Enter — отправить</span></div>
         <textarea id="ctext" style="margin-top:8px" placeholder="${S.ckind==='todo'?'Что нужно сделать: «дописать бридж», «перезаписать вокал во 2 куплете»…':'Что сейчас с проектом, идеи, что попробовать…'}" onkeydown="if((event.metaKey||event.ctrlKey)&&event.key==='Enter')postComment()"></textarea>
         <div class="row" style="justify-content:flex-end;margin-top:8px"><button class="primary" id="cpost" onclick="postComment()">Отправить</button></div>
@@ -778,9 +972,9 @@ function renderTalk(){
         ${x.kind==='todo'?`<input type="checkbox" ${x.done?'checked':''} title="${x.done?'Сделано '+esc(x.doneBy):'Отметить выполненной'}" onchange="toggleTodo('${x.id}',this.checked)">`:`<div class="av" style="background:${color(x.author)}">${esc((x.author||'?')[0].toUpperCase())}</div>`}
         <div class="body"><div class="small"><b>${esc(x.author)}</b> <span class="muted">${fmtTime(x.time)}</span> ${x.kind==='todo'?`<span class="tag ${x.done?'ok':'warn'}">${x.done?'сделано · '+esc(x.doneBy):'задача'}</span>`:''}
           ${x.author===c.me?`<a class="muted small" style="float:right" onclick="delComment('${x.id}')">удалить</a>`:''}</div>
-          <div class="text">${esc(x.text)}</div></div></div>`).join(''):`<p class="muted">${S.cfilter==='todo'?'Открытых задач нет 🎉':'Пока тихо. Напиши, что сейчас с треком и что нужно доделать.'}</p>`}
+          <div class="text">${esc(x.text)}</div></div></div>`).join(''):`<p class="muted">${S.cfilter==='todo'?'Открытых задач нет':'Пока тихо. Напиши, что сейчас с треком и что нужно доделать.'}</p>`}
     </div>
-    <div><div class="card" style="margin-top:0"><b>📌 Состояние проекта</b>
+    <div><div class="card" style="margin-top:0"><b>Состояние проекта</b>
       <label>Этап</label><select id="sstage">${['',...STAGES].map(s=>`<option ${s===st.stage?'selected':''} value="${esc(s)}">${s||'— не указан —'}</option>`).join('')}</select>
       <label>Коротко</label><textarea id="stext" placeholder="напр.: «дроп готов, нужен бридж и вокал»">${esc(st.text||'')}</textarea>
       <div class="row" style="justify-content:space-between;margin-top:8px"><span class="muted small">${st.by?`обновил ${esc(st.by)}, ${fmtTime(st.time)}`:''}</span><button onclick="saveStatus()">Сохранить</button></div></div>
@@ -814,40 +1008,49 @@ function renderPlugins(){
   // per friend: everything this project needs that I don't have and he does
   const bulk={};
   for(const r of rows) if(needs(r)) for(const o of r.machines) if(o.user!==me&&o.state==='ok') (bulk[o.user]=bulk[o.user]||[]).push(r);
+  // в таблице только состояние и главное действие; остальное — в карточке плагина (нажать на плагин)
   const cell=(r,u)=>{
     const m=r.machines.find(x=>x.user===u)||{state:'unknown'};
     let h=`<span class="tag ${stTag[m.state]}">${stName[m.state]}${m.version?' '+esc(m.version):''}</span>${m.note&&m.state!=='unknown'?`<div class="muted small">${esc(m.note)}</div>`:''}`;
-    if(u===me && m.state!=='ok' && r.format!=='FL'){
-      const q=myReq(r.name);
-      if(q) h+=`<div style="margin-top:4px">${q.status==='streaming'?`<span class="tag blue">передаётся…</span>`:q.status==='approved'?`<span class="tag blue">разрешён${q.toOnline?'':' — ждём, когда '+esc(q.toNick)+' будет в сети'}</span>`:`<span class="tag v">запрошен у ${esc(q.toNick)}</span> <a class="small muted" onclick="cancelReq('${q.id}')">отменить</a>`}</div>`;
-      else for(const o of (r.machines||[]).filter(x=>x.user!==me&&x.state==='ok')){
-        const same=osOf(o.user)===S.state.os;
-        h+=`<div style="margin-top:4px"><button class="sm" onclick="requestPlugins('${enc(o.user)}',[['${enc(r.name)}','${r.format}','${enc(r.vendor||'')}']])"><span class="ic">🔌</span> Скачать у ${esc(o.user)}</button>${same?'':`<div class="muted small" title="Файлы плагинов Mac и Windows разные">у него ${esc(osOf(o.user))} — пришлёт версию для твоей системы или установщик</div>`}</div>`;
-      }
+    if(u!==me || r.format==='FL') return h;
+    const q=myReq(r.name);
+    if(q) return h+`<div style="margin-top:4px"><span class="tag blue">${q.status==='streaming'?'передаётся…':q.status==='approved'?'разрешён'+(q.toOnline?'':' — ждём '+esc(q.toNick)):'запрошен у '+esc(q.toNick)}</span></div>`;
+    const lq=lastReq(r.name);
+    if(lq&&lq.status==='installed'&&lq.partial) h+=`<div style="margin-top:4px"><span class="tag warn" title="Плагин встал, но не всё из его данных легло — открой карточку">установлен частично</span></div>`;
+    if(m.state!=='ok'){
+      const donors=(r.machines||[]).filter(x=>x.user!==me&&x.state==='ok');
+      if(donors.length===1) h+=`<div style="margin-top:4px"><button class="sm" onclick="event.stopPropagation();requestPlugins('${enc(donors[0].user)}',[['${enc(r.name)}','${r.format}','${enc(r.vendor||'')}']])">Скачать у ${esc(donors[0].user)}</button></div>`;
+      else if(donors.length>1) h+=`<div style="margin-top:4px"><button class="sm" onclick="event.stopPropagation();openPluginCard('${enc(r.name)}','${r.format}')">Скачать…</button></div>`;
     }
     return h;
   };
+  const lastReq=name=>reqs.filter(r=>r.from===myId&&r.plugin.toLowerCase()===name.toLowerCase()).sort((a,b)=>b.updated-a.updated)[0];
+  S.pluginRows={}; for(const r of rows) S.pluginRows[r.name+'|'+r.format]=r;
   S.bulk=bulk;
   const projReqs=reqs.filter(q=>rows.some(r=>r.name.toLowerCase()===q.plugin.toLowerCase()));
   return `<div class="muted small" style="margin:10px 0">Список собирается из .flp и записывается в <b>PLUGINS.txt</b> в корне проекта. Каждый участник при отправке публикует, какие плагины (и каких версий) стоят у него.
       ${S.analysis.machines<2?'<br><span style="color:var(--warn)">Пока известен только твой компьютер — данные друга появятся после его первой отправки.</span>':''}</div>
-    <div class="row"><button onclick="rescan()"><span class="ic">↻</span> Пересканировать мои плагины</button>
-      ${Object.entries(bulk).map(([u,list])=>`<button class="primary" onclick="requestBulk('${enc(u)}')">⬇ Скачать у ${esc(u)} всё недостающее (${list.length})</button>`).join('')}
+    <div class="row"><button onclick="rescan()">Пересканировать мои плагины</button>
+      ${Object.entries(bulk).map(([u,list])=>`<button class="primary" onclick="requestBulk('${enc(u)}')">Скачать у ${esc(u)} всё недостающее (${list.length})</button>`).join('')}
       <a class="small" onclick="openSettings()">где я ищу плагины →</a></div>
     ${rows.length?`<table><tr><th>Плагин</th><th>Формат</th>${users.map(u=>`<th>${esc(u)}${u===me?' (ты)':''}</th>`).join('')}<th>Где взять</th></tr>
-    ${rows.map(r=>`<tr><td><b>${esc(r.name)}</b>${r.vendor?`<div class="muted small">${esc(r.vendor)}</div>`:''}${r.problem?`<div class="small" style="color:var(--warn)">⚠ ${esc(r.problem)}</div>`:''}</td>
+    ${rows.map(r=>`<tr class="prow" onclick="openPluginCard('${enc(r.name)}','${r.format}')" title="Нажми — проверка, зависимости, переустановка, ссылка и файлы"><td><b class="pname">${esc(r.name)}</b>${r.vendor?`<div class="muted small">${esc(r.vendor)}</div>`:''}${r.problem?`<div class="small" style="color:var(--warn)">${esc(r.problem)}</div>`:''}</td>
       <td><span class="tag">${esc(r.format)}</span></td>${users.map(u=>`<td>${cell(r,u)}</td>`).join('')}
-      <td>${r.link?`<a href="${esc(r.link)}">ссылка</a>`:''} <a class="small muted" onclick="editLink('${enc(r.name)}','${enc(r.link||'')}','${enc(r.linkNote||'')}')">${r.link?'✎':'+ ссылка'}</a>${r.linkNote?`<div class="muted small">${esc(r.linkNote)}</div>`:''}</td></tr>`).join('')}</table>`:'<p class="muted">Плагинов не найдено.</p>'}
+      <td class="small">${r.link?`<a href="${esc(r.link)}" onclick="event.stopPropagation()">ссылка</a>`:''}${(r.files||[]).length?` <span class="muted">файлов: ${r.files.length}</span>`:''}</td></tr>`).join('')}</table>
+      <div class="muted small" style="margin-top:4px">Нажми на плагин — проверка, зависимости, переустановка, ссылка и файлы.</div>`:'<p class="muted">Плагинов не найдено.</p>'}
     ${projReqs.length?`<h3>Передачи плагинов этого проекта</h3>${reqTable(projReqs.slice(0,30))}`:''}
-    <div class="card small muted">💡 Плагин идёт напрямую с компьютера друга на твой (через сервер проги потоком, там ничего не хранится), поэтому оба компьютера должны быть включены и прога открыта. Плагин сам ложится в папку, где у тебя лежат плагины этого формата, и добавляется в базу плагинов FL. Между одинаковыми системами плагин переносится и ставится сам. Между Mac и Windows — если в пакете плагина есть версия для обеих систем (так бывает у VST3), иначе друг пришлёт установщик, и прога его запустит. Библиотеки сэмплов и лицензии не переносятся.</div>`;
+    <div class="card small muted">Плагин идёт напрямую с компьютера друга на твой (через сервер FruityHub потоком, там ничего не хранится), поэтому оба компьютера должны быть включены и FruityHub открыт. Плагин сам ложится в папку, где у тебя лежат плагины этого формата, и добавляется в базу плагинов FL. Между одинаковыми системами плагин переносится и ставится сам. Между Mac и Windows — если в пакете плагина есть версия для обеих систем (так бывает у VST3), иначе друг пришлёт установщик, и FruityHub его запустит. Вместе с плагином переносятся его данные (пресеты, ресурсы из «Документов», ProgramData, AppData), если они не больше 2 ГБ. Большие библиотеки сэмплов и лицензии не переносятся — после установки FruityHub покажет, что ещё нужно сделать.</div>`;
 }
 function reqTable(list){
   const myId=S.state.userId;
   return `<table><tr><th>Когда</th><th>Плагин</th><th>Кто → у кого</th><th>Статус</th><th></th></tr>${list.map(r=>`<tr><td class="muted">${fmtTime(r.created)}</td><td>${esc(r.plugin)} <span class="tag">${esc(r.format)}</span></td><td>${esc(r.fromNick)} → ${esc(r.toNick)}</td>
-      <td><span class="tag ${RS[r.status]?.[1]||''}">${RS[r.status]?.[0]||r.status}</span>${r.note?`<div class="muted small">${esc(r.note)}</div>`:''}</td>
+      <td>${r.status==='installed'&&r.partial?'<span class="tag warn" title="Плагин встал, но не всё из его данных легло">установлен частично</span>':`<span class="tag ${RS[r.status]?.[1]||''}">${RS[r.status]?.[0]||r.status}</span>`}${r.note?`<div class="muted small">${esc(r.note)}</div>`:''}${r.status==='installed'&&r.from===myId?`<div><a class="small" onclick="openReport('${r.id}')">что установлено и проверено</a></div>`:''}</td>
       <td>${r.to===myId&&r.status==='pending'?(S.busy?.[r.id]==='approving'?'<span class="tag blue">разрешаю…</span>':`<button class="sm primary" onclick="reviewReq('${r.id}')">Ответить</button>`):''}
         ${r.status==='approved'?`<span class="muted small">${r.to===myId?(r.fromOnline?'сейчас уйдёт':esc(r.fromNick)+' не в сети'):(r.toOnline?'сейчас придёт':esc(r.toNick)+' не в сети')}</span>`:''}
-        ${r.from===myId&&(r.status==='pending'||r.status==='approved')?` <a class="small muted" onclick="cancelReq('${r.id}')">отменить</a>`:''}</td></tr>`).join('')}</table>`;
+        ${['pending','approved','streaming'].includes(r.status)?` <a class="small muted" onclick="cancelReq('${r.id}')">${r.status==='streaming'?'прервать':'отменить'}</a>`:''}
+        ${['failed','cancelled'].includes(r.status)?` <button class="sm" onclick="retryReq('${r.id}')">Повторить</button>`:''}
+        ${r.status==='installed'&&r.from===myId?` <a class="small muted" onclick="reinstallReq('${r.id}')" title="Плагин и все его данные придут заново и заменят твои">переустановить</a>`:''}
+        ${r.status==='installed'&&r.from!==myId?` <a class="small muted" onclick="retryReq('${r.id}')" title="Передать этот плагин ещё раз">ещё раз</a>`:''}</td></tr>`).join('')}</table>`;
 }
 // items: [[encName, format, encVendor], ...]
 async function requestPlugins(encTo, items){
@@ -858,32 +1061,113 @@ async function requestPlugins(encTo, items){
   try{ const r=await api('/api/plugin/request',{to,items:list}); toast(r.length?`Запрошено у ${esc(to)}: ${r.length}`:'Эти плагины уже запрошены — ждём ответа'); loadReqs() }catch(e){ fail(e) }
 }
 function requestBulk(encU){ const list=(S.bulk||{})[decodeURIComponent(encU)]||[]; if(list.length) requestPlugins(encU, list.map(r=>[enc(r.name),r.format,enc(r.vendor||'')])) }
-async function cancelReq(id){ try{ await api('/api/plugin/cancel',{id}); loadReqs() }catch(e){ fail(e) } }
+async function cancelReq(id){ const r=(S.reqs||[]).find(x=>x.id===id);
+  if(r?.status==='streaming' && !await uiConfirm(`Прервать передачу <b>${esc(r.plugin)}</b>? Её можно будет повторить.`,{ok:'Прервать',danger:true})) return;
+  try{ await api('/api/plugin/cancel',{id}); toast('Передача отменена'); loadReqs(); if(document.querySelector('#tl')&&S.trRefresh) S.trRefresh() }catch(e){ fail(e) } }
+// карточка плагина: всё, что можно с ним сделать
+function openPluginCard(encName, format){
+  const name=decodeURIComponent(encName), r=(S.pluginRows||{})[name+'|'+format]; if(!r) return;
+  const me=S.state.me, myId=S.state.userId, machines=S.proj?.machines||[];
+  const osOf=u=>(machines.find(m=>m.user===u)||{}).os||(u===me?S.state.os:'?');
+  const mine=r.machines.find(x=>x.user===me)||{state:'unknown'};
+  const reqs=(S.reqs||[]).filter(q=>q.plugin.toLowerCase()===name.toLowerCase());
+  const active=reqs.find(q=>q.from===myId&&['pending','approved','streaming'].includes(q.status));
+  const others=r.machines.filter(x=>x.user!==me&&x.state==='ok');
+  const sameOS=others.filter(o=>osOf(o.user)===S.state.os);
+  const stName={ok:'есть',missing:'нет','other-format':'другой формат',unknown:'неизвестно'}, stTag={ok:'ok',missing:'bad','other-format':'warn',unknown:''};
+  const act=[];
+  if(r.format!=='FL'){
+    if(active) act.push(`<div><span class="tag blue">${active.status==='streaming'?'передаётся…':active.status==='approved'?'разрешён — придёт, когда вы оба в сети':'запрошен у '+esc(active.toNick)}</span> <button class="sm ghost" data-a="cancel">Отменить</button></div>`);
+    else if(mine.state==='ok'){
+      act.push(`<div class="row"><button class="sm" data-a="check">Проверить</button><button class="sm" data-a="deps">Зависимости</button><button class="sm" data-a="diag" title="Подробный отчёт: где лежат файлы плагина, что уйдёт при передаче — чтобы сравнить два компьютера">Диагностика</button>
+        ${sameOS.map(o=>`<button class="sm" data-a="reinstall" data-u="${esc(o.user)}" title="Плагин и все его данные придут заново и заменят твои">Переустановить у ${esc(o.user)}</button>`).join('')}</div>`);
+      const diff=others.filter(o=>o.version&&mine.version&&o.version!==mine.version);
+      if(diff.length) act.push(`<div class="row">${diff.map(o=>`<button class="sm ghost" data-a="get" data-u="${esc(o.user)}" title="Твоя версия заменится, старая уйдёт в резервную копию">Взять версию ${esc(o.version)} у ${esc(o.user)}</button>`).join('')}</div>`);
+      act.push(`<div class="muted small">«Проверить» — загружается ли плагин, хватает ли библиотек и папок, нужна ли активация. «Переустановить» — плагин и все его данные придут заново и заменят то, что есть.</div>`);
+    } else if(others.length){
+      act.push(`<div class="row">${others.map(o=>`<button class="sm primary" data-a="get" data-u="${esc(o.user)}">Скачать у ${esc(o.user)}</button>${osOf(o.user)!==S.state.os?`<span class="muted small">у него ${esc(osOf(o.user))} — пришлёт версию для твоей системы или установщик</span>`:''}`).join('')}</div>`);
+    } else act.push('<div class="muted small">Ни у кого из участников этого плагина нет — возьми по ссылке ниже или у производителя.</div>');
+  }
+  const m=modal(`<div class="row" style="justify-content:space-between"><h2 style="margin:0">${esc(name)}</h2><button class="ghost sm" id="x">✕</button></div>
+    <div class="muted small">${esc(r.vendor||'')} ${r.vendor?'·':''} <span class="tag">${esc(r.format)}</span>${r.problem?` <span style="color:var(--warn)">${esc(r.problem)}</span>`:''}</div>
+    <table style="margin-top:8px">${r.machines.map(x=>`<tr><td>${esc(x.user)}${x.user===me?' (ты)':''} <span class="muted small">${esc(osOf(x.user))}</span></td><td><span class="tag ${stTag[x.state]||''}">${stName[x.state]||x.state}${x.version?' '+esc(x.version):''}</span>${x.note?` <span class="muted small">${esc(x.note)}</span>`:''}</td></tr>`).join('')}</table>
+    ${act.length?`<h3>Действия</h3>${act.join('')}`:''}
+    <h3>Ссылка и файлы</h3>
+    <div class="small">${r.link?`<a href="${esc(r.link)}">${esc(r.link)}</a>`:'<span class="muted">Ссылки нет</span>'}${r.linkNote?`<div class="muted">${esc(r.linkNote)}</div>`:''}
+      ${(r.files||[]).map(f=>`<div><a data-f="${esc(f.name)}" title="Скачать в «Загрузки»">${esc(f.name)}</a> <span class="muted">${fmtSize(f.size)}</span></div>`).join('')}</div>
+    <div style="margin-top:6px"><button class="sm ghost" data-a="link">${r.link||(r.files||[]).length?'Изменить ссылку и файлы…':'+ Ссылка / файл…'}</button></div>
+    ${reqs.length?`<h3>Передачи этого плагина</h3>${reqTable(reqs.slice(0,10))}`:''}`);
+  m.querySelector('.modal').style.width='min(820px,94vw)';
+  m.querySelector('#x').onclick=()=>m.close();
+  const go=fn=>()=>{ m.close(); fn() };
+  m.querySelectorAll('[data-a]').forEach(b=>b.onclick=go(()=>{ const u=b.dataset.u?enc(b.dataset.u):'';
+    switch(b.dataset.a){
+      case 'check': return checkPlugin(enc(name),format);
+      case 'deps': return openDeps(enc(name),format);
+      case 'diag': return pluginDiag(name,format);
+      case 'reinstall': return reinstallPlugin(u,enc(name),format,enc(r.vendor||''));
+      case 'get': return requestPlugins(u,[[enc(name),format,enc(r.vendor||'')]]);
+      case 'cancel': return cancelReq(active.id);
+      case 'link': return editLink(enc(name),enc(r.link||''),enc(r.linkNote||''));
+    } }));
+  m.querySelectorAll('[data-f]').forEach(a=>a.onclick=()=>getLinkFile(enc(name),enc(a.dataset.f)));
+}
+const REINSTALL_TXT='Плагин и <b>все</b> его данные (ресурсы, библиотеки, пути в реестре) придут заново и заменят то, что у тебя сейчас — даже то, что уже есть. Твои файлы с теми же именами уйдут в резервную копию (в системных папках просто заменятся).';
+async function reinstallPlugin(encU, encName, format, encVendor){
+  const u=decodeURIComponent(encU), name=decodeURIComponent(encName);
+  if(!await uiConfirm(`Переустановить <b>${esc(name)}</b> с компьютера <b>${esc(u)}</b>?<br><br>${REINSTALL_TXT}`,{ok:'Переустановить',title:'Переустановка плагина'})) return;
+  try{ const r=await api('/api/plugin/request',{to:u,items:[{plugin:name,format,vendor:decodeURIComponent(encVendor),reinstall:true}]}); toast(r.length?`Запрошено у ${esc(u)} — придёт и переустановится`:'Этот плагин уже запрошен — дождись или отмени тот запрос'); loadReqs() }catch(e){ fail(e) } }
+async function reinstallReq(id){ const r=(S.reqs||[]).find(x=>x.id===id);
+  if(!await uiConfirm(`Переустановить <b>${esc(r?.plugin||'плагин')}</b>?<br><br>${REINSTALL_TXT}`,{ok:'Переустановить',title:'Переустановка плагина'})) return;
+  try{ await api('/api/plugin/retry',{id,reinstall:true}); toast('Переустановлю, как только вы оба будете в сети'); loadReqs(); if(document.querySelector('#tl')&&S.trRefresh) S.trRefresh() }catch(e){ fail(e) } }
+async function pluginDiag(name, format){
+  const j=await runJob('/api/plugin/diag',{name,format},{title:'Диагностика '+name}); if(!j||j.error||!j.result) return;
+  const m=modal(`<div class="row" style="justify-content:space-between"><h2 style="margin:0">Диагностика: ${esc(name)}</h2><button class="ghost sm" id="x">✕</button></div>
+    <div class="muted small">Сделай такую же диагностику на втором компьютере и пришли оба отчёта — по ним видно, чего не хватает.</div>
+    <textarea id="dt" readonly style="width:100%;height:55vh;margin-top:8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;white-space:pre"></textarea>
+    <div class="row" style="justify-content:flex-end;margin-top:8px"><button class="sm" id="snd" title="Появится в «Логах сервера» у администратора">Отправить в журнал сервера</button><button class="primary sm" id="cp">Копировать</button></div>`);
+  m.querySelector('.modal').style.width='min(1000px,94vw)';
+  const ta=m.querySelector('#dt'); ta.value=j.result;
+  m.querySelector('#x').onclick=()=>m.close();
+  m.querySelector('#cp').onclick=()=>{ ta.select(); (navigator.clipboard?navigator.clipboard.writeText(ta.value):Promise.reject()).then(()=>toast('Скопировано')).catch(()=>{ try{ document.execCommand('copy'); toast('Скопировано') }catch(e){ uiAlert('Выдели текст и нажми Ctrl+C','Копирование') } }) };
+  m.querySelector('#snd').onclick=async()=>{ try{ await api('/api/plugin/diag/send',{text:ta.value}); toast('Отправлено в журнал сервера') }catch(e){ fail(e) } };
+}
+async function checkPlugin(encName, format){ const name=decodeURIComponent(encName);
+  const j=await runJob('/api/plugin/check',{name,format},{title:'Проверяю '+name}); if(j&&!j.error&&j.result) showReport(j.result,true,true) }
+async function retryReq(id){ try{ await api('/api/plugin/retry',{id}); toast('Передам ещё раз, как только вы оба будете в сети'); loadReqs(); if(document.querySelector('#tl')&&S.trRefresh) S.trRefresh() }catch(e){ fail(e) } }
+// передачи идут? — предупредить, прежде чем закрывать или обновлять приложение
+async function confirmNoTransfers(what){
+  let a=[]; try{ a=await api('/api/transfers/active') }catch(e){}
+  if(!a.length) return true;
+  return uiConfirm(`Сейчас идёт передача плагинов: ${a.map(x=>'<b>'+esc(x.title)+'</b>').join(', ')}.<br><br>Если ${what}, передача оборвётся — её придётся повторить.`,{title:'Идёт передача данных',ok:'Всё равно',danger:true});
+}
 function reviewReq(id){ const r=(S.reqs||[]).find(x=>x.id===id); if(r) askPermission(r) }
 // ---------- setup of a folder that is not a repo yet ----------
 function renderSetup(){
   const p=S.proj, reg=S.state.registered;
-  $('#main').innerHTML=`<div class="card phead"><h1>${esc(p.name)}</h1><div class="muted small mono">${esc(p.path)}</div></div>${layoutBanners(p)}
+  $('#main').innerHTML=`<div class="card phead"><div class="row"><h1>${esc(p.name)}</h1><button class="ghost sm" title="Переименовать (только на этом компьютере)" onclick="renameProject()">✎</button><span class="spacer"></span>
+    <button class="primary" onclick="launchProject()">Запустить проект</button><button class="ghost" onclick="api('/api/project/open',{path:S.sel})">Открыть папку</button></div>
+    <div class="muted small mono">${esc(p.path)}</div>${p.fl?.saved?`<div class="muted small">Сохранён в FL Studio ${esc(p.fl.saved)}${p.fl.installed?` · у тебя ${esc(p.fl.installed)}`:''}</div>`:''}</div>
+    ${p.fl?.tooOld?`<div class="badbox">${esc(p.fl.text)}</div>`:''}${layoutBanners(p)}
   <div class="card"><h3 style="margin-top:0">Подключить проект к синхронизации</h3>
-    <p class="muted">Создастся приватный репозиторий на твоём GitHub — один репозиторий на этот проект. Друзей прога позовёт сама: приглашение придёт им в прогу, а доступ к репозиторию на GitHub выдастся и примется автоматически. Аудио идёт через Git LFS, .flp — с историей версий.</p>
+    <p class="muted">Создастся приватный репозиторий на твоём GitHub — один репозиторий на этот проект. Друзей FruityHub позовёт сам: приглашение придёт им в FruityHub, а доступ к репозиторию на GitHub выдастся и примется автоматически. Аудио идёт через Git LFS, .flp — с историей версий.</p>
     ${reg?'':`<div class="warnbox small">Сначала зарегистрируйся — <a onclick="openRegister(true)">регистрация</a>.</div>`}
     <label>Название проекта</label><input id="g_name" value="${esc(p.name)}">
-    <label>Ники друзей в проге (через запятую)</label><input id="g_inv" placeholder="friend" list="nicks2"><datalist id="nicks2"></datalist>
-    <div class="lookup" id="g_look"></div>
+    <label>Кого позвать в проект (им придёт приглашение, проект появится у них)</label><div id="g_pick"></div>
     <div style="margin-top:10px"><button class="primary" ${reg?'':'disabled'} onclick="createOnServer()">Создать репозиторий и отправить</button></div>
     <details style="margin-top:14px"><summary class="muted small" style="cursor:pointer">У меня уже есть репозиторий для этого проекта</summary>
       <label>Ссылка на репозиторий (HTTPS)</label><input id="g_url" placeholder="https://github.com/you/track.git">
       <div style="margin-top:10px"><button onclick="initWith($('#g_url').value)">Подключить и отправить</button></div>
-      <div class="muted small" style="margin-top:8px">Если это твой репозиторий на GitHub, потом нажми «Подключить к серверу» — тогда можно будет звать участников через прогу.</div></details></div>
-  <div class="card small muted">💡 Если друг уже позвал тебя в свой проект — приглашение появится слева сверху, принимать и скачивать его нужно там, а не подключать эту папку.</div>`;
-  const gi=$('#g_inv'); if(gi&&reg) bindLookup(gi,$('#g_look'),$('#nicks2'));
+      <div class="muted small" style="margin-top:8px">Если это твой репозиторий на GitHub, потом нажми «Подключить к серверу» — тогда можно будет звать участников через FruityHub.</div></details></div>
+  <div class="card small muted">Если друг уже позвал тебя в свой проект — приглашение появится слева сверху, принимать и скачивать его нужно там, а не подключать эту папку.</div>`;
+  if(reg) userPicker($('#g_pick'));
 }
 async function createOnServer(){
-  await runJob('/api/project/server-create',{path:S.sel,name:$('#g_name').value,invite:$('#g_inv').value},{title:'Создаю репозиторий и отправляю'});
+  await runJob('/api/project/server-create',{path:S.sel,name:$('#g_name').value,invite:pickedNicks($('#g_pick'))},{title:'Создаю репозиторий и отправляю'});
 }
 async function moveToServer(){
   const p=S.proj;
-  if(!await uiConfirm(p.remote?`Подключить проект к серверу проги? Репозиторий остаётся тем же, на твоём GitHub. Те, у кого уже есть доступ к нему и кто зарегистрирован в проге, сразу станут участниками.<div class="muted small" style="margin-top:6px">Подключить может только владелец репозитория.</div>`:`У проекта ещё нет репозитория — создать приватный репозиторий на твоём GitHub и подключить его к серверу?`,{ok:'Подключить',title:'Подключение к серверу'})) return;
+  if(!await uiConfirm(p.remote?`Подключить проект к серверу FruityHub? Репозиторий остаётся тем же, на твоём GitHub. Те, у кого уже есть доступ к нему и кто зарегистрирован в FruityHub, сразу станут участниками.<div class="muted small" style="margin-top:6px">Подключить может только владелец репозитория.</div>`:`У проекта ещё нет репозитория — создать приватный репозиторий на твоём GitHub и подключить его к серверу?`,{ok:'Подключить',title:'Подключение к серверу'})) return;
   await runJob('/api/project/move-to-server',{path:S.sel},{title:'Подключаю проект к серверу'});
 }
 async function initWith(url){
@@ -926,13 +1210,22 @@ async function toggleInclude(f, inc){ await api('/api/project/include',{path:S.s
 async function rescan(){ toast('Сканирую…'); await api('/api/rescan',{}); S.analysis=null; loadProject(S.sel) }
 function editLink(n,u,no){
   n=decodeURIComponent(n);
-  const m=modal(`<h2>Где взять «${esc(n)}»</h2><div class="muted small">Ссылка сохранится в проекте и будет видна другу (и в PLUGINS.txt).</div>
+  const row=(S.analysis?.plugins||[]).find(r=>r.name===n)||{};
+  const m=modal(`<h2>Где взять «${esc(n)}»</h2><div class="muted small">Ссылка и файлы сохранятся в проекте и будут видны другу после отправки (и в PLUGINS.txt).</div>
     <label>Ссылка</label><input id="lu" value="${esc(decodeURIComponent(u))}" placeholder="https://…"><label>Заметка</label><input id="ln" value="${esc(decodeURIComponent(no))}" placeholder="бесплатный / версия 1.36 / лежит на диске">
+    <label>Файлы (до 50 МБ: пресеты, небольшой установщик, инструкция…)</label>
+    <div class="droplist">${(row.files||[]).map(f=>`<div class="drow"><span class="ellip">${esc(f.name)} <span class="muted small">${fmtSize(f.size)}${f.by?' · '+esc(f.by):''}</span></span><button class="sm ghost" onclick="getLinkFile('${enc(n)}','${enc(f.name)}')">Скачать</button><button class="sm ghost" data-rm="${esc(f.name)}" title="Удалить">−</button></div>`).join('')||'<div class="muted small">Файлов нет</div>'}</div>
+    <div style="margin-top:6px"><button class="sm" id="lf">＋ Прикрепить файл…</button></div>
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button id="ok" class="primary">Сохранить</button></div>`);
   m.querySelector('#ok').onclick=async()=>{await api('/api/project/catalog',{Path:S.sel,Name:n,URL:m.querySelector('#lu').value,Note:m.querySelector('#ln').value});m.close();S.analysis=null;loadProject(S.sel)};
+  m.querySelector('#lf').onclick=async()=>{ await api('/api/project/catalog',{Path:S.sel,Name:n,URL:m.querySelector('#lu').value,Note:m.querySelector('#ln').value}).catch(()=>{}); m.close();
+    const j=await runJob('/api/plugin/linkfile/add',{path:S.sel,plugin:n},{title:'Прикрепляю файл к «'+n+'»'}); S.analysis=null; await loadProject(S.sel) };
+  m.querySelectorAll('[data-rm]').forEach(b=>b.onclick=async()=>{ if(!await uiConfirm(`Удалить файл ${esc(b.dataset.rm)}?`,{ok:'Удалить',danger:true})) return;
+    try{ await api('/api/plugin/linkfile/remove',{path:S.sel,plugin:n,name:b.dataset.rm}); m.close(); S.analysis=null; await loadProject(S.sel); toast('Файл удалён') }catch(e){ fail(e) } });
 }
+async function getLinkFile(n,f){ await runJob('/api/plugin/linkfile/get',{path:S.sel,plugin:decodeURIComponent(n),name:decodeURIComponent(f)},{title:'Скачиваю '+decodeURIComponent(f)}) }
 async function saveShared(){
-  const sh={ignoreUnused:$('#s_ign').checked, collectSamples:$('#s_col').checked, organizeAudio:$('#s_org').checked,
+  const sh={ignoreUnused:$('#s_ign').checked, collectSamples:$('#s_col').checked, organizeAudio:$('#s_org').checked, sendBackup:!$('#s_bak').checked,
     alwaysInclude:$('#s_inc').value.split('\n').map(s=>s.trim()).filter(Boolean),
     lfsExtensions:$('#s_lfs').value.split(/[,\s]+/).map(s=>s.replace(/^\./,'').trim()).filter(Boolean)};
   try{ await api('/api/project/settings',{path:S.sel,shared:sh}); toast('Сохранено — правила уйдут другу со следующей отправкой') }catch(e){ return fail(e) }
@@ -943,11 +1236,11 @@ async function addProject(){
   let path=r.path;
   if(!path) path = await uiPrompt('Папка проекта',{label:'Путь к папке, где лежит .flp',placeholder:'/Users/me/Music/Трек'});
   if(!path) return;
-  try{ await api('/api/projects/add',{path}); S.sel=path; S.analysis=null; S.comments=null; S.preview=null; await refreshAll(); loadPreview() }catch(e){ fail(e) }
+  try{ await api('/api/projects/add',{path}); S.sel=path; S.analysis=null; S.comments=null; S.preview=null; await refreshAll() }catch(e){ fail(e) }
 }
 async function removeProject(){ if(!await uiConfirm('Убрать проект из списка? Файлы не удаляются.',{ok:'Убрать'})) return; await api('/api/projects/remove',{path:S.sel}); S.sel=null; refreshAll() }
-const SHARE={off:['🚫 Никому','С твоего компьютера плагины не скачать.'],ask:['🙋 Спрашивать каждый раз','У тебя всплывает запрос — разрешить или отказать.'],
-  members:['🤝 Участникам моих проектов — без вопросов','Тем, с кем у тебя общий проект, плагины уходят автоматически.'],all:['🌍 Всем пользователям проги — без вопросов','Любой зарегистрированный может скачать плагин, ты ничего не нажимаешь.']};
+const SHARE={off:['Никому','С твоего компьютера плагины не скачать.'],ask:['Спрашивать каждый раз','У тебя всплывает запрос — разрешить или отказать.'],
+  members:['Участникам моих проектов — без вопросов','Тем, с кем у тебя общий проект, плагины уходят автоматически.'],all:['Всем пользователям FruityHub — без вопросов','Любой зарегистрированный может скачать плагин, ты ничего не нажимаешь.']};
 async function openSettings(){
   const st=S.state, c=st.config, t=st.tools;
   const m=modal(`<div class="row" style="justify-content:space-between"><h2>Настройки</h2><button class="ghost sm" id="x">✕</button></div>
@@ -957,29 +1250,81 @@ async function openSettings(){
       :`<div class="row"><span class="muted">Не зарегистрирован</span><button class="sm primary" id="regb">Зарегистрироваться</button></div>`}
     <h3>Кто может скачивать плагины с моего компьютера</h3>
     <div id="share">${Object.entries(SHARE).map(([k,[t1,d]])=>`<label class="radio ${st.sharing===k?'on':''}"><input type="radio" name="sh" value="${k}" ${st.sharing===k?'checked':''} ${st.registered?'':'disabled'}><span><b>${t1}</b><div class="muted small">${d}</div></span></label>`).join('')}</div>
-    <div class="muted small">Плагин идёт напрямую с твоего компьютера на компьютер друга, когда у обоих открыта прога. Без вопросов отправляется только то, что подойдёт на систему друга как есть. Если нужен установщик — прога всё равно спросит. Передавай только бесплатные плагины или те, на которые у друга есть лицензия.</div>
+    <div class="muted small">Плагин идёт напрямую с твоего компьютера на компьютер друга, когда у обоих открыт FruityHub. Без вопросов отправляется только то, что подойдёт на систему друга как есть. Если нужен установщик — FruityHub всё равно спросит. Передавай только бесплатные плагины или те, на которые у друга есть лицензия.</div>
     <h3>Где ищу плагины</h3>
     <div class="muted small">Папки берутся из базы плагинов FL Studio (там все папки, которые ты добавлял в FL), из настроек FL, системного пути VST и стандартных мест.</div>
     <div id="pfolders" class="small" style="margin-top:6px">Сканирую…</div>
-    <label>Свои папки (по одной в строке)</label><textarea id="pd" placeholder="D:\\VST">${esc((c.extraPluginDirs||[]).join('\n'))}</textarea>
+    <label>Свои папки</label>
+    <div id="pdlist" class="droplist"></div>
+    <div class="row" style="margin-top:6px"><button class="sm" id="pdadd">＋ Добавить папку…</button><span class="muted small">или перетащи папку сюда из Finder / Проводника</span></div>
+    <h3>Прокси для GitHub</h3>
+    <div class="muted small">Нужен, если GitHub у тебя открывается только через VPN. FruityHub сам берёт «системный прокси» Windows, если он включён в VPN-программе; иначе впиши адрес сюда.</div>
+    <input id="px" placeholder="${esc(st.proxyHint?('например '+st.proxyHint):'http://127.0.0.1:10809')}" value="${esc(st.proxy||'')}">
+    <div class="row" style="margin-top:6px"><button class="sm" id="pxt">Проверить связь с GitHub</button><span class="small" id="pxr"></span></div>
+    <h3>Мои репозитории на GitHub</h3>
+    <div class="row"><button class="sm" id="repos">Показать репозитории проектов…</button><span class="muted small">все, что создал FruityHub, — можно удалить ненужные</span></div>
+    <h3>Фон</h3>
+    <div class="row"><button class="sm" id="bgpick">Выбрать картинку…</button><button class="sm ghost" id="bgreset" ${st.customBg?'':'disabled'}>Вернуть стандартный</button></div>
+    <label>Затемнение фона</label><input type="range" id="bgdim" min="0" max="90" step="1" value="${c.bgDim||50}" style="padding:0">
+    <h3>Проверка системы для плагинов</h3>
+    <div id="syscheck" class="small muted">Проверяю…</div>
     <h3>Компоненты</h3>
-    <div class="small">${t.gitOk?'✅ '+esc(t.git):'❌ git не найден'}<br>${t.lfsOk?'✅ '+esc(t.lfs):'❌ git-lfs не найден'}</div>
+    <div class="small">${t.gitOk?esc(t.git):'git не найден'}<br>${t.lfsOk?esc(t.lfs):'git-lfs не найден'}</div>
     ${(!t.gitOk||!t.lfsOk)?`<div style="margin-top:8px"><button onclick="installTools()">Установить автоматически</button></div>`:''}
-    <div class="card small muted">💡 Один раз в FL Studio: <i>Options → File settings → Browser extra search folders</i> — добавь папку, где лежат все проекты. И в каждом проекте: <i>Project → General settings → Data folder</i> = папка <b>Audio</b> проекта, тогда записи сразу будут падать туда.</div>
-    <div class="muted small">Версия ${esc(st.version)} · настройки: <span class="mono">${esc(st.configDir)}</span></div>
+    <div class="card small muted">Один раз в FL Studio: <i>Options → File settings → Browser extra search folders</i> — добавь папку, где лежат все проекты. И в каждом проекте: <i>Project → General settings → Data folder</i> = папка <b>Audio</b> проекта, тогда записи сразу будут падать туда.</div>
+    <h3>Обновления</h3>
+    <label class="switch"><input type="checkbox" id="autoup" ${c.autoUpdate?'checked':''}> Автоматически обновлять FruityHub, когда выходит новая версия</label>
+    <div class="muted small">Обновление ставится, только когда ничего не передаётся и не отправляется: если идёт передача плагина или синхронизация проекта, FruityHub дождётся её конца и перезапустится сам.</div>
+    <label class="switch"><input type="checkbox" id="errrep" ${c.noErrorReports?'':'checked'}> Отправлять мои ошибки в журнал сервера (их видит администратор — так проще разобраться, что сломалось)</label>
+    <h3>Для разработчика</h3>
+    <label class="switch"><input type="checkbox" id="devm" ${c.devMode?'checked':''}> Режим разработчика — журнал команд и управление сервером (кнопка «Разработчик» вверху)</label>
+    <div class="muted small">Версия ${esc(st.version)} · настройки: <span class="mono">${esc(st.configDir)}</span> · <a onclick="checkUpdate()">проверить обновления</a></div>
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button id="cancel">Закрыть</button><button class="primary" id="ok">Сохранить</button></div>`);
   m.querySelector('#x').onclick=m.querySelector('#cancel').onclick=()=>m.close();
   const rb=m.querySelector('#regb'); if(rb) rb.onclick=()=>{ m.close(); openRegister(true) };
+  m.querySelector('#autoup').onchange=async e=>{ try{ await api('/api/settings',{autoUpdate:e.target.checked}); S.state.config.autoUpdate=e.target.checked; toast(e.target.checked?'Буду обновляться сам':'Автообновление выключено') }catch(er){ fail(er) } };
+  m.querySelector('#errrep').onchange=async e=>{ try{ await api('/api/settings',{errorReports:e.target.checked}); S.state.config.noErrorReports=!e.target.checked; toast('Сохранено') }catch(er){ fail(er) } };
   const rn=m.querySelector('#rn'); if(rn) rn.onclick=async()=>{ const n=await uiPrompt('Новый ник',{value:c.userName}); if(!n||!n.trim()||n.trim()===c.userName) return;
     try{ await api('/api/account/update',{nick:n.trim()}); toast('Ник изменён'); m.close(); refreshAll() }catch(e){ fail(e) } };
-  const rt=m.querySelector('#rt'); if(rt) rt.onclick=async()=>{ const t=await uiPrompt('Новый GitHub-токen',{label:'Tokens (classic), галочка repo',placeholder:'ghp_…'}); if(!t||!t.trim()) return;
+  const rt=m.querySelector('#rt'); if(rt) rt.onclick=async()=>{ const t=await uiPrompt('Новый GitHub-токen',{label:'Tokens (classic), галочки repo и delete_repo',placeholder:'ghp_…'}); if(!t||!t.trim()) return;
     try{ const u=await api('/api/account/update',{token:t.trim()}); toast('Токен обновлён — GitHub @'+esc(u.github)); m.close(); refreshAll() }catch(e){ fail(e) } };
   m.querySelectorAll('input[name=sh]').forEach(i=>i.onchange=async()=>{
     try{ await api('/api/account/update',{sharing:i.value}); S.state.sharing=i.value; m.querySelectorAll('.radio').forEach(l=>l.classList.toggle('on',l.querySelector('input').checked)); toast('Сохранено') }catch(e){ fail(e) } });
+  m.querySelector('#pxt').onclick=async()=>{ const o=m.querySelector('#pxr'); o.textContent='Проверяю…';
+    try{ const r=await api('/api/github/test',{proxy:m.querySelector('#px').value.trim()});
+      o.innerHTML=r.ok?`<span style="color:var(--ok)">✓ GitHub отвечает ${esc(r.via)}, ${r.ms} мс</span>`:`<span style="color:var(--bad)">✗ ${esc(r.via)}: ${esc(r.error)}</span>` }catch(e){ o.textContent=String(e.message||e) } };
+  api('/api/system/check').then(c=>{ const el=m.querySelector('#syscheck'); const rows=[];
+    if(c.os==='Windows'){
+      rows.push(c.vcredistMissing?`<div style="color:var(--bad)">✗ Нет Microsoft Visual C++ — многие плагины не загрузятся. <button class="sm primary" id="vcb">Установить</button></div>`:`<div style="color:var(--ok)">✓ Microsoft Visual C++ установлен</div>`);
+      if((c.gpus||[]).length) rows.push(c.basicGpu?`<div style="color:var(--bad)">✗ Видеокарта на стандартном драйвере (${esc(c.gpus.join(', '))}) — у плагинов может быть серое окно. Поставь драйвер с сайта Intel / AMD / NVIDIA.</div>`:`<div style="color:var(--ok)">✓ Видеокарта: ${esc(c.gpus.join(', '))}</div>`);
+    }
+    if(c.gitCrashes>=5) rows.push(`<div style="color:var(--bad)">✗ git на этом компьютере часто не запускается (${c.gitCrashes} раз с запуска FruityHub, сбой 0xc0000005 или «Отказано в доступе»). FruityHub повторяет попытки, но работа идёт медленно и иногда с ошибками. Обычно виноват антивирус или защита Windows.
+      ${c.systemGit?'':'<b>Поставь Git for Windows</b> с сайта git-scm.com (обычный установщик, всё по умолчанию) — FruityHub сам начнёт им пользоваться вместо встроенного MinGit. '}Если не поможет: «Безопасность Windows» → «Управление приложениями/браузером» → «Защита от эксплойтов» → «Параметры системы» → «Принудительный случайный выбор для образов (обязательный ASLR)» = «По умолчанию (выкл.)», и добавь папку FruityHub в исключения антивируса.</div>`);
+    rows.push(`<div class="muted">Процессор: ${esc(c.arch)}. FruityHub проверяет каждый полученный плагин: разрядность, данные, лицензию — и показывает, что не так.</div>`);
+    el.innerHTML=rows.join(''); el.classList.remove('muted');
+    const vb=el.querySelector('#vcb'); if(vb) vb.onclick=()=>{ m.close(); runJob('/api/system/install-vcredist',{},{title:'Ставлю Microsoft Visual C++'}) };
+  }).catch(()=>{});
   api('/api/pluginfolders').then(f=>renderFolders(m.querySelector('#pfolders'),f)).catch(()=>{});
+  // свои папки плагинов: список с «−», добавление через окно выбора папки или перетаскиванием
+  let dirs=[...(c.extraPluginDirs||[])];
+  const saveDirs=async()=>{ try{ await api('/api/settings',{extraPluginDirs:dirs}); S.state.config.extraPluginDirs=dirs; drawDirs();
+    api('/api/pluginfolders',{}).then(f=>renderFolders(m.querySelector('#pfolders'),f)).catch(()=>{}) }catch(e){ fail(e) } };
+  const drawDirs=()=>{ m.querySelector('#pdlist').innerHTML=dirs.length?dirs.map((d,i)=>`<div class="drow"><span class="mono ellip" title="${esc(d)}">${esc(d)}</span><button class="sm ghost" data-i="${i}" title="Убрать">−</button></div>`).join(''):'<div class="muted small">Своих папок нет</div>';
+    m.querySelectorAll('#pdlist [data-i]').forEach(b=>b.onclick=()=>{ dirs.splice(+b.dataset.i,1); saveDirs() }) };
+  drawDirs();
+  const addDir=d=>{ if(d && !dirs.includes(d)){ dirs.push(d); saveDirs() } };
+  m.querySelector('#pdadd').onclick=async()=>{ const r=await api('/api/pickfolder',{}).catch(()=>({})); if(r.path) addDir(r.path) };
+  bindFolderDrop(m.querySelector('.modal'), true, paths=>paths.forEach(addDir));
+  // фон
+  const bgApply=r=>{ S.state.customBg=r.custom; m.querySelector('#bgreset').disabled=!r.custom; reloadBg(r.stamp) };
+  m.querySelector('#bgpick').onclick=async()=>{ try{ const r=await api('/api/background',{action:'pick'}); if(r.ok) bgApply(r) }catch(e){ fail(e) } };
+  m.querySelector('#bgreset').onclick=async()=>{ try{ bgApply(await api('/api/background',{action:'reset'})) }catch(e){ fail(e) } };
+  const dim=m.querySelector('#bgdim'); let dimT;
+  dim.oninput=()=>{ setDim(+dim.value); clearTimeout(dimT); dimT=setTimeout(()=>{ api('/api/background',{dim:+dim.value}).then(()=>{ S.state.config.bgDim=+dim.value }).catch(()=>{}) },300) };
+  m.querySelector('#repos').onclick=()=>{ m.close(); openRepos() };
+  m.querySelector('#devm').onchange=async e=>{ try{ await api('/api/dev/settings',{devMode:e.target.checked}); S.state.config.devMode=e.target.checked; renderDevBtn() }catch(er){ fail(er) } };
   m.querySelector('#ok').onclick=async()=>{
-    const body={extraPluginDirs:m.querySelector('#pd').value.split('\n').map(s=>s.trim()).filter(Boolean)};
-    await api('/api/settings',body); m.close(); refreshAll();
+    await api('/api/settings',{proxy:m.querySelector('#px').value.trim()}); m.close(); refreshAll();
   };
 }
 function openRegister(first){
@@ -989,9 +1334,9 @@ function openRegister(first){
     <div class="muted small">Одно устройство — один пользователь: аккаунт привязывается к этому компьютеру. Друзья зовут тебя в проекты по нику, через него же вы обмениваетесь плагинами.</div>
     <label>Ник</label><input id="un" placeholder="напр. tetramino" maxlength="32" value="${esc(st.config.userName||'')}">
     <label>GitHub-токен ${st.hasToken?'<span class="tag ok">уже сохранён</span>':''}</label><input id="tk" type="password" placeholder="${st.hasToken?'оставь пустым, чтобы использовать сохранённый':'ghp_…'}">
-    <div class="muted small">Проекты лежат на твоём GitHub — по репозиторию на проект. Токен: github.com → Settings → Developer settings → Personal access tokens → <b>Tokens (classic)</b>, галочка <b>repo</b>. <a href="${'https://github.com/settings/tokens/new?scopes=repo&description=prog-uzbeka'}">Открыть страницу создания</a>. Токен хранится только на этом компьютере; сервер лишь один раз сверяет, чей он.</div>
+    <div class="muted small">Проекты лежат на твоём GitHub — по репозиторию на проект. Токен: github.com → Settings → Developer settings → Personal access tokens → <b>Tokens (classic)</b>, галочки <b>repo</b> и <b>delete_repo</b> (вторая — чтобы удалять ненужные репозитории прямо из FruityHub). <a href="${'https://github.com/settings/tokens/new?scopes=repo,delete_repo&description=FruityHub'}">Открыть страницу создания</a>. Токен хранится только на этом компьютере; сервер лишь один раз сверяет, чей он.</div>
     <details style="margin-top:10px" ${st.serverDefault?'':'open'}><summary class="muted small" style="cursor:pointer">Сервер</summary>
-      <div class="muted small" style="margin-top:6px">${st.serverDefault?'Адрес встроен в прогу — менять не нужно.':'Адрес и код сервера даёт тот, кто его поднял.'}</div>
+      <div class="muted small" style="margin-top:6px">${st.serverDefault?'Адрес встроен в FruityHub — менять не нужно.':'Адрес и код сервера даёт тот, кто его поднял.'}</div>
       <label>Адрес</label><input id="srv" value="${esc(st.server||'')}" placeholder="https://1-2-3-4.sslip.io">
       ${st.serverCodeBuiltIn?'':'<label>Код сервера</label><input id="code" placeholder="напр. 3f9a1c7b">'}</details>
     <div class="row" style="justify-content:flex-end;margin-top:14px">${first?'<button id="later" class="ghost">Позже</button>':''}<button class="primary" id="ok">Зарегистрироваться</button></div>`);
@@ -1010,44 +1355,45 @@ function openRegister(first){
 // ---------- people: everyone on the server, their plugins ----------
 async function openPeople(){
   if(!S.state.registered) return openRegister(true);
-  const m=modal(`<div class="row" style="justify-content:space-between"><h2><span class="ic">👥</span> Люди</h2><button class="ghost sm" id="x">✕</button></div>
-    <div class="muted small">Все, кто зарегистрирован на сервере проги. Можно посмотреть, каких плагинов друга нет у тебя, и скачать их разом.</div><div id="pp" style="margin-top:8px">Загружаю…</div>`);
+  const m=modal(`<div class="row" style="justify-content:space-between"><h2>Люди</h2><button class="ghost sm" id="x">✕</button></div>
+    <div class="muted small">Все, кто зарегистрирован на сервере FruityHub. Можно посмотреть, каких плагинов друга нет у тебя, и скачать их разом.</div><div id="pp" style="margin-top:8px">Загружаю…</div>`);
   m.classList.add('wide'); m.querySelector('.modal').classList.add('wide');
   m.querySelector('#x').onclick=()=>m.close();
   let us; try{ us=await getUsers(true) }catch(e){ m.querySelector('#pp').innerHTML=`<div class="badbox">${esc(e.message)}</div>`; return }
   const shareTxt={off:'не делится плагинами',ask:'спрашивает перед отправкой',members:'делится с участниками своих проектов',all:'делится плагинами со всеми'};
   m.querySelector('#pp').innerHTML=us.map(u=>`<div class="person">${avatar(u)}<div style="flex:1"><b>${esc(u.nick)}</b>${u.id===S.state.userId?' <span class="muted small">(ты)</span>':''}
       <div class="muted small">GitHub @${esc(u.github||'?')} · ${esc(u.os||'')} · ${u.online?'<span style="color:var(--ok)">в сети</span>':'был '+fmtTime(u.lastSeen)} · ${shareTxt[u.sharing]||''}</div></div>
-      ${u.id!==S.state.userId&&u.sharing!=='off'?`<button class="sm" onclick="openMissing('${u.id}')"><span class="ic">🔌</span> Чего у меня нет…</button>`:''}</div>`).join('');
+      ${u.id!==S.state.userId&&u.sharing!=='off'?`<button class="sm" onclick="openMissing('${u.id}')">Чего у меня нет…</button>`:''}</div>`).join('');
 }
 async function openMissing(id){
-  const m=modal(`<div class="row" style="justify-content:space-between"><h2><span class="ic">🔌</span> Плагины, которых у тебя нет</h2><button class="ghost sm" id="x">✕</button></div><div id="ml">Сравниваю…</div>`);
+  const m=modal(`<div class="row" style="justify-content:space-between"><h2>Плагины, которых у тебя нет или другие версии</h2><button class="ghost sm" id="x">✕</button></div><div id="ml">Сравниваю…</div>`);
   m.querySelector('.modal').classList.add('wide');
   m.querySelector('#x').onclick=()=>m.close();
   let r; try{ r=await api('/api/user/missing?id='+enc(id)) }catch(e){ m.querySelector('#ml').innerHTML=`<div class="badbox">${esc(e.message)}</div>`; return }
-  const u=r.user, list=r.missing||[];
-  if(!r.updated){ m.querySelector('#ml').innerHTML=`<p class="muted">${esc(u.nick)} ещё ни разу не присылал список своих плагинов (он появится, когда ${esc(u.nick)} откроет прогу).</p>`; return }
-  if(!list.length){ m.querySelector('#ml').innerHTML=`<div class="okbox">У тебя есть всё, что есть у ${esc(u.nick)} (${r.total} плагинов) 👌</div>`; return }
-  m.querySelector('#ml').innerHTML=`<div class="muted small">У ${esc(u.nick)} (${esc(u.os)}) ${r.total} плагинов, у тебя нет ${list.length}. Отметь нужные. ${u.os!==S.state.os?'Системы разные: придёт версия для твоей системы, если она есть в пакете плагина, иначе — установщик.':''}</div>
+  const u=r.user, list=(r.missing||[]).concat((r.versions||[]).map(v=>({...v, diff:true})));
+  if(!r.updated){ m.querySelector('#ml').innerHTML=`<p class="muted">${esc(u.nick)} ещё ни разу не присылал список своих плагинов (он появится, когда ${esc(u.nick)} откроет FruityHub).</p>`; return }
+  if(!list.length){ m.querySelector('#ml').innerHTML=`<div class="okbox">У тебя есть всё, что есть у ${esc(u.nick)} (${r.total} плагинов), и тех же версий.</div>`; return }
+  m.querySelector('#ml').innerHTML=`<div class="muted small">У ${esc(u.nick)} (${esc(u.os)}) ${r.total} плагинов, у тебя нет ${(r.missing||[]).length}. Отметь нужные. ${(r.versions||[]).length?` Ещё ${r.versions.length} есть у вас обоих, но в разных версиях — они внизу списка; скачанная версия заменит твою (старая уйдёт в резервную копию).`:''} ${u.os!==S.state.os?'Системы разные: придёт версия для твоей системы, если она есть в пакете плагина, иначе — установщик.':''}</div>
     <div class="row" style="margin-top:8px"><label class="switch small" style="margin:0"><input type="checkbox" id="all"> выделить всё</label><span class="spacer"></span><input id="flt" placeholder="поиск" style="width:200px"></div>
-    <div style="max-height:46vh;overflow:auto;margin-top:6px"><table><tr><th></th><th>Плагин</th><th>Формат</th><th>Производитель</th></tr>${list.map((p,i)=>`<tr data-n="${esc(p.name.toLowerCase())}"><td><input type="checkbox" style="width:auto" data-i="${i}"></td><td><b>${esc(p.name)}</b>${p.version?` <span class="muted small">${esc(p.version)}</span>`:''}</td><td><span class="tag">${esc(p.format)}</span></td><td class="muted small">${esc(p.vendor||'')}</td></tr>`).join('')}</table></div>
-    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="primary" id="go" disabled>⬇ Скачать выбранные</button></div>`;
+    <div style="max-height:46vh;overflow:auto;margin-top:6px"><table><tr><th></th><th>Плагин</th><th>Формат</th><th>Производитель</th></tr>${list.map((p,i)=>`<tr data-n="${esc(p.name.toLowerCase())}"><td><input type="checkbox" style="width:auto" data-i="${i}"></td><td><b>${esc(p.name)}</b>${p.diff?` <span class="tag ${p.newer==='true'?'ok':'warn'}">у него ${esc(p.version)}, у тебя ${esc(p.mine)}${p.newer==='true'?' — новее':''}</span>`:p.version?` <span class="muted small">${esc(p.version)}</span>`:''}</td><td><span class="tag">${esc(p.format)}</span></td><td class="muted small">${esc(p.vendor||'')}</td></tr>`).join('')}</table></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="primary" id="go" disabled>Скачать выбранные</button></div>`;
   const boxes=[...m.querySelectorAll('input[data-i]')], go=m.querySelector('#go');
-  const upd=()=>{ const n=boxes.filter(b=>b.checked).length; go.disabled=!n; go.textContent=`⬇ Скачать выбранные (${n})` };
+  const upd=()=>{ const n=boxes.filter(b=>b.checked).length; go.disabled=!n; go.textContent=`Скачать выбранные (${n})` };
   boxes.forEach(b=>b.onchange=upd);
   m.querySelector('#all').onchange=e=>{ boxes.forEach(b=>{ if(b.closest('tr').style.display!=='none') b.checked=e.target.checked }); upd() };
   m.querySelector('#flt').oninput=e=>{ const q=e.target.value.toLowerCase(); m.querySelectorAll('tr[data-n]').forEach(tr=>tr.style.display=tr.dataset.n.includes(q)?'':'none') };
   go.onclick=async()=>{ const items=boxes.filter(b=>b.checked).map(b=>list[+b.dataset.i]).map(p=>({plugin:p.name,format:p.format,vendor:p.vendor||''}));
     try{ const res=await api('/api/plugin/request',{to:u.nick,items}); m.close();
-      uiAlert(`Запрошено у ${u.nick}: ${res.length}.${u.sharing==='ask'?` ${u.nick} увидит запросы у себя в проге.`:' Он разрешил это заранее — плагины придут и установятся сами, когда его прога будет открыта.'}\n\nХод передачи — в окне «🔌 Передачи».`,'Запросы отправлены') }catch(e){ fail(e) } };
+      uiAlert(`Запрошено у ${u.nick}: ${res.length}.${u.sharing==='ask'?` ${u.nick} увидит запросы у себя в FruityHub.`:' Он разрешил это заранее — плагины придут и установятся сами, когда его FruityHub будет открыт.'}\n\nХод передачи — в окне «Передачи».`,'Запросы отправлены') }catch(e){ fail(e) } };
 }
 async function openTransfers(){
   if(!S.state.registered) return openRegister(true);
-  const m=modal(`<div class="row" style="justify-content:space-between"><h2><span class="ic">🔌</span> Передачи плагинов</h2><button class="ghost sm" id="x">✕</button></div><div id="tl">Загружаю…</div>`);
+  const m=modal(`<div class="row" style="justify-content:space-between"><h2>Передачи плагинов</h2><button class="ghost sm" id="x">✕</button></div><div id="tl">Загружаю…</div>`);
   m.querySelector('.modal').classList.add('wide');
   m.querySelector('#x').onclick=()=>m.close();
   const load=async()=>{ await loadReqs(); const el=m.querySelector('#tl'); if(!el) return;
-    el.innerHTML=(S.reqs||[]).length?reqTable(S.reqs.slice(0,100)):'<p class="muted">Пока ничего не передавали. Плагины можно скачать у друга во вкладке «Плагины» проекта или через «👥 Люди».</p>' };
+    el.innerHTML=(S.reqs||[]).length?reqTable(S.reqs.slice(0,100)):'<p class="muted">Пока ничего не передавали. Плагины можно скачать у друга во вкладке «Плагины» проекта или через «Люди».</p>' };
+  S.trRefresh=load;
   await load(); const t=setInterval(()=>{ if(!document.body.contains(m)) return clearInterval(t); load() },4000);
 }
 function renderFolders(el,f){ if(!el) return;
@@ -1055,7 +1401,246 @@ function renderFolders(el,f){ if(!el) return;
   <div class="muted" style="margin-top:4px">Всего найдено плагинов: ${f.count}. ${f.dbCount?`В базе плагинов FL: ${f.dbCount}.`:'База плагинов FL не найдена ('+esc(f.db)+') — открой в FL «Manage plugins» и нажми «Find installed plugins».'} <a onclick="rescanFolders(this)">↻ пересканировать</a></div>` }
 async function rescanFolders(a){ a.textContent='сканирую…'; const r=await api('/api/pluginfolders',{}).catch(()=>null); if(r) renderFolders(a.closest('#pfolders'),r) }
 async function installTools(){ await runJob('/api/tools/install',{},{title:'Установка git / git-lfs'}) }
-async function quitApp(){ if(await uiConfirm('Закрыть прогу?',{ok:'Закрыть'})){ await api('/api/quit',{}).catch(()=>{}); document.body.innerHTML='<div class="empty"><div>Прога закрыта. Вкладку можно закрыть.</div></div>' } }
+async function quitApp(){ if(!await confirmNoTransfers('закрыть FruityHub')) return; if(await uiConfirm('Закрыть FruityHub?',{ok:'Закрыть'})){ await api('/api/quit',{}).catch(()=>{}); document.body.innerHTML='<div class="empty"><div>FruityHub закрыт. Вкладку можно закрыть.</div></div>' } }
+
+// ---------- фон ----------
+function setDim(v){ document.documentElement.style.setProperty('--dim', (Math.max(0,Math.min(90,v))/100).toFixed(2)) }
+function reloadBg(stamp){
+  const u='/assets/bg?v='+(stamp||Date.now());
+  const st=document.getElementById('bgstyle')||document.head.appendChild(Object.assign(document.createElement('style'),{id:'bgstyle'}));
+  st.textContent=`body::before{background-image:url('${u}')}`;
+}
+
+// ---------- перетаскивание папок из Finder / Проводника ----------
+// Окно не знает, откуда папку перетащили, поэтому FruityHub ищет её на диске по имени и содержимому.
+async function readDropped(dt){
+  const out=[];
+  for(const it of [...(dt.items||[])]){
+    const en=it.webkitGetAsEntry?it.webkitGetAsEntry():null;
+    if(!en) continue;
+    if(en.isDirectory){
+      const names=await new Promise(res=>{ en.createReader().readEntries(es=>res(es.map(e=>e.name)), ()=>res([])) });
+      out.push({name:en.name, children:names.slice(0,200), dir:true});
+    } else out.push({name:en.name, dir:false});
+  }
+  return out;
+}
+function hasFiles(e){ return [...(e.dataTransfer?.types||[])].includes('Files') }
+function bindFolderDrop(el, plugins, onPaths){
+  if(!el) return;
+  el.addEventListener('dragover', e=>{ if(hasFiles(e)){ e.preventDefault(); e.stopPropagation(); el.classList.add('dropping') } });
+  el.addEventListener('dragleave', e=>{ if(e.target===el) el.classList.remove('dropping') });
+  el.addEventListener('drop', async e=>{
+    if(!hasFiles(e)) return;
+    e.preventDefault(); e.stopPropagation(); el.classList.remove('dropping');
+    const items=await readDropped(e.dataTransfer);
+    const dirs=items.filter(x=>x.dir);
+    if(!dirs.length){ toast('Перетащи папку (не файл)'); return }
+    const t=toast('Ищу папку «'+esc(dirs[0].name)+'» на диске…',15000);
+    const paths=[];
+    for(const d of dirs){
+      let found=[]; try{ found=await api('/api/locate-dropped',{name:d.name,children:d.children,plugins}) }catch(er){}
+      if(found.length===1) paths.push(found[0]);
+      else if(found.length>1){ const p=await choosePath(d.name, found); if(p) paths.push(p) }
+      else {
+        t.remove();
+        if(await uiConfirm(`Не нашёл папку «${esc(d.name)}» на диске. Выбрать её вручную?`,{title:'Папка не найдена',ok:'Выбрать…'})){
+          const r=await api('/api/pickfolder',{}).catch(()=>({})); if(r.path) paths.push(r.path) }
+      }
+    }
+    t.remove();
+    if(paths.length) onPaths(paths);
+  });
+}
+function choosePath(name, list){ return new Promise(res=>{ let v=null;
+  const m=modal(`<h2>Какая из папок «${esc(name)}»?</h2>${list.map((p,i)=>`<label class="radio"><input type="radio" name="cp" value="${i}" ${i?'':'checked'}><span class="mono">${esc(p)}</span></label>`).join('')}
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button id="no">Отмена</button><button class="primary" id="ok">Эта</button></div>`, ()=>res(v));
+  m.querySelector('#ok').onclick=()=>{ v=list[+m.querySelector('input[name=cp]:checked').value]; m.close() }; m.querySelector('#no').onclick=()=>m.close() }) }
+async function addProjectPaths(paths){
+  let last=null;
+  for(const path of paths){ try{ await api('/api/projects/add',{path}); last=path }catch(e){ fail(e) } }
+  if(last){ S.sel=last; S.analysis=null; S.comments=null; await refreshAll(); toast(paths.length>1?`Добавлено проектов: ${paths.length}`:'Проект добавлен') }
+}
+bindFolderDrop(document.querySelector('aside'), false, addProjectPaths);
+// чтобы случайно брошенный файл не открылся в окне вместо приложения
+window.addEventListener('dragover', e=>{ if(hasFiles(e)) e.preventDefault() });
+window.addEventListener('drop', e=>{ if(hasFiles(e)) e.preventDefault() });
+
+// ---------- клавиатура ----------
+function visibleProjects(){ return [...document.querySelectorAll('#plist .pitem')].map(el=>el.dataset.path) }
+function scrollSelIntoView(){ const el=document.querySelector('#plist .pitem.sel'); if(el) el.scrollIntoView({block:'nearest'}) }
+function topModal(){ const ms=document.querySelectorAll('#modals .modal-bg'); return ms[ms.length-1] }
+function groupStarts(){ // первый проект каждой папки (и общего списка) — для Tab
+  const out=[];
+  document.querySelectorAll('#plist .gbody, #plist .topzone').forEach(z=>{ const f=z.querySelector('.pitem'); if(f) out.push(f.dataset.path) });
+  return out;
+}
+document.addEventListener('keydown', e=>{
+  const mod=e.metaKey||e.ctrlKey, k=e.key.toLowerCase();
+  const typing=/^(input|textarea|select)$/i.test(document.activeElement?.tagName||'') || document.activeElement?.isContentEditable;
+  if(e.key==='Escape'){
+    const menu=document.querySelector('.menu'); if(menu){ menu.remove(); e.preventDefault(); return }
+    const m=topModal(); if(m && !m.busy){ e.preventDefault(); m.close(); return }
+    return;
+  }
+  if(mod && e.shiftKey && (k==='n'||e.code==='KeyN')){ e.preventDefault(); if(!topModal()) newGroup(); return }
+  if(mod && !e.shiftKey && (k==='n'||e.code==='KeyN')){ e.preventDefault(); if(!topModal()) addProject(); return }
+  if(mod && !e.shiftKey && (k==='o'||e.code==='KeyO')){ e.preventDefault(); if(S.sel && !topModal()) api('/api/project/open',{path:S.sel}).catch(fail); return }
+  if(typing || topModal() || mod || e.altKey) return;
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+    if(S.side==='av') return;
+    const list=visibleProjects(); if(!list.length) return;
+    e.preventDefault();
+    let i=list.indexOf(S.sel);
+    i = i<0 ? 0 : Math.max(0, Math.min(list.length-1, i+(e.key==='ArrowDown'?1:-1)));
+    if(list[i]!==S.sel) selectProject(enc(list[i]));
+  } else if(e.key==='Tab'){
+    if(S.side==='av') return;
+    const starts=groupStarts(); if(!starts.length) return;
+    e.preventDefault();
+    const list=visibleProjects(), cur=list.indexOf(S.sel);
+    let idx;
+    if(!e.shiftKey){ idx=starts.findIndex(p=>list.indexOf(p)>cur); if(idx<0) idx=0 }
+    else { const before=starts.filter(p=>list.indexOf(p)<cur); idx=before.length?starts.indexOf(before[before.length-1]):starts.length-1;
+      // если стоим не на первом проекте папки — сначала к её началу
+      const own=starts.filter(p=>list.indexOf(p)<=cur).pop(); if(own && own!==S.sel && e.shiftKey) idx=starts.indexOf(own) }
+    selectProject(enc(starts[idx]));
+  }
+});
+
+// ---------- обновления ----------
+function renderUpdateBar(v){
+  let bar=$('#upbar');
+  if(!v || S.upHidden===v){ if(bar) bar.remove(); return }
+  if(!bar){ bar=document.createElement('div'); bar.id='upbar'; bar.className='upbar'; document.querySelector('header').after(bar) }
+  bar.innerHTML=`<b>Доступно обновление FruityHub ${esc(v)}</b><span class="muted small">у тебя ${esc(S.state?.version||'')}</span><span class="spacer"></span>
+    <button class="sm primary" onclick="applyUpdate()">Обновить и перезапустить</button><button class="sm ghost" onclick="S.upHidden='${esc(v)}';renderUpdateBar()">Позже</button>`;
+}
+async function applyUpdate(){
+  if(!await confirmNoTransfers('обновить FruityHub сейчас (он перезапустится)')) return;
+  const j=await runJob('/api/update/apply',{},{title:'Обновляю FruityHub'});
+  if(j && !j.error){ document.body.innerHTML='<div class="empty"><div class="box"><div style="font-size:18px">Перезапускаю FruityHub…</div><div class="muted" style="margin-top:6px">Новое окно откроется само через несколько секунд.</div></div></div>' }
+}
+async function checkUpdate(){
+  try{ const r=await api('/api/update/check',{});
+    if(r.newer){ S.upHidden=null; renderUpdateBar(r.latest); toast('Есть новая версия: '+esc(r.latest)) }
+    else uiAlert(r.latest?`У тебя последняя версия (${esc(r.current)}).`:'На сервере пока нет выложенных версий.','Обновления') }catch(e){ fail(e) }
+}
+
+// ---------- режим разработчика ----------
+function renderDevBtn(){
+  let b=$('#devBtn');
+  if(!S.state?.config?.devMode){ if(b) b.remove(); return }
+  if(!b){ b=document.createElement('button'); b.id='devBtn'; b.className='ghost'; b.textContent='Разработчик'; b.onclick=openDev; $('#quitBtn').before(b) }
+}
+const KINDS={git:'git',http:'сеть',ui:'клик',job:'задача',info:'инфо',error:'ошибка'};
+async function openDev(){
+  const m=modal(`<div class="row" style="justify-content:space-between"><h2>Режим разработчика</h2><button class="ghost sm" id="x">✕</button></div>
+    <div class="seg" style="margin-bottom:10px"><button class="on" data-t="log">Журнал команд</button><button data-t="server">Сервер</button><button data-t="slog">Логи сервера</button><button data-t="sys">Система</button></div>
+    <div id="devbody"></div>`);
+  m.querySelector('.modal').style.width='min(1100px,94vw)';
+  m.querySelector('#x').onclick=()=>m.close();
+  let timer=null, last=0, entries=[];
+  const stop=()=>{ clearInterval(timer); timer=null };
+  const old=m.close; m.close=()=>{ stop(); old() };
+  const tabs=m.querySelectorAll('.seg button');
+  tabs.forEach(b=>b.onclick=()=>{ tabs.forEach(x=>x.classList.toggle('on',x===b)); show(b.dataset.t) });
+  const body=m.querySelector('#devbody');
+  const drawLog=()=>{
+    const f=body.querySelector('#df')?.value||'', q=(body.querySelector('#dq')?.value||'').toLowerCase(), onlyErr=body.querySelector('#de')?.checked;
+    const list=entries.filter(x=>(!f||x.kind===f)&&(!q||x.text.toLowerCase().includes(q))&&(!onlyErr||x.err));
+    const el=body.querySelector('#dlog'); if(!el) return;
+    const atEnd=el.scrollTop+el.clientHeight>=el.scrollHeight-20;
+    el.innerHTML=list.slice(-1500).map(x=>`<div class="e ${x.err?'err':''}"><span class="t">${new Date(x.t).toLocaleTimeString('ru-RU')}</span> <span class="k">${KINDS[x.kind]||x.kind}</span> ${esc(x.text)}${x.ms?` <span class="t">${x.ms} мс</span>`:''}</div>`).join('')||'<div class="muted">Пока пусто — сделай что-нибудь в приложении.</div>';
+    if(atEnd) el.scrollTop=el.scrollHeight;
+  };
+  const poll=async()=>{ try{ const r=await api('/api/dev/logs?since='+last); if(r.entries.length){ entries=entries.concat(r.entries).slice(-3000); last=r.entries[r.entries.length-1].n; drawLog() } }catch(e){} };
+  async function show(t){
+    stop();
+    if(t==='log'){
+      const r=await api('/api/dev/logs?since=0').catch(()=>({entries:[],file:''}));
+      entries=r.entries; last=entries.length?entries[entries.length-1].n:0;
+      body.innerHTML=`<div class="row" style="margin-bottom:8px"><select id="df" style="width:auto"><option value="">все</option>${Object.entries(KINDS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select>
+        <input id="dq" placeholder="поиск" style="width:220px"><label class="switch" style="margin:0"><input type="checkbox" id="de"> только ошибки</label>
+        <label class="switch" style="margin:0"><input type="checkbox" id="dv" ${r.verbose?'checked':''}> служебные git-команды</label><span class="spacer"></span>
+        <button class="sm" id="dcopy">Копировать</button><button class="sm" id="dopen">Файл журнала</button><button class="sm ghost" id="dclr">Очистить</button></div>
+        <div class="devlog" id="dlog"></div><div class="muted small" style="margin-top:6px">Пишется и в файл: <span class="mono">${esc(r.file)}</span>. Токены и ключи в журнале скрыты.</div>`;
+      ['#df','#dq','#de'].forEach(s=>body.querySelector(s).oninput=drawLog);
+      body.querySelector('#dv').onchange=e=>api('/api/dev/settings',{verbose:e.target.checked}).catch(fail);
+      body.querySelector('#dclr').onclick=async()=>{ await api('/api/dev/clear',{}); entries=[]; drawLog() };
+      body.querySelector('#dopen').onclick=()=>api('/api/dev/openlogs',{}).catch(fail);
+      body.querySelector('#dcopy').onclick=()=>{ const txt=entries.map(x=>`${new Date(x.t).toISOString()} [${x.kind}]${x.err?' ОШИБКА':''} ${x.text}${x.ms?' ('+x.ms+' мс)':''}`).join('\n'); navigator.clipboard?.writeText(txt).then(()=>toast('Скопировано')).catch(()=>uiAlert('Не получилось скопировать — открой файл журнала','Журнал')) };
+      drawLog(); const el=body.querySelector('#dlog'); el.scrollTop=el.scrollHeight;
+      timer=setInterval(poll,1000);
+    } else if(t==='slog'){
+      if(!S.state.hasAdminKey){ show('server'); return }
+      let sl=[], slast=0;
+      const LV={info:'инфо',error:'ошибка',client:'приложение'};
+      body.innerHTML=`<div class="row" style="margin-bottom:8px"><select id="sf" style="width:auto"><option value="">все</option><option value="error">только ошибки сервера</option><option value="client">ошибки из приложений</option><option value="bad">все ошибки</option><option value="info">инфо</option></select>
+        <input id="sq" placeholder="поиск (ник, плагин, текст)" style="width:240px"><span class="spacer"></span>
+        <button class="sm" id="scopy">Копировать</button><button class="sm" id="ssave">Скачать файл</button></div>
+        <div class="devlog" id="slog"></div><div class="muted small" style="margin-top:6px">Здесь видно запросы с ошибками, все передачи плагинов (скорость, обрывы) и ошибки, которые присылают приложения участников (их можно отключить в настройках у себя). Обновляется само. Чтобы показать мне ошибку — нажми «Копировать» и вставь в чат.</div>`;
+      const fmtE=x=>`${new Date(x.t).toLocaleString('ru-RU')} [${LV[x.level]||x.level}] ${x.src}: ${x.text}`;
+      const flt=()=>{ const f=body.querySelector('#sf').value, q=body.querySelector('#sq').value.toLowerCase();
+        return sl.filter(x=>(!f||(f==='bad'?x.level!=='info':x.level===f))&&(!q||(x.src+' '+x.text).toLowerCase().includes(q))) };
+      const draw=()=>{ const el=body.querySelector('#slog'); if(!el) return; const atEnd=el.scrollTop+el.clientHeight>=el.scrollHeight-20;
+        el.innerHTML=flt().slice(-1500).map(x=>`<div class="e ${x.level!=='info'?'err':''}" style="white-space:pre-wrap"><span class="t">${new Date(x.t).toLocaleString('ru-RU')}</span> <span class="k">${LV[x.level]||x.level}</span> <b>${esc(x.src)}</b> ${esc(x.text)}</div>`).join('')||'<div class="muted">Пусто.</div>';
+        if(atEnd) el.scrollTop=el.scrollHeight };
+      const spoll=async()=>{ try{ const r=await api('/api/admin/logs?since='+slast); if(r.entries.length){ sl=sl.concat(r.entries).slice(-5000); slast=r.entries[r.entries.length-1].n; draw() } }
+        catch(e){ const el=body.querySelector('#slog'); if(el&&!sl.length) el.innerHTML=`<div class="badbox">${esc(e.message)}${/404/.test(e.message)?' — обнови сервер: ./deploy/server-up.sh':''}</div>` } };
+      body.querySelector('#sf').onchange=draw; body.querySelector('#sq').oninput=draw;
+      body.querySelector('#scopy').onclick=()=>{ navigator.clipboard?.writeText(flt().map(fmtE).join('\n')).then(()=>toast('Скопировано')).catch(()=>uiAlert('Не получилось скопировать — нажми «Скачать файл»','Логи')) };
+      body.querySelector('#ssave').onclick=async()=>{ try{ const p=await api('/api/admin/logs/save',{}); toast('Сохранено: '+esc(p),6000) }catch(e){ fail(e) } };
+      await spoll(); const el=body.querySelector('#slog'); if(el) el.scrollTop=el.scrollHeight;
+      timer=setInterval(spoll,2000);
+    } else if(t==='server'){
+      if(!S.state.hasAdminKey){
+        body.innerHTML=`<div class="muted">Чтобы управлять сервером, нужен ключ администратора. Его печатает <span class="mono">deploy/server-up.sh</span> и сохраняет в <span class="mono">server.txt</span>.</div>
+          <label>Ключ администратора</label><div class="row" style="flex-wrap:nowrap"><input id="ak" type="password"><button class="primary" id="aks">Сохранить</button></div>`;
+        body.querySelector('#aks').onclick=async()=>{ try{ await api('/api/dev/settings',{adminKey:body.querySelector('#ak').value}); S.state.hasAdminKey=true; show('server') }catch(e){ fail(e) } };
+        return;
+      }
+      body.innerHTML='<div class="muted">Загружаю…</div>';
+      let o; try{ o=await api('/api/admin/overview') }catch(e){ body.innerHTML=`<div class="badbox">${esc(e.message)}</div><button class="sm" id="akr">Сменить ключ</button>`; body.querySelector('#akr').onclick=async()=>{ await api('/api/dev/settings',{adminKey:''}); S.state.hasAdminKey=false; show('server') }; return }
+      const up=o.update;
+      body.innerHTML=`<div class="muted small">${esc(S.state.server)} · данные: <span class="mono">${esc(o.dataDir)}</span> · база ${fmtSize(o.dbSize)} · запущен ${fmtTime(o.started)} · код регистрации <span class="mono">${esc(o.code)}</span></div>
+        <h3>Пользователи (${o.users.length})</h3>
+        <table><tr><th>Ник</th><th>GitHub</th><th>Система</th><th>Был в сети</th><th>Проекты</th><th></th></tr>
+        ${o.users.map(u=>`<tr><td><b>${esc(u.nick)}</b>${u.online?' <span class="tag ok">в сети</span>':''}</td><td>@${esc(u.github)}</td><td>${esc(u.os)} <span class="muted small">${esc(u.device||'')}</span></td><td class="muted">${u.lastSeen?fmtTime(u.lastSeen):'—'}</td><td class="small">${esc((u.projects||[]).join(', '))}</td>
+          <td><button class="sm danger" data-du="${esc(u.id)}" data-n="${esc(u.nick)}">Удалить</button></td></tr>`).join('')}</table>
+        <h3>Проекты (${o.projects.length})</h3>
+        <table><tr><th>Название</th><th>Репозиторий</th><th>Владелец</th><th>Участники</th><th></th></tr>
+        ${o.projects.map(p=>`<tr><td><b>${esc(p.name)}</b></td><td class="mono small">${esc(p.repo)}</td><td>${esc(p.owner)}</td><td class="small">${esc(p.members.join(', '))}</td>
+          <td><button class="sm danger" data-dp="${esc(p.id)}" data-n="${esc(p.name)}">Удалить</button></td></tr>`).join('')}</table>
+        <div class="muted small">Удаление убирает запись только с сервера: репозитории на GitHub и файлы у людей остаются. Удалённый пользователь сможет зарегистрироваться заново.</div>
+        <h3>Передачи плагинов</h3><div class="row"><span class="muted small">всего ${o.requests}, активных ${o.activeRequests}</span><button class="sm" id="clr">Очистить историю</button></div>
+        <h3>Бэкап и переезд</h3>
+        <div class="row"><button class="sm" id="bk">Скачать бэкап</button><span class="muted small">Всё о пользователях, проектах и приглашениях + код и ключ сервера, одним файлом. Сервер ещё сам делает копию раз в сутки.</div>
+        <label>Сервер переехал — новый адрес (приложения переключатся сами, если туда восстановлен бэкап)</label>
+        <div class="row" style="flex-wrap:nowrap"><input id="mv" value="${esc(o.moveTo||'')}" placeholder="https://5-6-7-8.sslip.io:47943"><button class="sm" id="mvs">Сохранить</button></div>
+        <h3>Обновления приложения</h3>
+        <div class="small">${up?`На сервере версия <b>${esc(up.version)}</b>: ${Object.keys(up.files||{}).map(esc).join(', ')}`:'<span class="muted">На сервере обновлений нет.</span>'}</div>
+        <div class="muted small" style="margin-top:4px">Удобнее всего выкладывать сборку командой <span class="mono">./deploy/server-up.sh</span> — она отправляет на сервер и сам сервер, и приложения из dist. Или вручную:</div>
+        <div class="row" style="margin-top:6px"><input id="uv" placeholder="версия, напр. 0.7.1" style="width:160px"><select id="up" style="width:auto"><option value="windows-amd64">Windows (exe)</option><option value="darwin-arm64">Mac M-чип (zip)</option><option value="darwin-amd64">Mac Intel (zip)</option></select>
+          <input id="un" placeholder="что нового (необязательно)" style="flex:1;min-width:160px"><button class="sm primary" id="ups">Выбрать файл и выложить…</button></div>`;
+      body.querySelectorAll('[data-du]').forEach(b=>b.onclick=async()=>{ if(!await uiConfirm(`Удалить пользователя <b>${esc(b.dataset.n)}</b> с сервера? Его проекты без других участников тоже удалятся с сервера.`,{ok:'Удалить',danger:true})) return;
+        try{ await api('/api/admin/delete-user',{id:b.dataset.du}); toast('Удалён: '+esc(b.dataset.n)); show('server') }catch(e){ fail(e) } });
+      body.querySelectorAll('[data-dp]').forEach(b=>b.onclick=async()=>{ if(!await uiConfirm(`Удалить проект <b>${esc(b.dataset.n)}</b> с сервера? Репозиторий на GitHub останется.`,{ok:'Удалить',danger:true})) return;
+        try{ await api('/api/admin/delete-project',{id:b.dataset.dp}); toast('Удалён: '+esc(b.dataset.n)); show('server') }catch(e){ fail(e) } });
+      body.querySelector('#clr').onclick=async()=>{ try{ const r=await api('/api/admin/clear-requests',{}); toast('Удалено записей: '+r.deleted); show('server') }catch(e){ fail(e) } };
+      body.querySelector('#bk').onclick=async()=>{ try{ const p=await api('/api/admin/backup',{}); toast('Бэкап сохранён: '+esc(p),6000) }catch(e){ fail(e) } };
+      body.querySelector('#mvs').onclick=async()=>{ try{ await api('/api/admin/move',{url:body.querySelector('#mv').value}); toast('Сохранено') }catch(e){ fail(e) } };
+      body.querySelector('#ups').onclick=async()=>{ const v=body.querySelector('#uv').value.trim(); if(!v) return uiAlert('Укажи версию');
+        const j=await runJob('/api/admin/publish',{version:v,platform:body.querySelector('#up').value,notes:body.querySelector('#un').value},{title:'Выкладываю обновление'}); if(j&&!j.error) show('server') };
+    } else {
+      const i=await api('/api/dev/info',{}).catch(e=>({error:e.message}));
+      body.innerHTML=`<table>${Object.entries(i).map(([k,v])=>`<tr><td class="muted">${esc(k)}</td><td class="mono small">${esc(typeof v==='object'?JSON.stringify(v):v)}</td></tr>`).join('')}</table>
+        <div class="row" style="margin-top:10px"><button class="sm" onclick="checkUpdate()">Проверить обновления</button><button class="sm ghost" id="akc">Забыть ключ администратора</button></div>`;
+      body.querySelector('#akc').onclick=async()=>{ await api('/api/dev/settings',{adminKey:''}); S.state.hasAdminKey=false; toast('Ключ удалён') };
+    }
+  }
+  show('log');
+}
 
 window.addEventListener('focus', ()=>{ if(S.sel && !document.querySelector('.modal-bg')) loadProject(S.sel) });
 refreshAll().then(pollNotes).catch(e=>{ $('#main').innerHTML='<div class="badbox">'+esc(e.message)+'</div>' });

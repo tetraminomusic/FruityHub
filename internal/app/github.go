@@ -48,7 +48,7 @@ func repoNameFor(name string) string {
 // GitHubCreateRepo makes a private repo for a project on the user's account.
 func GitHubCreateRepo(cfg *Config, name string) (fullName, cloneURL string, err error) {
 	if cfg.Token == "" {
-		return "", "", errors.New("нужен GitHub-токен (⚙ Настройки)")
+		return "", "", errors.New("нужен GitHub-токен (Настройки)")
 	}
 	base := repoNameFor(name)
 	repo := base
@@ -58,7 +58,7 @@ func GitHubCreateRepo(cfg *Config, name string) (fullName, cloneURL string, err 
 			CloneURL string `json:"clone_url"`
 		}
 		err = ghAPI(cfg.Token, "POST", "/user/repos", map[string]any{"name": repo, "private": true,
-			"description": "FL Studio проект «" + strings.TrimSpace(name) + "» (прога узбека)", "has_issues": false, "has_wiki": false}, &r)
+			"description": "FL Studio проект «" + strings.TrimSpace(name) + "» (FruityHub)", "has_issues": false, "has_wiki": false}, &r)
 		if err == nil {
 			ghAPI(cfg.Token, "PUT", "/repos/"+r.FullName+"/topics", map[string]any{"names": []string{appTopic}}, nil)
 			return r.FullName, r.CloneURL, nil

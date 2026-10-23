@@ -1,4 +1,4 @@
-// uzbek-server — сервер «проги узбека»: пользователи, проекты и участники,
+// uzbek-server — сервер FruityHub: пользователи, проекты и участники,
 // приглашения, передача плагинов. Сами проекты лежат на GitHub у владельцев;
 // плагины идут потоком с компьютера на компьютер и на сервере не сохраняются.
 package main
@@ -25,15 +25,27 @@ func main() {
 	key := flag.String("key", "", "ключ к сертификату")
 	httpsPort := flag.Int("https-port", 443, "порт HTTPS вместе с -domain (если 443 занят, например VPN; тогда для сертификата нужен свободный порт 80)")
 	code := flag.String("code", "", "код для регистрации (по умолчанию — из файла server-code в папке данных)")
+	restore := flag.String("restore", "", "восстановить данные из бэкапа (файл .json из админки или server-up.sh backup) и выйти")
 	flag.Parse()
+
+	if *restore != "" {
+		if err := hub.RestoreBackup(*data, *restore); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("Бэкап восстановлен в", *data)
+		return
+	}
 
 	s, err := hub.New(hub.Options{DataDir: *data, Code: *code})
 	if err != nil {
 		log.Fatal(err)
 	}
 	go s.Janitor()
+	log.SetOutput(s.LogWriter(os.Stderr)) // всё, что пишет сервер, видно и в админке
+	s.Logf("info", "server", "сервер запущен")
 	h := logRequests(s.Handler())
 	fmt.Printf("Код сервера для регистрации: %s\n", s.Code())
+	fmt.Printf("Ключ администратора (режим разработчика в приложении): %s\n", s.AdminKey())
 
 	switch {
 	case *domain != "":
@@ -61,7 +73,7 @@ func logRequests(h http.Handler) http.Handler {
 	quiet := os.Getenv("UZBEK_QUIET") != ""
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !quiet && r.URL.Path != "/api/inbox" && r.URL.Path != "/api/ping" {
-			log.Printf("%s %s", r.Method, r.URL.Path)
+			fmt.Fprintf(os.Stderr, "%s %s %s\n", time.Now().Format("2006/01/02 15:04:05"), r.Method, r.URL.Path) // только в системный журнал, не в админку
 		}
 		h.ServeHTTP(w, r)
 	})

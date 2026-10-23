@@ -3,3 +3,8 @@ dist/
 dist/
 _to_delete/
 server.txt
+deploy/machines.local
+deploy/logs/
+server-backups/
+devstack-data/
+*.local

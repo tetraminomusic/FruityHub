@@ -174,12 +174,44 @@ var (
 )
 
 // ScanInstalled finds plugins on disk and in FL Studio's plugin database.
+// Без force отвечает сразу: из памяти или из прошлого сканирования на диске, а если оно старое —
+// обновляет его в фоне (сканирование папок плагинов бывает долгим).
 func ScanInstalled(cfg *Config, force bool) []InstalledPlugin {
+	if !force {
+		scanMu.Lock()
+		if scanCache == nil {
+			if res, folders, at, ok := loadScanCache(); ok {
+				scanCache, scanFolders, scanTime = res, folders, at
+			}
+		}
+		if scanCache != nil {
+			res, stale := scanCache, time.Since(scanTime) > 10*time.Minute
+			scanMu.Unlock()
+			if stale {
+				refreshScanInBackground(cfg)
+			}
+			return res
+		}
+		scanMu.Unlock()
+	}
+	return scanInstalledNow(cfg)
+}
+
+var scanRefreshing sync.Mutex
+
+func refreshScanInBackground(cfg *Config) {
+	if !scanRefreshing.TryLock() {
+		return
+	}
+	go func() {
+		defer scanRefreshing.Unlock()
+		scanInstalledNow(cfg)
+	}()
+}
+
+func scanInstalledNow(cfg *Config) []InstalledPlugin {
 	scanMu.Lock()
 	defer scanMu.Unlock()
-	if !force && scanCache != nil && time.Since(scanTime) < 10*time.Minute {
-		return scanCache
-	}
 	vc := loadVersionCache()
 	idx := map[string]int{}
 	var res []InstalledPlugin
@@ -242,6 +274,7 @@ func ScanInstalled(cfg *Config, force bool) []InstalledPlugin {
 	vc.save()
 	sort.Slice(res, func(i, j int) bool { return strings.ToLower(res[i].Name) < strings.ToLower(res[j].Name) })
 	scanCache, scanFolders, scanTime = res, folders, time.Now()
+	go saveScanCache(res, folders)
 	return res
 }
 

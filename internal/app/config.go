@@ -16,6 +16,7 @@ type LocalProject struct {
 	SeenComments    int64    `json:"seenComments"` // newest comment time the user has seen
 	Group           string   `json:"group,omitempty"`
 	KeepFLPs        []string `json:"keepFlps,omitempty"` // extra .flp the user said are just versions
+	Name            string   `json:"name,omitempty"`     // своё название проекта — только на этом компьютере
 }
 
 // Group is a folder in the project list (local only).
@@ -34,28 +35,53 @@ type Config struct {
 	DeviceToken     string         `json:"deviceToken,omitempty"` // this device's key on the server
 	Sharing         string         `json:"sharing,omitempty"`     // who may download plugins from me: off|ask|members|all
 	Token           string         `json:"token,omitempty"`       // GitHub token: projects are the user's own repos
+	Proxy           string         `json:"proxy,omitempty"`       // прокси для GitHub, например http://127.0.0.1:10809 (пусто = авто)
 	ExtraPluginDirs []string       `json:"extraPluginDirs"`
 	Projects        []LocalProject `json:"projects"`
 	Groups          []Group        `json:"groups,omitempty"`
 	LastParent      string         `json:"lastParent,omitempty"`
+	BgDim           int            `json:"bgDim,omitempty"`    // затемнение фона, % (0 = по умолчанию)
+	DevMode         bool           `json:"devMode,omitempty"`  // режим разработчика: журнал команд, админка сервера
+	AdminKey        string         `json:"adminKey,omitempty"` // ключ администратора сервера
+	SkipUpdate      string         `json:"skipUpdate,omitempty"`
+	AutoUpdate      bool           `json:"autoUpdate,omitempty"`     // ставить обновления сами, когда ничего не передаётся
+	NoErrorReports  bool           `json:"noErrorReports,omitempty"` // не отправлять свои ошибки в журнал сервера
+	SortMode        string         `json:"sortMode,omitempty"`       // порядок списка проектов: manual, name, name-desc, modified, modified-asc
 
 	hub *Hub
 }
 
 var cfgMu sync.Mutex
 
-const AppName = "прога узбека"
+const AppName = "FruityHub"
 
 func ConfigDir() string {
 	d, err := os.UserConfigDir()
 	if err != nil {
 		d, _ = os.UserHomeDir()
 	}
-	p := filepath.Join(d, "ProgrammaUzbeka")
+	p := filepath.Join(d, "FruityHub")
 	if _, err := os.Stat(p); err != nil {
-		// migrate settings of the first version (FL Sync)
-		if _, err := os.Stat(filepath.Join(d, "FLSync")); err == nil {
-			os.Rename(filepath.Join(d, "FLSync"), p)
+		// настройки прошлых версий («прога узбека», FL Sync) переезжают сюда — регистрация и проекты сохраняются
+		for _, old := range []string{"ProgrammaUzbeka", "FLSync"} {
+			od := filepath.Join(d, old)
+			if _, err := os.Stat(od); err != nil {
+				continue
+			}
+			if os.Rename(od, p) == nil {
+				break
+			}
+			// папка занята (например, ещё открыта старая версия) — переносим хотя бы настройки
+			os.MkdirAll(p, 0o755)
+			ents, _ := os.ReadDir(od)
+			for _, e := range ents {
+				if !e.IsDir() && (strings.HasSuffix(e.Name(), ".json") || strings.HasPrefix(e.Name(), "background")) {
+					if b, err := os.ReadFile(filepath.Join(od, e.Name())); err == nil {
+						os.WriteFile(filepath.Join(p, e.Name()), b, 0o600)
+					}
+				}
+			}
+			break
 		}
 	}
 	os.MkdirAll(p, 0o755)
@@ -70,6 +96,7 @@ func LoadConfig() *Config {
 	if err == nil {
 		json.Unmarshal(b, c)
 	}
+	SetUserProxy(c.Proxy)
 	return c
 }
 
@@ -138,6 +165,7 @@ type SharedSettings struct {
 	IgnoreUnused   bool     `json:"ignoreUnused"`
 	CollectSamples bool     `json:"collectSamples"`
 	OrganizeAudio  bool     `json:"organizeAudio"` // keep the root clean: audio goes to Audio/
+	SendBackup     bool     `json:"sendBackup"`    // отправлять папку Backup (автосохранения FL) — по умолчанию нет
 	AlwaysInclude  []string `json:"alwaysInclude"` // rel paths; trailing "/" = whole folder
 	LFSExtensions  []string `json:"lfsExtensions"`
 }
@@ -177,4 +205,12 @@ func LoadShared(dir string) SharedSettings {
 		s.LFSExtensions = DefaultShared().LFSExtensions
 	}
 	return s
+}
+
+// DisplayName — название проекта в списке: своё (если задано) или имя папки.
+func (lp *LocalProject) DisplayName() string {
+	if n := strings.TrimSpace(lp.Name); n != "" {
+		return n
+	}
+	return filepath.Base(lp.Path)
 }

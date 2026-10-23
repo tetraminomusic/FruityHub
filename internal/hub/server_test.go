@@ -170,7 +170,20 @@ func TestHubRules(t *testing.T) {
 	}
 	ents, _ := os.ReadDir(data)
 	for _, e := range ents {
-		if e.Name() != "db.json" && e.Name() != "server-code" && !strings.HasSuffix(e.Name(), ".tmp") {
+		if e.Name() == "logs" { // журнал сервера — только строки журнала, плагинов там нет
+			ls, _ := os.ReadDir(filepath.Join(data, "logs"))
+			for _, l := range ls {
+				if l.Name() != "server.log" {
+					t.Fatalf("unexpected file in logs: %s", l.Name())
+				}
+			}
+			b, _ := os.ReadFile(filepath.Join(data, "logs", "server.log"))
+			if bytes.Contains(b, payload) {
+				t.Fatal("в журнал попали данные плагина")
+			}
+			continue
+		}
+		if e.Name() != "db.json" && e.Name() != "server-code" && e.Name() != "admin-key" && !strings.HasSuffix(e.Name(), ".tmp") {
 			t.Fatalf("unexpected file on the server: %s", e.Name())
 		}
 	}

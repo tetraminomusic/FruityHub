@@ -258,7 +258,7 @@ func (p *Project) AddComment(kind, text string) (*Comment, error) {
 	if r := []rune(short); len(r) > 50 {
 		short = string(r[:50]) + "…"
 	}
-	return c, p.git().MetaWrite(map[string][]byte{"comments/" + c.ID + ".json": mustJSON(c)}, "💬 "+c.Author+": "+short)
+	return c, p.git().MetaWrite(map[string][]byte{"comments/" + c.ID + ".json": mustJSON(c)}, ""+c.Author+": "+short)
 }
 
 func (p *Project) UpdateComment(id string, done *bool, del bool) error {
@@ -276,7 +276,7 @@ func (p *Project) UpdateComment(id string, done *bool, del bool) error {
 		if c.Author != me {
 			return errors.New("удалять можно только свои комментарии")
 		}
-		return g.MetaWrite(map[string][]byte{path: nil}, "🗑 комментарий удалён")
+		return g.MetaWrite(map[string][]byte{path: nil}, "комментарий удалён")
 	}
 	if done != nil {
 		c.Done = *done
@@ -295,7 +295,7 @@ func (p *Project) UpdateComment(id string, done *bool, del bool) error {
 
 func (p *Project) SetStatus(stage, text string) error {
 	st := Status{Stage: strings.TrimSpace(stage), Text: strings.TrimSpace(text), By: p.Cfg.MachineID(), Time: time.Now().Unix()}
-	return p.git().MetaWrite(map[string][]byte{"status.json": mustJSON(st)}, "📌 статус: "+st.Stage)
+	return p.git().MetaWrite(map[string][]byte{"status.json": mustJSON(st)}, "статус: "+st.Stage)
 }
 
 func translit(r rune) string {

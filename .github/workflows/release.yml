@@ -19,5 +19,5 @@ jobs:
           sudo cp apple-codesign-*/rcodesign /usr/local/bin/
       - run: ./build.sh "${GITHUB_REF_NAME#v}"
         env: { SERVER: "${{ vars.UZBEK_SERVER }}", SERVER_CODE: "${{ secrets.UZBEK_SERVER_CODE }}" }
-      - run: gh release create "$GITHUB_REF_NAME" dist/ProgaUzbeka-*.zip dist/uzbek-server.tar.gz --generate-notes
+      - run: gh release create "$GITHUB_REF_NAME" dist/FruityHub-*.zip dist/uzbek-server.tar.gz --generate-notes
         env: { GH_TOKEN: "${{ github.token }}" }

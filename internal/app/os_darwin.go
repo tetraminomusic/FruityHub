@@ -68,3 +68,16 @@ func PickAnyFile() (string, error) {
 	out, err := exec.Command("osascript", "-e", `POSIX path of (choose file with prompt "Файл для отправки (например, установщик плагина)")`).Output()
 	return strings.TrimSpace(string(out)), err
 }
+
+// OpenFile открывает файл программой по умолчанию (.flp — в FL Studio).
+func OpenFile(p string) error { return exec.Command("open", p).Start() }
+
+// moveDirToTrash убирает папку в Корзину через Finder (работает и на внешних дисках), иначе — сами.
+func moveDirToTrash(p string) error {
+	esc := strings.ReplaceAll(strings.ReplaceAll(p, `\`, `\\`), `"`, `\"`)
+	if exec.Command("osascript", "-e", `tell application "Finder" to delete (POSIX file "`+esc+`")`).Run() == nil && !exists(p) {
+		return nil
+	}
+	home, _ := os.UserHomeDir()
+	return trashInto(filepath.Join(home, ".Trash"), p)
+}

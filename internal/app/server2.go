@@ -93,7 +93,7 @@ func (s *Server) routes2(api func(string, func(*http.Request) (any, error))) {
 		}
 		s.notesMu.Unlock()
 		out := map[string]any{"projects": notes, "invites": []HubInvite{}, "incoming": []PluginRequest{}, "ready": []PluginRequest{}, "toSend": []PluginRequest{},
-			"installers": pendingInstallers()}
+			"installers": pendingInstallers(), "reports": pendingReports(), "update": s.AvailableUpdate()}
 		if in := s.cfg.Hub().LastInbox(); in != nil {
 			out["invites"], out["ready"], out["toSend"] = in.Invites, in.Ready, in.ToSend
 			// with sharing allowed, a request is shown only after the app decided it needs a human

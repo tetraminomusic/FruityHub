@@ -187,11 +187,21 @@ type PluginRow struct {
 	Problem  string          `json:"problem,omitempty"`
 	Link     string          `json:"link,omitempty"`
 	LinkNote string          `json:"linkNote,omitempty"`
+	Files    []LinkFile      `json:"files,omitempty"`
 }
 
 type CatalogEntry struct {
-	URL  string `json:"url"`
-	Note string `json:"note"`
+	URL   string     `json:"url"`
+	Note  string     `json:"note"`
+	Files []LinkFile `json:"files,omitempty"` // небольшие файлы к плагину (пресеты, установщик, ключ-файл бесплатной версии…)
+}
+
+// LinkFile — файл, прикреплённый к ссылке плагина. Лежит в хранилище проекта на GitHub (черновик релиза).
+type LinkFile struct {
+	Name  string `json:"name"`
+	Size  int64  `json:"size"`
+	Asset string `json:"asset"`
+	By    string `json:"by,omitempty"`
 }
 
 func (p *Project) Machines() []Machine {
@@ -215,10 +225,11 @@ func (p *Project) Catalog() map[string]CatalogEntry {
 func (p *Project) SetCatalog(name, url, note string) error {
 	c := p.Catalog()
 	k := normName(name)
-	if url == "" && note == "" {
+	files := c[k].Files
+	if url == "" && note == "" && len(files) == 0 {
 		delete(c, k)
 	} else {
-		c[k] = CatalogEntry{URL: url, Note: note}
+		c[k] = CatalogEntry{URL: url, Note: note, Files: files}
 	}
 	return writeJSON(filepath.Join(p.Dir, ".flsync", "catalog.json"), c)
 }
@@ -297,7 +308,7 @@ func (p *Project) PluginReport(a *Analysis, machines []Machine) []PluginRow {
 	for _, pl := range a.Plugins {
 		r := PluginRow{Plugin: pl}
 		if c, ok := cat[normName(pl.Name)]; ok {
-			r.Link, r.LinkNote = c.URL, c.Note
+			r.Link, r.LinkNote, r.Files = c.URL, c.Note, c.Files
 		}
 		key := normName(pl.Name)
 		var versions []string
@@ -447,7 +458,7 @@ func (p *Project) WriteManifest(a *Analysis) error {
 			b.WriteString(fmt.Sprintf("        %-16s %s\n", ms.User+":", st))
 		}
 		if r.Problem != "" {
-			b.WriteString("        ⚠ " + r.Problem + "\n")
+			b.WriteString("        Внимание: " + r.Problem + "\n")
 		}
 		if r.Link != "" {
 			b.WriteString("        ↓ " + r.Link + "\n")

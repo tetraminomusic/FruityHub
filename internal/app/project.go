@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"flsync/internal/flp"
@@ -24,7 +25,6 @@ const (
 var baseIgnore = []string{
 	"# Программа Узбека — служебное",
 	".flsync-local/",
-	"Backup/",
 	"*autosave*.flp",
 	"*overwritten*.flp",
 	"*.flsync-tmp",
@@ -39,6 +39,9 @@ type Project struct {
 	Dir string
 	Cfg *Config
 	Job *Job
+	// Resolve — что делать, если проект здесь и на GitHub начаты отдельно (несвязанные истории):
+	// "" — спросить; "theirs" — взять версию с GitHub; "mine" — оставить свою; "both" — объединить.
+	Resolve string
 }
 
 func (p *Project) git() *Git { return &Git{Dir: p.Dir, Cfg: p.Cfg, Job: p.Job} }
@@ -121,8 +124,7 @@ type Analysis struct {
 }
 
 func flUserData() string {
-	h, _ := os.UserHomeDir()
-	return filepath.Join(h, "Documents", "Image-Line", "FL Studio")
+	return filepath.Join(documentsDir(), "Image-Line", "FL Studio")
 }
 
 // resolve expands FL placeholders. factory=true for FL factory content.
@@ -159,13 +161,13 @@ func (p *Project) Analyze() *Analysis {
 		if st, err := os.Stat(abs); err == nil {
 			fi.Size, fi.ModTime = st.Size(), st.ModTime().Unix()
 		}
-		f, err := flp.ParseFile(abs)
+		info, err := parseFLPCached(abs) // кэш: .flp разбирается заново, только если изменился
 		if err != nil {
 			fi.Error = err.Error()
 			a.FLPs = append(a.FLPs, fi)
 			continue
 		}
-		fi.Info = f.Info()
+		fi.Info = info
 		fi.Plugins = flp.UniquePlugins(fi.Info.Plugins)
 		a.Plugins = append(a.Plugins, fi.Info.Plugins...)
 		add := func(s string, emb bool) {
@@ -323,6 +325,30 @@ func (p *Project) updateIgnore(a *Analysis) (int, error) {
 	for _, l := range baseIgnore {
 		if !have[l] {
 			user = append(user, l)
+		}
+	}
+	// папка Backup (автосохранения FL Studio): не отправляем, если в общих правилах не включено обратное
+	isBackupLine := func(l string) bool {
+		l = strings.ToLower(strings.TrimSpace(l))
+		return l == "backup/" || l == "/backup/" || l == "/[bb]ackup/" || l == "[bb]ackup/"
+	}
+	if a.Shared.SendBackup {
+		kept := user[:0]
+		for _, l := range user {
+			if !isBackupLine(l) {
+				kept = append(kept, l)
+			}
+		}
+		user = kept
+	} else {
+		hasB := false
+		for _, l := range user {
+			if isBackupLine(l) {
+				hasB = true
+			}
+		}
+		if !hasB {
+			user = append(user, "/[Bb]ackup/")
 		}
 	}
 	out := strings.Join(user, "\n") + "\n"
@@ -529,10 +555,7 @@ func (p *Project) Init(remote string) error {
 		}
 		g.RunQuiet("symbolic-ref", "HEAD", "refs/heads/main")
 	}
-	if _, err := g.Run("lfs", "install", "--local", "--skip-repo"); err != nil {
-		return err
-	}
-	g.RunQuiet("config", "uzbek.adopted", "true")
+	// адрес репозитория — до всего остального: если дальше что-то упадёт, повтор продолжит с этим же репозиторием
 	if remote != "" {
 		if g.Remote() == "" {
 			_, err := g.Run("remote", "add", "origin", remote)
@@ -543,6 +566,10 @@ func (p *Project) Init(remote string) error {
 			return err
 		}
 	}
+	if _, err := g.Run("lfs", "install", "--local", "--skip-repo"); err != nil {
+		return err
+	}
+	g.RunQuiet("config", "uzbek.adopted", "true")
 	_, err := p.Prepare()
 	return err
 }
@@ -641,7 +668,7 @@ func (p *Project) resolveConflicts() ([]string, error) {
 			}
 			g.Run("add", "--", path, cp)
 			copies = append(copies, cp)
-			p.Job.Logf("⚠ Конфликт в %s: версия друга сохранена под исходным именем, твоя — как «%s»", path, cp)
+			p.Job.Logf("Внимание: Конфликт в %s: версия друга сохранена под исходным именем, твоя — как «%s»", path, cp)
 		case hasOurs:
 			g.Run("checkout", "--ours", "--", path)
 			g.Run("add", "--", path)
@@ -663,6 +690,9 @@ func (p *Project) commitAll(msg string) (bool, error) {
 	// re-evaluate unused files right before staging (a merge may have changed things)
 	if _, err := p.updateIgnore(p.Analyze()); err != nil {
 		return false, err
+	}
+	if !LoadShared(p.Dir).SendBackup {
+		p.untrackBackup()
 	}
 	if _, err := g.Run("add", "-A"); err != nil {
 		return false, err
@@ -695,7 +725,25 @@ func (p *Project) fetchMerge() (conflicts []string, err error) {
 		}
 		return nil, err
 	}
-	if _, err := g.Run("merge", "--no-edit", "--no-verify", "origin/"+b); err != nil {
+	_, err = g.Run("merge", "--no-edit", "--no-verify", "origin/"+b)
+	if err != nil && strings.Contains(strings.ToLower(errDetailsOf(err)), "unrelated histories") {
+		// проект на этом компьютере начали отдельно (своя папка с теми же файлами), а на GitHub — уже с другого
+		switch p.Resolve {
+		case "theirs":
+			return nil, p.takeTheirs(b)
+		case "mine":
+			p.Job.Logf("Оставляю свою версию — она заменит ту, что на GitHub, при отправке (история с GitHub сохранится)")
+			_, err = g.Run("merge", "--no-edit", "--no-verify", "--allow-unrelated-histories", "-s", "ours", "origin/"+b)
+			return nil, err
+		case "both":
+			// одинаковые файлы сольются сами, разные .flp — как при обычном конфликте (с GitHub под исходным именем, своя — копией)
+			p.Job.Logf("Объединяю обе версии (ничего не потеряется)")
+			_, err = g.Run("merge", "--no-edit", "--no-verify", "--allow-unrelated-histories", "origin/"+b)
+		default:
+			return nil, errNeedChoice
+		}
+	}
+	if err != nil {
 		if len(g.Conflicts()) == 0 {
 			return nil, err
 		}
@@ -704,11 +752,95 @@ func (p *Project) fetchMerge() (conflicts []string, err error) {
 	return nil, nil
 }
 
+// conflictOrig — исходное имя файла по имени копии «X (конфликт — кто время).flp».
+func conflictOrig(cp string) (string, bool) {
+	ext := filepath.Ext(cp)
+	base := strings.TrimSuffix(cp, ext)
+	i := strings.LastIndex(base, " (конфликт — ")
+	if i < 0 || !strings.HasSuffix(base, ")") {
+		return "", false
+	}
+	return base[:i] + ext, true
+}
+
+// KeepConflictVersion: keep "theirs" — оставить версию с GitHub (копию со своей версией удалить),
+// "mine" — оставить свою (копия встаёт на место оригинала). Уйдёт на GitHub при следующей отправке.
+func (p *Project) KeepConflictVersion(cp, keep string) error {
+	orig, ok := conflictOrig(cp)
+	if !ok || strings.Contains(cp, "..") || filepath.IsAbs(cp) {
+		return errors.New("это не копия конфликта")
+	}
+	src := filepath.Join(p.Dir, filepath.FromSlash(cp))
+	dst := filepath.Join(p.Dir, filepath.FromSlash(orig))
+	if !fileExists(src) {
+		return errors.New("копии уже нет — видимо, ты уже выбрал")
+	}
+	switch keep {
+	case "theirs":
+	case "mine":
+		if err := copyFile(src, dst); err != nil {
+			return fmt.Errorf("не смог заменить %s (закрой его в FL Studio): %w", orig, err)
+		}
+	default:
+		return errors.New("неизвестный выбор")
+	}
+	return os.Remove(src)
+}
+
+// errNeedChoice: нужно решение человека — какую версию оставить.
+var errNeedChoice = errors.New("проект на этом компьютере и на GitHub начаты отдельно — выбери, какую версию оставить")
+
+// takeTheirs: берём версию с GitHub. Свои отличающиеся файлы — в Backup (FL Studio знает эту папку, на GitHub она не уходит),
+// а вся своя история — в резервную ветку.
+func (p *Project) takeTheirs(b string) error {
+	g := p.git()
+	stamp := time.Now().Format("2006-01-02 15-04")
+	bak := filepath.Join(p.Dir, "Backup", "FruityHub — моя версия "+stamp)
+	out, _ := g.RunQuiet("diff", "--name-only", "-z", "HEAD", "origin/"+b)
+	n := 0
+	for _, rel := range strings.Split(out, "\x00") {
+		if rel == "" {
+			continue
+		}
+		src := filepath.Join(p.Dir, filepath.FromSlash(rel))
+		if !fileExists(src) {
+			continue
+		}
+		dst := filepath.Join(bak, filepath.FromSlash(rel))
+		os.MkdirAll(filepath.Dir(dst), 0o755)
+		if err := copyFile(src, dst); err != nil {
+			return fmt.Errorf("не смог сохранить свою версию %s: %w", rel, err)
+		}
+		n++
+	}
+	branch := "fruityhub-моя-версия-" + time.Now().Format("20060102-150405")
+	g.Run("branch", branch)
+	if _, err := g.Run("reset", "--hard", "origin/"+b); err != nil {
+		return err
+	}
+	if n > 0 {
+		p.Job.Logf("Взял версию с GitHub. Твои отличавшиеся файлы (%d) сохранены в %s", n, bak)
+	} else {
+		p.Job.Logf("Взял версию с GitHub")
+	}
+	return nil
+}
+
+// errDetailsOf — полный текст ошибки git (не «человеческий»), чтобы узнавать конкретные случаи.
+func errDetailsOf(err error) string {
+	var ge *GitError
+	if errors.As(err, &ge) {
+		return ge.Msg
+	}
+	return err.Error()
+}
+
 type SyncResult struct {
-	Conflicts []string `json:"conflicts"`
-	Relinked  int      `json:"relinked"`
-	Committed bool     `json:"committed"`
-	Pushed    bool     `json:"pushed"`
+	NeedChoice string   `json:"needChoice,omitempty"` // "unrelated" — спросить, какую версию оставить
+	Conflicts  []string `json:"conflicts"`
+	Relinked   int      `json:"relinked"`
+	Committed  bool     `json:"committed"`
+	Pushed     bool     `json:"pushed"`
 }
 
 func (p *Project) Receive() (*SyncResult, error) {
@@ -723,6 +855,11 @@ func (p *Project) Receive() (*SyncResult, error) {
 	}
 	conf, err := p.fetchMerge()
 	res.Conflicts = conf
+	if errors.Is(err, errNeedChoice) {
+		p.Job.Logf("Внимание: проект здесь и на GitHub начаты отдельно — выбери, какую версию оставить")
+		res.NeedChoice = "unrelated"
+		return res, nil
+	}
 	if err != nil {
 		return res, err
 	}
@@ -758,10 +895,13 @@ func (p *Project) Send(msg string, release bool) (*SyncResult, error) {
 	if _, err := p.Prepare(); err != nil {
 		return res, err
 	}
-	if release {
+	hubLock := p.hubID() != "" && p.Cfg.Hub().LocksKnown()
+	if hubLock {
+		os.Remove(p.lockFile()) // старый замок-файл больше не нужен: замки теперь на сервере
+	} else if release {
 		if l := p.ReadLock(); l != nil && l.User == p.Cfg.MachineID() {
-			os.Remove(filepath.Join(p.Dir, ".flsync", "lock.json"))
-			msg += " · 🔓 проект свободен"
+			os.Remove(p.lockFile())
+			msg += " · проект свободен"
 		}
 	}
 	c, err := p.commitAll(msg)
@@ -772,6 +912,11 @@ func (p *Project) Send(msg string, release bool) (*SyncResult, error) {
 	for attempt := 0; attempt < 3; attempt++ {
 		conf, err := p.fetchMerge()
 		res.Conflicts = append(res.Conflicts, conf...)
+		if errors.Is(err, errNeedChoice) {
+			p.Job.Logf("Внимание: проект здесь и на GitHub начаты отдельно — выбери, какую версию оставить (твои изменения сохранены локально)")
+			res.NeedChoice = "unrelated"
+			return res, nil
+		}
 		if err != nil {
 			return res, err
 		}
@@ -784,6 +929,15 @@ func (p *Project) Send(msg string, release bool) (*SyncResult, error) {
 		if err == nil {
 			res.Pushed = true
 			p.Job.Logf("✓ Отправлено")
+			if release && hubLock { // освобождаем только после отправки — чтобы друг взял уже новую версию
+				if l := p.ReadLock(); l != nil && l.User == p.Cfg.MachineID() {
+					if err := p.Cfg.Hub().ReleaseLock(p.hubID(), false); err != nil {
+						p.Job.Logf("Не смог освободить проект: %s — нажми «Освободить»", err.Error())
+					} else {
+						p.Job.Logf("✓ Проект свободен")
+					}
+				}
+			}
 			return res, nil
 		}
 		if !isPushRejected(err) {
@@ -803,15 +957,69 @@ type Lock struct {
 	Note  string `json:"note,omitempty"`
 }
 
+// Замок проекта хранится на сервере FruityHub (взять/освободить — мгновенно). Для проектов без сервера
+// и со старым сервером — по-старому, файлом .flsync/lock.json в репозитории.
+
+type hubIDEntry struct {
+	id string
+	at time.Time
+}
+
+var hubIDCache sync.Map // папка проекта → id на сервере
+
+// hubID — id проекта на сервере FruityHub ("" — проект не на сервере).
+func (p *Project) hubID() string {
+	h := p.Cfg.Hub()
+	if !h.Registered() {
+		return ""
+	}
+	if v, ok := hubIDCache.Load(p.Dir); ok {
+		e := v.(hubIDEntry)
+		if e.id != "" || time.Since(e.at) < time.Minute {
+			return e.id
+		}
+	}
+	id := ""
+	if hp := h.ProjectForRemote(p.git().Remote()); hp != nil {
+		id = hp.ID
+	}
+	hubIDCache.Store(p.Dir, hubIDEntry{id, time.Now()})
+	return id
+}
+
+func (p *Project) lockFile() string { return filepath.Join(p.Dir, ".flsync", "lock.json") }
+
 func (p *Project) ReadLock() *Lock {
+	if id := p.hubID(); id != "" {
+		if l, known := p.Cfg.Hub().ProjectLock(id); known {
+			if l == nil {
+				return nil
+			}
+			user := l.User
+			if l.UserID == p.Cfg.UserID {
+				user = p.Cfg.MachineID()
+			}
+			return &Lock{User: user, OS: l.OS, Since: l.Since, Note: l.Note}
+		}
+	}
 	var l Lock
-	if err := readJSON(filepath.Join(p.Dir, ".flsync", "lock.json"), &l); err != nil || l.User == "" {
+	if err := readJSON(p.lockFile(), &l); err != nil || l.User == "" {
 		return nil
 	}
 	return &l
 }
 
 func (p *Project) TakeLock(force bool, note string) error {
+	if id := p.hubID(); id != "" {
+		_, err := p.Cfg.Hub().TakeLock(id, force, note)
+		if err == nil {
+			p.Job.Logf("✓ Проект закреплён за тобой — друзья увидят это через пару секунд")
+			return p.getFreshIfBehind()
+		}
+		if !errors.Is(err, errNoHubLocks) {
+			return err
+		}
+	}
 	me := p.Cfg.MachineID()
 	for attempt := 0; attempt < 3; attempt++ {
 		if _, err := p.Receive(); err != nil {
@@ -821,8 +1029,8 @@ func (p *Project) TakeLock(force bool, note string) error {
 			return fmt.Errorf("проект сейчас в работе у %s (с %s). Попроси его нажать «Отправить и освободить» или забери принудительно",
 				l.User, time.Unix(l.Since, 0).Format("02.01 15:04"))
 		}
-		writeJSON(filepath.Join(p.Dir, ".flsync", "lock.json"), Lock{User: me, OS: OSName(), Since: time.Now().Unix(), Note: note})
-		if _, err := p.commitAll("🔒 " + me + " взял проект в работу"); err != nil {
+		writeJSON(p.lockFile(), Lock{User: me, OS: OSName(), Since: time.Now().Unix(), Note: note})
+		if _, err := p.commitAll("" + me + " взял проект в работу"); err != nil {
 			return err
 		}
 		err := p.push()
@@ -837,13 +1045,49 @@ func (p *Project) TakeLock(force bool, note string) error {
 	return errors.New("не удалось взять проект: сервер всё время меняется")
 }
 
+// getFreshIfBehind: берёшь проект в работу — сначала свежая версия, но полное «Получить» только если
+// на GitHub действительно есть что-то новое (обычно нет — тогда это пара секунд).
+func (p *Project) getFreshIfBehind() error {
+	g := p.git()
+	b := g.Branch()
+	if b == "" || g.Remote() == "" {
+		return nil
+	}
+	p.Job.Logf("Проверяю, нет ли свежих изменений от друзей…")
+	if _, err := g.Run("fetch", "--quiet", "origin"); err != nil {
+		p.Job.Logf("Не смог проверить GitHub (%s) — нажми «Получить» перед работой", firstLine(err.Error()))
+		return nil
+	}
+	if !g.RemoteBranchExists(b) {
+		return nil
+	}
+	out, err := g.RunQuiet("rev-list", "--count", "HEAD..origin/"+b)
+	if err != nil || strings.TrimSpace(out) == "0" {
+		p.Job.Logf("✓ У тебя последняя версия")
+		return nil
+	}
+	p.Job.Logf("Есть свежие изменения (%s) — получаю", strings.TrimSpace(out))
+	_, err = p.Receive()
+	return err
+}
+
 func (p *Project) ReleaseLock() error {
+	if id := p.hubID(); id != "" {
+		err := p.Cfg.Hub().ReleaseLock(id, false)
+		if err == nil {
+			p.Job.Logf("✓ Проект свободен")
+			return nil
+		}
+		if !errors.Is(err, errNoHubLocks) {
+			return err
+		}
+	}
 	l := p.ReadLock()
 	if l == nil {
 		return nil
 	}
-	os.Remove(filepath.Join(p.Dir, ".flsync", "lock.json"))
-	if _, err := p.commitAll("🔓 " + p.Cfg.MachineID() + " освободил проект"); err != nil {
+	os.Remove(p.lockFile())
+	if _, err := p.commitAll("" + p.Cfg.MachineID() + " освободил проект"); err != nil {
 		return err
 	}
 	if _, err := p.fetchMerge(); err != nil {
@@ -873,3 +1117,30 @@ func defaultCommitMsg(cfg *Config) string {
 }
 
 var _ = runtime.GOOS
+
+// untrackBackup убирает из репозитория папку Backup в корне проекта, если её когда-то уже отправили
+// (файлы на диске остаются, просто больше не синхронизируются).
+func (p *Project) untrackBackup() {
+	g := p.git()
+	if !g.HasCommits() {
+		return
+	}
+	out, err := g.RunQuiet("ls-files", "-z")
+	if err != nil {
+		return
+	}
+	var paths []string
+	for _, f := range strings.Split(out, "\x00") {
+		if i := strings.Index(f, "/"); i > 0 && strings.EqualFold(f[:i], "backup") {
+			paths = append(paths, f)
+		}
+	}
+	for len(paths) > 0 {
+		n := len(paths)
+		if n > 200 {
+			n = 200
+		}
+		g.RunQuiet(append([]string{"rm", "-r", "-q", "--cached", "--ignore-unmatch", "--"}, paths[:n]...)...)
+		paths = paths[n:]
+	}
+}

@@ -104,12 +104,15 @@ func TestServerCollab(t *testing.T) {
 	os.MkdirAll(filepath.Join(aDir, "Audio"), 0o755)
 	os.WriteFile(filepath.Join(aDir, "Track.flp"), synthFLP(filepath.Join(aDir, "Audio", "vox.wav")), 0o644)
 	os.WriteFile(filepath.Join(aDir, "Audio", "vox.wav"), []byte("RIFF-vocal"), 0o644)
+	os.MkdirAll(filepath.Join(aDir, "Backup"), 0o755)
+	os.WriteFile(filepath.Join(aDir, "Backup", "Track (autosave 1).flp"), []byte("old"), 0o644)
+	os.WriteFile(filepath.Join(aDir, "Backup", "big.wav"), []byte("RIFF-huge"), 0o644)
 	jA := &Job{}
 	A := &Project{Dir: aDir, Cfg: cfgA, Job: jA}
 	if _, err := A.CreateOnGitHub("Ночной дрифт", []string{"nobody"}); err == nil {
 		t.Fatal("unknown nick accepted")
 	}
-	if _, err := A.CreateOnGitHub("Ночной дрифт", []string{"friend"}); err != nil {
+	if _, err := A.CreateOnGitHub("Ночной дрифт", []string{"*"}); err != nil { // «позвать всех»
 		t.Fatal(err, dump(jA))
 	}
 	hp := cfgA.Hub().ProjectForRemote(A.git().Remote())
@@ -133,6 +136,21 @@ func TestServerCollab(t *testing.T) {
 	if err != nil {
 		t.Fatal(err, dump(jB))
 	}
+	if exists(filepath.Join(bDir, "Backup")) {
+		t.Fatal("папка Backup не должна уходить в репозиторий")
+	}
+	// Backup, отправленный когда-то раньше, убирается из репозитория при следующей отправке
+	A.git().Run("add", "-f", "Backup")
+	A.git().Run("commit", "-q", "-m", "old backup")
+	if _, err := A.commitAll("снова"); err != nil {
+		t.Fatal(err)
+	}
+	if out, _ := A.git().RunQuiet("ls-files"); strings.Contains(strings.ToLower(out), "backup/") {
+		t.Fatalf("Backup остался в репозитории: %s", out)
+	}
+	if !exists(filepath.Join(aDir, "Backup", "big.wav")) {
+		t.Fatal("файлы Backup на диске должны остаться")
+	}
 	if cs := gh.Collaborators("alogin/nochnoy-drift"); len(cs) != 1 || cs[0] != "blogin" {
 		t.Fatalf("GitHub invitation not accepted: %v", cs)
 	}
@@ -143,6 +161,41 @@ func TestServerCollab(t *testing.T) {
 		t.Fatalf("audio: %q", b)
 	}
 	B := &Project{Dir: bDir, Cfg: cfgB, Job: jB}
+
+	// «Взять в работу» — замок на сервере: мгновенно, без коммита в GitHub
+	cfgA.Hub().Inbox()
+	cfgB.Hub().Inbox()
+	headBefore, _ := A.git().RunQuiet("rev-parse", "HEAD")
+	start := time.Now()
+	if err := A.TakeLock(false, ""); err != nil {
+		t.Fatal(err, dump(jA))
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Fatalf("взять в работу слишком долго: %v", time.Since(start))
+	}
+	if headAfter, _ := A.git().RunQuiet("rev-parse", "HEAD"); headAfter != headBefore {
+		t.Fatal("замок не должен создавать коммит")
+	}
+	if l := A.ReadLock(); l == nil || l.User != cfgA.MachineID() {
+		t.Fatalf("A lock: %+v", l)
+	}
+	if err := B.TakeLock(false, ""); err == nil || !strings.Contains(err.Error(), "tetramino") {
+		t.Fatalf("B must be refused: %v", err)
+	}
+	cfgB.Hub().Inbox()
+	if l := B.ReadLock(); l == nil || l.User != "tetramino" {
+		t.Fatalf("B must see A's lock: %+v", l)
+	}
+	os.WriteFile(filepath.Join(aDir, "note.txt"), []byte("x"), 0o644)
+	if _, err := A.Send("правка", true); err != nil {
+		t.Fatal(err, dump(jA))
+	}
+	cfgB.Hub().Inbox()
+	if A.ReadLock() != nil || B.ReadLock() != nil {
+		t.Fatal("после «Отправить и освободить» проект свободен")
+	}
+	must(t, B.TakeLock(false, ""))
+	must(t, B.ReleaseLock())
 
 	// comments and preview work for both
 	_, err = A.AddComment("todo", "Нужен вокал")
@@ -235,7 +288,7 @@ func TestServerCollab(t *testing.T) {
 	if r, _ := cfgB.Hub().Request(rs[0].ID); r.Status != ReqInstalled {
 		t.Fatalf("status %s", r.Status)
 	}
-	if ents, _ := os.ReadDir(filepath.Join(root, "hub-data")); len(ents) > 2 {
+	if ents, _ := os.ReadDir(filepath.Join(root, "hub-data")); len(ents) > 3 { // db.json, admin-key, logs (журнал)
 		t.Fatalf("server keeps files: %v", ents)
 	}
 
@@ -371,5 +424,57 @@ func TestCrossOSTransfer(t *testing.T) {
 	}
 	if _, ok := outboxGet(req.ID); ok {
 		t.Fatal("outbox not cleaned")
+	}
+}
+
+// Тот же GitHub-аккаунт на другом устройстве (и коллаборатор на GitHub) видит проекты без приглашения.
+func TestDiscoverSameGitHub(t *testing.T) {
+	root := t.TempDir()
+	os.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "cfg"))
+	gh := useFakeGitHub(t, root)
+	hubURL := startHub(t, root, gh)
+	mac := &Config{Server: hubURL}
+	win := &Config{Server: hubURL}
+	friend := &Config{Server: hubURL}
+	_, err := mac.Hub().Register("tetramino", "uzbek", "tokA")
+	must(t, err)
+	_, err = win.Hub().Register("tetramino-win", "uzbek", "tokA") // тот же GitHub, другое устройство
+	must(t, err)
+	_, err = friend.Hub().Register("friend", "uzbek", "tokB")
+	must(t, err)
+
+	dir := filepath.Join(root, "mac", "Трек")
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(filepath.Join(dir, "Track.flp"), synthFLP(""), 0o644)
+	j := &Job{}
+	P := &Project{Dir: dir, Cfg: mac, Job: j}
+	if _, err := P.CreateOnGitHub("Трек", nil); err != nil { // никого не звали
+		t.Fatal(err, dump(j))
+	}
+	if ps, _ := win.Hub().Projects(0); len(ps) != 0 {
+		t.Fatal("до discover проект не должен быть виден")
+	}
+	added, err := win.Hub().Discover(true)
+	must(t, err)
+	if len(added) != 1 || !strings.HasPrefix(added[0].Repo, "alogin/") {
+		t.Fatalf("тот же GitHub должен найти проект: %+v", added)
+	}
+	ps, _ := win.Hub().Projects(0)
+	if len(ps) != 1 {
+		t.Fatalf("проект должен появиться в списке: %+v", ps)
+	}
+	jw := &Job{}
+	if _, err := CloneServerProject(win, jw, &ps[0], filepath.Join(root, "win")); err != nil {
+		t.Fatal(err, dump(jw))
+	}
+	// чужой аккаунт без доступа на GitHub — не видит
+	if added, _ := friend.Hub().Discover(true); len(added) != 0 {
+		t.Fatalf("без доступа на GitHub проект не должен находиться: %+v", added)
+	}
+	// после того как его сделали коллаборатором на GitHub — видит
+	must(t, ghAddCollaborator(mac, ps[0].Repo, "blogin"))
+	must(t, ghAcceptInvitation(friend, ps[0].Repo))
+	if added, _ := friend.Hub().Discover(true); len(added) != 1 {
+		t.Fatalf("коллаборатор на GitHub должен найти проект: %+v", added)
 	}
 }

@@ -1,4 +1,4 @@
-// Package hub is the "прога узбека" server: users (one device = one user),
+// Package hub is the FruityHub server: users (one device = one user),
 // projects and their members, invitations, plugin transfers. FL projects
 // themselves stay on GitHub (one repo per project, on the owner's account);
 // the server only knows where they are. Plugins are streamed from one
@@ -47,6 +47,15 @@ type Project struct {
 	Owner    string   `json:"owner"`
 	Members  []string `json:"members"`
 	Created  int64    `json:"created"`
+	Lock     *Lock    `json:"lock,omitempty"` // кто сейчас работает над проектом («Взять в работу»)
+}
+
+// Lock — проект закреплён за участником. Хранится на сервере: взять и освободить — мгновенно, без git.
+type Lock struct {
+	User  string `json:"user"` // id
+	OS    string `json:"os,omitempty"`
+	Since int64  `json:"since"`
+	Note  string `json:"note,omitempty"`
 }
 
 type Invite struct {
@@ -72,6 +81,10 @@ type PluginReq struct {
 	Note     string `json:"note,omitempty"`
 	Created  int64  `json:"created"`
 	Updated  int64  `json:"updated"`
+	// Reinstall — переустановить начисто: зависимости передаются все, файлы данных у получателя заменяются
+	Reinstall bool `json:"reinstall,omitempty"`
+	// Partial — плагин встал, но что-то из его данных/путей не легло (предупреждения у получателя)
+	Partial bool `json:"partial,omitempty"`
 }
 
 type DB struct {
@@ -79,6 +92,12 @@ type DB struct {
 	Projects map[string]*Project   `json:"projects"`
 	Invites  map[string]*Invite    `json:"invites"`
 	Requests map[string]*PluginReq `json:"requests"`
+	Settings Settings              `json:"settings"`
+}
+
+// Settings — настройки сервера, которые меняются из админки.
+type Settings struct {
+	MoveTo string `json:"moveTo,omitempty"` // новый адрес сервера после переезда
 }
 
 type Store struct {

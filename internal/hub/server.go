@@ -20,6 +20,7 @@ type Options struct {
 	GitHubAPI  string        // https://api.github.com (overridable in tests)
 	Code       string        // server code needed to register (empty: read/generate data/server-code)
 	StreamWait time.Duration // how long one side of a plugin transfer waits for the other
+	AdminKey   string        // ключ администратора (пусто: data/admin-key, создаётся сам)
 }
 
 type Server struct {
@@ -28,6 +29,10 @@ type Server struct {
 
 	relayMu sync.Mutex
 	relays  map[string]*relay
+	negoMu  sync.Mutex
+	negos   map[string]*nego
+	log     *serverLog
+	started time.Time
 }
 
 func New(opt Options) (*Server, error) {
@@ -50,7 +55,9 @@ func New(opt Options) (*Server, error) {
 			os.WriteFile(p, []byte(opt.Code+"\n"), 0o600)
 		}
 	}
-	return &Server{opt: opt, st: st, relays: map[string]*relay{}}, nil
+	srv := &Server{opt: opt, st: st, relays: map[string]*relay{}, started: time.Now(), log: newServerLog(opt.DataDir)}
+	srv.loadAdminKey()
+	return srv, nil
 }
 
 // Code is what a new user types at registration (keeps strangers out).
@@ -90,6 +97,7 @@ func (s *Server) wrap(auth bool, h handler) http.HandlerFunc {
 			}
 			s.st.mu.Unlock()
 			if me == nil {
+				s.Logf("info", "—", "%s %s → 401 (устройство не зарегистрировано, %s)", r.Method, r.URL.Path, r.RemoteAddr)
 				writeJSON(w, 401, map[string]string{"error": "устройство не зарегистрировано на сервере"})
 				return
 			}
@@ -101,6 +109,17 @@ func (s *Server) wrap(auth bool, h handler) http.HandlerFunc {
 			if errors.As(err, &ae) {
 				code = ae.code
 			}
+			who := "—"
+			if me != nil {
+				s.st.mu.Lock()
+				who = view(me).Nick
+				s.st.mu.Unlock()
+			}
+			level := "error"
+			if code == 408 || code == 410 || code == 409 {
+				level = "info" // «получатель не в сети», «отменили», «занято» — это не поломка
+			}
+			s.Logf(level, who, "%s %s → %d: %s", r.Method, r.URL.Path, code, err.Error())
 			writeJSON(w, code, map[string]string{"error": err.Error()})
 			return
 		}
@@ -158,6 +177,7 @@ type ProjectView struct {
 	Members  []UserView   `json:"members"`
 	Invited  []InviteView `json:"invited"`
 	IsOwner  bool         `json:"isOwner"`
+	Lock     *LockView    `json:"lock"`
 }
 
 type InviteView struct {
@@ -173,7 +193,7 @@ type InviteView struct {
 
 func (s *Server) projectView(p *Project, me *User) ProjectView {
 	v := ProjectView{ID: p.ID, Name: p.Name, Repo: p.Repo, CloneURL: p.CloneURL, Owner: view(s.st.db.Users[p.Owner]),
-		IsOwner: p.Owner == me.ID, Members: []UserView{}, Invited: []InviteView{}}
+		IsOwner: p.Owner == me.ID, Members: []UserView{}, Invited: []InviteView{}, Lock: s.lockView(p.Lock)}
 	for _, m := range p.Members {
 		v.Members = append(v.Members, view(s.st.db.Users[m]))
 	}
@@ -200,10 +220,11 @@ type ReqView struct {
 	ToNick     string `json:"toNick"`
 	ToOS       string `json:"toOs"`
 	ToOnline   bool   `json:"toOnline"`
+	OfferSeq   int    `json:"offerSeq,omitempty"` // отправитель ждёт ответа: какие файлы зависимостей уже есть
 }
 
 func (s *Server) reqView(r *PluginReq) ReqView {
-	v := ReqView{PluginReq: *r}
+	v := ReqView{PluginReq: *r, OfferSeq: s.offerSeq(r.ID)}
 	if u := s.st.db.Users[r.From]; u != nil {
 		v.FromNick, v.FromOnline = u.Nick, online(u)
 	}
@@ -218,7 +239,7 @@ func (s *Server) reqView(r *PluginReq) ReqView {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/ping", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]any{"ok": true, "service": "prog-uzbeka", "version": 2})
+		writeJSON(w, 200, map[string]any{"ok": true, "service": "prog-uzbeka", "name": "FruityHub", "version": 4})
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -229,8 +250,8 @@ func (s *Server) Handler() http.Handler {
 		s.st.mu.Lock()
 		n := len(s.st.db.Users)
 		s.st.mu.Unlock()
-		fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><title>прога узбека — сервер</title><body style="font:16px system-ui;background:#141518;color:#eee;padding:40px">
-<h1>прога узбека — сервер работает ✓</h1><p>Пользователей: %d. Этот адрес вписывается в проге при регистрации.</p>`, n)
+		fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><title>FruityHub — сервер</title><body style="font:16px system-ui;background:#141518;color:#eee;padding:40px">
+<h1>FruityHub — сервер работает</h1><p>Пользователей: %d. Этот адрес вписывается в FruityHub при регистрации.</p>`, n)
 	})
 	mux.HandleFunc("POST /api/register", s.wrap(false, s.register))
 	mux.HandleFunc("GET /api/me", s.wrap(true, func(w http.ResponseWriter, r *http.Request, me *User) (any, error) { return view(me), nil }))
@@ -240,7 +261,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/users/{id}/inventory", s.wrap(true, s.getInventory))
 	mux.HandleFunc("GET /api/projects", s.wrap(true, s.listProjects))
 	mux.HandleFunc("POST /api/projects", s.wrap(true, s.addProject))
+	mux.HandleFunc("POST /api/projects/discover", s.wrap(true, s.discover))
 	mux.HandleFunc("POST /api/projects/{id}/sync-members", s.wrap(true, s.syncMembers))
+	mux.HandleFunc("DELETE /api/projects/{id}", s.wrap(true, s.deleteProject))
 	mux.HandleFunc("POST /api/projects/{id}/invite", s.wrap(true, s.invite))
 	mux.HandleFunc("DELETE /api/projects/{id}/members/{uid}", s.wrap(true, s.removeMember))
 	mux.HandleFunc("POST /api/invites/{id}/accept", s.wrap(true, s.acceptInvite))
@@ -252,9 +275,18 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/plugin-requests/{id}/approve", s.wrap(true, s.approveRequest))
 	mux.HandleFunc("POST /api/plugin-requests/{id}/decline", s.wrap(true, s.declineRequest))
 	mux.HandleFunc("POST /api/plugin-requests/{id}/cancel", s.wrap(true, s.cancelRequest))
+	mux.HandleFunc("POST /api/plugin-requests/{id}/retry", s.wrap(true, s.retryRequest))
+	mux.HandleFunc("POST /api/log", s.wrap(true, s.clientLog))
+	mux.HandleFunc("PUT /api/plugin-requests/{id}/offer", s.wrap(true, s.putOffer))
+	mux.HandleFunc("GET /api/plugin-requests/{id}/offer", s.wrap(true, s.getOffer))
+	mux.HandleFunc("PUT /api/plugin-requests/{id}/have", s.wrap(true, s.putHave))
+	mux.HandleFunc("GET /api/plugin-requests/{id}/have", s.wrap(true, s.getHave))
+	mux.HandleFunc("POST /api/projects/{id}/lock", s.wrap(true, s.takeLock))
+	mux.HandleFunc("DELETE /api/projects/{id}/lock", s.wrap(true, s.releaseLock))
 	mux.HandleFunc("POST /api/plugin-requests/{id}/done", s.wrap(true, s.doneRequest))
 	mux.HandleFunc("PUT /api/plugin-requests/{id}/stream", s.wrap(true, s.streamSend))
 	mux.HandleFunc("GET /api/plugin-requests/{id}/stream", s.wrap(true, s.streamRecv))
+	s.adminRoutes(mux)
 	return mux
 }
 
@@ -461,6 +493,100 @@ func (s *Server) memberProject(r *http.Request, me *User) (*Project, error) {
 
 // syncMembers: the owner reports who already has access on GitHub; registered
 // users with those GitHub logins become members.
+// discover добавляет пользователя во все проекты, к репозиториям которых у него уже есть доступ на GitHub:
+// проекты его же GitHub-аккаунта (зашёл с другого устройства) и репозитории, где он коллаборатор.
+// Доступ проверяется токеном пользователя (сам токен сервер не хранит).
+func (s *Server) discover(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
+	var req struct{ GitHubToken string }
+	if err := decode(r, &req); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(req.GitHubToken) == "" || me.GitHub == "" {
+		return nil, bad("нужен GitHub-токен")
+	}
+	login, err := s.githubLogin(req.GitHubToken)
+	if err != nil {
+		return nil, err
+	}
+	if !strings.EqualFold(login, me.GitHub) {
+		return nil, bad("токен от другого GitHub-аккаунта (" + login + "), чем при регистрации — обнови токен в настройках")
+	}
+	type cand struct{ id, repo string }
+	var direct, check []cand
+	s.st.mu.Lock()
+	for _, p := range s.st.db.Projects {
+		if isMember(p, me.ID) {
+			continue
+		}
+		same := strings.EqualFold(strings.SplitN(p.Repo, "/", 2)[0], login)
+		for _, m := range p.Members {
+			if u := s.st.db.Users[m]; u != nil && strings.EqualFold(u.GitHub, login) {
+				same = true
+			}
+		}
+		if same {
+			direct = append(direct, cand{p.ID, p.Repo})
+		} else {
+			check = append(check, cand{p.ID, p.Repo})
+		}
+	}
+	s.st.mu.Unlock()
+	tok := strings.TrimSpace(req.GitHubToken)
+	for _, c := range check { // чужой репозиторий — спрашиваем GitHub, видит ли его этот токен
+		hr, _ := http.NewRequest("GET", s.opt.GitHubAPI+"/repos/"+c.repo, nil)
+		hr.Header.Set("Authorization", "Bearer "+tok)
+		hr.Header.Set("Accept", "application/vnd.github+json")
+		resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(hr)
+		if err != nil {
+			continue
+		}
+		resp.Body.Close()
+		if resp.StatusCode == 200 {
+			direct = append(direct, c)
+		}
+	}
+	s.st.mu.Lock()
+	defer s.st.mu.Unlock()
+	added := []ProjectView{}
+	for _, c := range direct {
+		p := s.st.db.Projects[c.id]
+		if p == nil || isMember(p, me.ID) {
+			continue
+		}
+		p.Members = append(p.Members, me.ID)
+		for id, i := range s.st.db.Invites {
+			if i.Project == p.ID && i.To == me.ID {
+				delete(s.st.db.Invites, id)
+			}
+		}
+		added = append(added, s.projectView(p, me))
+	}
+	if len(added) == 0 {
+		return added, nil
+	}
+	return added, s.st.save()
+}
+
+// deleteProject: владелец убирает проект с сервера (например, удалил репозиторий на GitHub).
+func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
+	s.st.mu.Lock()
+	defer s.st.mu.Unlock()
+	p, err := s.memberProject(r, me)
+	if err != nil {
+		return nil, err
+	}
+	if p.Owner != me.ID {
+		return nil, forbidden("удалить проект может только владелец")
+	}
+	delete(s.st.db.Projects, p.ID)
+	for id, i := range s.st.db.Invites {
+		if i.Project == p.ID {
+			delete(s.st.db.Invites, id)
+		}
+	}
+	return map[string]bool{"ok": true}, s.st.save()
+}
+
 func (s *Server) syncMembers(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
 	var req struct{ Logins []string }
 	if err := decode(r, &req); err != nil {
@@ -576,12 +702,18 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request, me *User) (any, e
 	s.st.mu.Lock()
 	defer s.st.mu.Unlock()
 	out := struct {
-		Invites  []InviteView `json:"invites"`
-		Incoming []ReqView    `json:"incoming"` // asked from me, waiting for my answer
-		ToSend   []ReqView    `json:"toSend"`   // I allowed it: my app streams it when the other side is online
-		Ready    []ReqView    `json:"ready"`    // my requests that were allowed: my app receives them
-		Me       UserView     `json:"me"`
-	}{Invites: []InviteView{}, Incoming: []ReqView{}, ToSend: []ReqView{}, Ready: []ReqView{}, Me: view(me)}
+		Invites  []InviteView         `json:"invites"`
+		Incoming []ReqView            `json:"incoming"` // asked from me, waiting for my answer
+		ToSend   []ReqView            `json:"toSend"`   // I allowed it: my app streams it when the other side is online
+		Ready    []ReqView            `json:"ready"`    // my requests that were allowed: my app receives them
+		Me       UserView             `json:"me"`
+		MoveTo   string               `json:"moveTo,omitempty"` // сервер переехал — приложение переключится само
+		Update   string               `json:"update,omitempty"` // последняя версия приложения на сервере
+		Locks    map[string]*LockView `json:"locks"`            // кто какой проект взял в работу (id проекта → замок, null — свободен)
+	}{Invites: []InviteView{}, Incoming: []ReqView{}, ToSend: []ReqView{}, Ready: []ReqView{}, Me: view(me), MoveTo: s.st.db.Settings.MoveTo, Locks: s.myLocks(me)}
+	if m := s.manifest(); m != nil {
+		out.Update = m.Version
+	}
 	for _, i := range s.st.db.Invites {
 		if i.To == me.ID {
 			out.Invites = append(out.Invites, s.inviteView(i))
@@ -630,6 +762,7 @@ func (s *Server) createRequests(w http.ResponseWriter, r *http.Request, me *User
 		To    string `json:"to"` // nick
 		Items []struct {
 			Plugin, Format, Vendor string
+			Reinstall              bool
 		} `json:"items"`
 	}
 	if err := decode(r, &req); err != nil {
@@ -662,7 +795,7 @@ func (s *Server) createRequests(w http.ResponseWriter, r *http.Request, me *User
 			continue
 		}
 		q := &PluginReq{ID: newID(), From: me.ID, To: to.ID, FromOS: me.OS, Plugin: it.Plugin, Format: it.Format, Vendor: it.Vendor,
-			Status: "pending", Created: now(), Updated: now()}
+			Status: "pending", Created: now(), Updated: now(), Reinstall: it.Reinstall}
 		s.st.db.Requests[q.ID] = q
 		out = append(out, s.reqView(q))
 	}
@@ -718,21 +851,72 @@ func (s *Server) declineRequest(w http.ResponseWriter, r *http.Request, me *User
 	return s.reqView(q), s.st.save()
 }
 
+// cancelRequest: отменить может любая сторона — и пока ждём, и посреди передачи (поток обрывается).
 func (s *Server) cancelRequest(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
 	s.st.mu.Lock()
 	defer s.st.mu.Unlock()
-	q, err := s.myReq(r, me, false)
-	if err != nil {
-		return nil, err
+	q := s.st.db.Requests[r.PathValue("id")]
+	if q == nil || (q.From != me.ID && q.To != me.ID) {
+		return nil, notFound("запрос не найден")
+	}
+	if q.Status != "pending" && q.Status != "approved" && q.Status != "streaming" {
+		return s.reqView(q), nil
 	}
 	q.Status, q.Updated = "cancelled", now()
+	q.Note = "отменил " + view(me).Nick
+	s.Logf("info", view(me).Nick, "отменил передачу %s", q.Plugin)
+	s.stopRelay(q.ID)
+	s.dropNego(q.ID)
 	return s.reqView(q), s.st.save()
+}
+
+// retryRequest: передать ещё раз (после ошибки или отмены) — любая сторона.
+// Если владелец уже разрешал — сразу снова «разрешён», и передача начнётся сама, когда оба в сети.
+func (s *Server) retryRequest(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
+	var req struct {
+		Reinstall *bool `json:"reinstall"`
+	}
+	decode(r, &req)
+	s.st.mu.Lock()
+	defer s.st.mu.Unlock()
+	q := s.st.db.Requests[r.PathValue("id")]
+	if q == nil || (q.From != me.ID && q.To != me.ID) {
+		return nil, notFound("запрос не найден")
+	}
+	switch q.Status {
+	case "failed", "cancelled", "installed":
+	default:
+		return nil, bad("передача ещё идёт или ждёт ответа")
+	}
+	if q.Kind != "" {
+		q.Status = "approved"
+	} else {
+		q.Status = "pending"
+	}
+	q.Note, q.Updated = "", now()
+	if req.Reinstall != nil {
+		q.Reinstall = *req.Reinstall
+	}
+	q.Partial = false
+	s.dropNego(q.ID)
+	return s.reqView(q), s.st.save()
+}
+
+// stopRelay обрывает идущую передачу этого запроса (вызывать под s.st.mu).
+func (s *Server) stopRelay(id string) {
+	s.relayMu.Lock()
+	defer s.relayMu.Unlock()
+	if rl := s.relays[id]; rl != nil {
+		rl.stopOnce.Do(func() { close(rl.stop) })
+		delete(s.relays, id)
+	}
 }
 
 func (s *Server) doneRequest(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
 	var req struct {
-		OK   bool   `json:"ok"`
-		Note string `json:"note"`
+		OK      bool   `json:"ok"`
+		Partial bool   `json:"partial"`
+		Note    string `json:"note"`
 	}
 	decode(r, &req)
 	s.st.mu.Lock()
@@ -741,7 +925,16 @@ func (s *Server) doneRequest(w http.ResponseWriter, r *http.Request, me *User) (
 	if err != nil {
 		return nil, err
 	}
-	q.Status, q.Updated = "installed", now()
+	if q.Status == "cancelled" { // отменили — оборванная передача не превращается в «ошибку»
+		return s.reqView(q), nil
+	}
+	q.Status, q.Updated, q.Partial = "installed", now(), req.OK && req.Partial
+	s.dropNego(q.ID)
+	if req.OK {
+		s.Logf("info", view(me).Nick, "установил %s от %s %s", q.Plugin, view(s.st.db.Users[q.To]).Nick, req.Note)
+	} else {
+		s.Logf("error", view(me).Nick, "не установился %s от %s: %s", q.Plugin, view(s.st.db.Users[q.To]).Nick, req.Note)
+	}
 	if !req.OK {
 		q.Status = "failed"
 	}
@@ -760,7 +953,24 @@ type recvSide struct {
 }
 
 type relay struct {
-	recv chan *recvSide // capacity 1: the waiting receiver
+	recv     chan *recvSide // capacity 1: the waiting receiver
+	stop     chan struct{}  // закрывается при отмене — поток обрывается
+	stopOnce sync.Once
+}
+
+// stopReader перестаёт читать, как только передачу отменили.
+type stopReader struct {
+	r    io.Reader
+	stop chan struct{}
+}
+
+func (s stopReader) Read(p []byte) (int, error) {
+	select {
+	case <-s.stop:
+		return 0, errors.New("передачу отменили")
+	default:
+	}
+	return s.r.Read(p)
 }
 
 func (s *Server) relayFor(id string) *relay {
@@ -768,7 +978,7 @@ func (s *Server) relayFor(id string) *relay {
 	defer s.relayMu.Unlock()
 	rl := s.relays[id]
 	if rl == nil {
-		rl = &relay{recv: make(chan *recvSide, 1)}
+		rl = &relay{recv: make(chan *recvSide, 1), stop: make(chan struct{})}
 		s.relays[id] = rl
 	}
 	return rl
@@ -802,6 +1012,10 @@ func (s *Server) streamSend(w http.ResponseWriter, r *http.Request, me *User) (a
 		size = n
 	}
 	id := q.ID
+	s.st.mu.Lock()
+	label := fmt.Sprintf("%s: %s → %s", q.Plugin, view(me).Nick, view(s.st.db.Users[q.From]).Nick)
+	s.st.mu.Unlock()
+	s.Logf("info", "server", "передача %s — отправитель подключился (%.1f МБ), ждём получателя", label, float64(size)/1e6)
 	s.setStatus(id, "approved", "streaming")
 	rl := s.relayFor(id)
 	var rs *recvSide
@@ -810,6 +1024,8 @@ func (s *Server) streamSend(w http.ResponseWriter, r *http.Request, me *User) (a
 	case <-time.After(s.opt.StreamWait):
 		s.setStatus(id, "streaming", "approved")
 		return nil, &apiErr{408, "получатель не подключился — отправлю, когда он будет в сети"}
+	case <-rl.stop:
+		return nil, &apiErr{410, "передачу отменили"}
 	case <-r.Context().Done():
 		s.setStatus(id, "streaming", "approved")
 		return nil, nil
@@ -819,7 +1035,16 @@ func (s *Server) streamSend(w http.ResponseWriter, r *http.Request, me *User) (a
 		rs.w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 	}
 	rs.w.WriteHeader(200)
-	n, cerr := io.Copy(flushWriter{rs.w}, r.Body)
+	// если одна из сторон пропала посреди передачи (сеть, сон ноутбука) — не висим вечно: 90 секунд без данных — обрыв
+	dr := &deadlineReader{r: stopReader{r.Body, rl.stop}, rd: http.NewResponseController(w), wr: http.NewResponseController(rs.w), d: 90 * time.Second}
+	t0 := time.Now()
+	n, cerr := io.CopyBuffer(&flushWriter{w: rs.w}, dr, make([]byte, 1<<20))
+	dr.clear()
+	if el := time.Since(t0).Seconds(); cerr != nil {
+		s.Logf("error", "server", "передача %s оборвалась на %.1f из %.1f МБ через %.0f с: %v", label, float64(n)/1e6, float64(size)/1e6, el, cerr)
+	} else {
+		s.Logf("info", "server", "передача %s: %.1f МБ за %.0f с (%.1f МБ/с)", label, float64(n)/1e6, el, float64(n)/1e6/max(el, 0.001))
+	}
 	if cerr == nil && size > 0 && n != size {
 		cerr = fmt.Errorf("передано %d из %d байт", n, size)
 	}
@@ -831,12 +1056,39 @@ func (s *Server) streamSend(w http.ResponseWriter, r *http.Request, me *User) (a
 	return map[string]any{"ok": true, "bytes": n}, nil
 }
 
-type flushWriter struct{ w http.ResponseWriter }
+// deadlineReader продлевает сроки чтения у отправителя и записи получателю перед каждым куском.
+type deadlineReader struct {
+	r      io.Reader
+	rd, wr *http.ResponseController
+	d      time.Duration
+}
 
-func (f flushWriter) Write(p []byte) (int, error) {
+func (d *deadlineReader) Read(p []byte) (int, error) {
+	t := time.Now().Add(d.d)
+	d.rd.SetReadDeadline(t)
+	d.wr.SetWriteDeadline(t)
+	return d.r.Read(p)
+}
+
+func (d *deadlineReader) clear() {
+	d.rd.SetReadDeadline(time.Time{})
+	d.wr.SetWriteDeadline(time.Time{})
+}
+
+// flushWriter отдаёт данные получателю сразу, но не после каждого кусочка (это тормозило передачу):
+// не чаще раза в 50 мс.
+type flushWriter struct {
+	w    http.ResponseWriter
+	last time.Time
+}
+
+func (f *flushWriter) Write(p []byte) (int, error) {
 	n, err := f.w.Write(p)
-	if fl, ok := f.w.(http.Flusher); ok {
-		fl.Flush()
+	if time.Since(f.last) > 50*time.Millisecond {
+		if fl, ok := f.w.(http.Flusher); ok {
+			fl.Flush()
+		}
+		f.last = time.Now()
 	}
 	return n, err
 }
@@ -875,6 +1127,10 @@ func (s *Server) streamRecv(w http.ResponseWriter, r *http.Request, me *User) (a
 		if withdraw() {
 			return nil, &apiErr{408, "отправитель сейчас не в сети"}
 		}
+	case <-rl.stop:
+		if withdraw() {
+			return nil, &apiErr{410, "передачу отменили"}
+		}
 	case <-r.Context().Done():
 		if withdraw() {
 			return nil, nil
@@ -898,6 +1154,7 @@ func (s *Server) Janitor() {
 		}
 		s.st.save()
 		s.st.mu.Unlock()
+		s.dailyBackup()
 		time.Sleep(time.Hour)
 	}
 }

@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -87,7 +88,7 @@ func OpenStorage(cfg *Config, remote string) (*Storage, error) {
 	}
 	tok := repoToken(cfg, remote)
 	if tok == "" {
-		return nil, errors.New("нет доступа к проекту на сервере — проект не подключён к проге узбека")
+		return nil, errors.New("нет доступа к проекту на сервере — проект не подключён к FruityHub")
 	}
 	key := ghAPIBase + "|" + owner + "/" + repo
 	storageMu.Lock()
@@ -116,7 +117,7 @@ func OpenStorage(cfg *Config, remote string) (*Storage, error) {
 			UploadURL string `json:"upload_url"`
 		}
 		err := ghAPI(tok, "POST", fmt.Sprintf("/repos/%s/%s/releases", owner, repo), map[string]any{
-			"tag_name": storageTag, "name": "прога узбека — файлы проекта", "draft": true,
+			"tag_name": storageTag, "name": "FruityHub — файлы проекта", "draft": true,
 			"body": "Служебный черновик: превью трека и плагины в пути. Не удаляй и не публикуй."}, &r)
 		if err != nil {
 			return nil, err
@@ -149,17 +150,29 @@ type progressReader struct {
 	job   *Job
 	verb  string
 	last  time.Time
+	start time.Time
+	touch func() // для сторожа зависаний (stallGuard)
 }
 
 func (p *progressReader) Read(b []byte) (int, error) {
+	if p.start.IsZero() {
+		p.start = time.Now()
+	}
 	n, err := p.r.Read(b)
+	if p.touch != nil {
+		p.touch()
+	}
 	p.done += int64(n)
 	if time.Since(p.last) > 400*time.Millisecond || err == io.EOF {
 		p.last = time.Now()
+		speed := ""
+		if el := time.Since(p.start).Seconds(); el > 1 {
+			speed = fmt.Sprintf(" · %.1f МБ/с", float64(p.done)/1e6/el)
+		}
 		if p.total > 0 {
-			p.job.SetProgress(fmt.Sprintf("%s · %.1f из %.1f МБ", p.verb, float64(p.done)/1e6, float64(p.total)/1e6), int(p.done*100/p.total))
+			p.job.SetProgress(fmt.Sprintf("%s · %.1f из %.1f МБ%s", p.verb, float64(p.done)/1e6, float64(p.total)/1e6, speed), int(p.done*100/p.total))
 		} else {
-			p.job.SetProgress(fmt.Sprintf("%s · %.1f МБ", p.verb, float64(p.done)/1e6), -1)
+			p.job.SetProgress(fmt.Sprintf("%s · %.1f МБ%s", p.verb, float64(p.done)/1e6, speed), -1)
 		}
 	}
 	return n, err
@@ -383,8 +396,26 @@ func ghAPI(token, method, path string, body any, out any) error {
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	cl := &http.Client{Timeout: 30 * time.Second}
-	resp, err := cl.Do(req)
+	var resp *http.Response
+	var err error
+	for try := 0; try < 3; try++ {
+		if try > 0 {
+			time.Sleep(time.Duration(try) * 2 * time.Second)
+			if rd != nil {
+				rd.(*bytes.Reader).Seek(0, io.SeekStart)
+				req.Body = io.NopCloser(rd)
+			}
+		}
+		resp, err = cl.Do(req)
+		// повторяем только когда запрос заведомо не дошёл до GitHub (не успели соединиться / TLS)
+		if err == nil || !(strings.Contains(err.Error(), "TLS handshake") || strings.Contains(err.Error(), "dial tcp") || strings.Contains(err.Error(), "connection reset")) {
+			break
+		}
+	}
 	if err != nil {
+		if strings.Contains(err.Error(), "TLS handshake") || strings.Contains(err.Error(), "connection reset") || strings.Contains(err.Error(), "timeout") {
+			return fmt.Errorf("%v\nGitHub с этого компьютера не открывается напрямую. Если у тебя есть VPN/прокси — впиши его адрес в Настройки → «Прокси для GitHub» (например http://127.0.0.1:10809) или включи в VPN-программе «системный прокси»", err)
+		}
 		return err
 	}
 	defer resp.Body.Close()
@@ -407,4 +438,39 @@ func ghAPI(token, method, path string, body any, out any) error {
 		return json.Unmarshal(b, out)
 	}
 	return nil
+}
+
+// stallGuard обрывает передачу, если данные не идут дольше d (после первого touch).
+// Возвращает контекст для запроса, touch (вызывать при каждом куске данных), stop и признак обрыва по зависанию.
+func stallGuard(parent context.Context, d time.Duration) (ctx context.Context, touch func(), stop func(), stalled func() bool) {
+	ctx, cancel := context.WithCancel(parent)
+	var mu sync.Mutex
+	var last time.Time
+	var hit bool
+	done := make(chan struct{})
+	go func() {
+		t := time.NewTicker(time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				mu.Lock()
+				if !last.IsZero() && time.Since(last) > d {
+					hit = true
+					mu.Unlock()
+					cancel()
+					return
+				}
+				mu.Unlock()
+			}
+		}
+	}()
+	var once sync.Once
+	return ctx, func() { mu.Lock(); last = time.Now(); mu.Unlock() },
+		func() { once.Do(func() { close(done); cancel() }) },
+		func() bool { mu.Lock(); defer mu.Unlock(); return hit }
 }

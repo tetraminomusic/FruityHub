@@ -2,16 +2,19 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flsync/internal/flp"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,6 +24,43 @@ import (
 )
 
 var Version = "dev"
+
+var (
+	stampMu  sync.Mutex
+	stampVal string
+)
+
+func stampReset() {
+	stampMu.Lock()
+	stampVal = ""
+	stampMu.Unlock()
+}
+
+// assetStamp — короткий отпечаток картинок интерфейса: меняется вместе с картинкой (в том числе своим фоном),
+// и окно не держит старую из кэша.
+func (s *Server) assetStamp() string {
+	stampMu.Lock()
+	defer stampMu.Unlock()
+	if stampVal != "" {
+		return stampVal
+	}
+	h := crc32.NewIEEE()
+	h.Write([]byte(Version))
+	if s.Assets != nil {
+		for _, n := range []string{"bg.jpg", "bg.png", "bg.jpeg", "bg.webp", "icon.png"} {
+			if b, err := fs.ReadFile(s.Assets, n); err == nil {
+				h.Write(b)
+			}
+		}
+	}
+	if c := customBackground(); c != "" {
+		if st, err := os.Stat(c); err == nil {
+			fmt.Fprint(h, c, st.Size(), st.ModTime().UnixNano())
+		}
+	}
+	stampVal = fmt.Sprintf("%08x", h.Sum32())
+	return stampVal
+}
 
 type Server struct {
 	Assets   fs.FS // background picture, icon (optional)
@@ -38,6 +78,7 @@ type Server struct {
 	notesMu  sync.Mutex
 	notes    map[string]*ProjectNotes
 	busyReq  sync.Map // plugin request id -> "sending" | "installing" | "human"
+	reqJobs  sync.Map // plugin request id -> *Job идущей передачи (для отмены)
 	hubError string
 }
 
@@ -75,7 +116,9 @@ func (s *Server) Handler(port int) http.Handler {
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
-		w.Write(bytes.Replace(s.index, []byte("__FLSYNC_TOKEN__"), []byte(s.token), 1))
+		page := bytes.Replace(s.index, []byte("__FLSYNC_TOKEN__"), []byte(s.token), 1)
+		// версия в адресе картинок: после обновления окно не держит старый фон из кэша
+		w.Write(bytes.ReplaceAll(page, []byte("__V__"), []byte(s.assetStamp())))
 	})
 	// pictures for the interface: /assets/bg, /assets/icon (any extension in web/)
 	mux.HandleFunc("/assets/", func(w http.ResponseWriter, r *http.Request) {
@@ -84,10 +127,17 @@ func (s *Server) Handler(port int) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
+		if name == "bg" { // свой фон пользователя
+			if c := customBackground(); c != "" {
+				w.Header().Set("Cache-Control", "no-cache")
+				http.ServeFile(w, r, c)
+				return
+			}
+		}
 		for _, ext := range []string{".jpg", ".jpeg", ".png", ".webp"} {
 			if b, err := fs.ReadFile(s.Assets, name+ext); err == nil {
 				w.Header().Set("Content-Type", map[string]string{".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}[ext])
-				w.Header().Set("Cache-Control", "max-age=3600")
+				w.Header().Set("Cache-Control", "no-cache")
 				w.Write(b)
 				return
 			}
@@ -122,7 +172,23 @@ func (s *Server) Handler(port int) http.Handler {
 				http.Error(w, "forbidden", 403)
 				return
 			}
+			quiet := quietAPI[path]
+			started := time.Now()
 			res, err := fn(r)
+			if !quiet || err != nil {
+				q := ""
+				if r.URL.RawQuery != "" {
+					q = "?" + r.URL.RawQuery
+					if u, err := url.QueryUnescape(r.URL.RawQuery); err == nil {
+						q = "?" + u
+					}
+				}
+				if err != nil {
+					DevLog("ui", time.Since(started).Milliseconds(), true, "%s%s → %v", path, q, err)
+				} else {
+					DevLog("ui", time.Since(started).Milliseconds(), false, "%s%s", path, q)
+				}
+			}
 			w.Header().Set("Content-Type", "application/json")
 			if err != nil {
 				w.WriteHeader(400)
@@ -136,6 +202,7 @@ func (s *Server) Handler(port int) http.Handler {
 	s.routes2(api)
 	s.routes3(api)
 	s.routes4(api)
+	s.routes5(api)
 	// DNS-rebinding protection: only accept our own host names
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := r.Host
@@ -158,6 +225,10 @@ func decode(r *http.Request, v any) error {
 	return json.Unmarshal(b, v)
 }
 
+// quietAPI — вызовы, которые интерфейс делает сам по таймеру; в журнал попадают только их ошибки.
+var quietAPI = map[string]bool{"/api/notifications": true, "/api/admin/logs": true, "/api/jobs": true, "/api/job": true, "/api/dev/logs": true,
+	"/api/state": true, "/api/project": true, "/api/projects/status": true, "/api/available": true, "/api/plugin/requests": true}
+
 func (s *Server) startJob(title, project string, fn func(j *Job) (any, error)) *Job {
 	return s.startJobOpt(title, project, true, fn)
 }
@@ -168,6 +239,8 @@ func (s *Server) startJobOpt(title, project string, lock bool, fn func(j *Job) (
 	b := make([]byte, 6)
 	rand.Read(b)
 	j := &Job{ID: hex.EncodeToString(b), Title: title, Project: project, Started: time.Now().Unix()}
+	j.ctx, j.cancel = context.WithCancel(context.Background())
+	DevLog("job", 0, false, "▶ %s%s", title, map[bool]string{true: " [" + filepath.Base(project) + "]", false: ""}[project != ""])
 	s.jobsMu.Lock()
 	s.jobs[j.ID] = j
 	s.running++
@@ -211,6 +284,18 @@ func (s *Server) startJobOpt(title, project string, lock bool, fn func(j *Job) (
 			last = j.Steps[len(j.Steps)-1]
 		}
 		j.mu.Unlock()
+		DevLog("job", time.Since(time.Unix(j.Started, 0)).Milliseconds(), err != nil, "■ %s — %s", title, map[bool]string{true: "ошибка: " + fmt.Sprint(err), false: "готово"}[err != nil])
+		if err != nil && !errors.Is(err, errCancelled) {
+			j.mu.Lock()
+			det := j.Details
+			j.mu.Unlock()
+			if len(det) > 1500 {
+				det = det[len(det)-1500:]
+			}
+			if det != "" {
+				reportError("подробности «" + title + "»:\n" + maskSecrets(det))
+			}
+		}
 		if err != nil {
 			LogActivity(project, "error", title+": "+err.Error())
 		} else {
@@ -251,12 +336,15 @@ type ProjectSummary struct {
 	Shared   SharedSettings `json:"shared"`
 	Machines []Machine      `json:"machines"`
 	LastSync string         `json:"lastSync"`
+	Modified int64          `json:"modified"` // когда последний раз сохраняли .flp (unix), для сортировки
 	Adopted  bool           `json:"adopted"`
 	Extra    []string       `json:"extraFlps"`
 	MainFLP  string         `json:"mainFlp"`
 	Group    string         `json:"group"`
 	Rootless int            `json:"rootAudio"` // audio files lying in the project root
 	OnServer bool           `json:"onServer"`  // the remote is a project of our server
+	FL       FLCompat       `json:"fl"`        // в какой FL сохранён и хватит ли установленной
+	Folder   string         `json:"folder"`    // имя папки (название может быть своим)
 }
 
 func (s *Server) summary(path string) ProjectSummary {
@@ -264,6 +352,7 @@ func (s *Server) summary(path string) ProjectSummary {
 	if lp := s.cfg.Project(path); lp != nil {
 		ps.Relink = lp.RelinkOnReceive
 		ps.Group = lp.Group
+		ps.Name = lp.DisplayName()
 	}
 	if !exists(path) {
 		return ps
@@ -290,6 +379,8 @@ func (s *Server) summary(path string) ProjectSummary {
 			ps.LastSync = fi.ModTime().Format("02.01 15:04")
 		}
 	}
+	ps.Folder = filepath.Base(path)
+	ps.FL = p.FLCompat()
 	ps.Extra = p.ExtraFLPs()
 	if len(ps.Extra) > 0 {
 		ps.MainFLP = p.MainFLPGuess(ps.Extra)
@@ -323,12 +414,15 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 	api("/api/state", func(r *http.Request) (any, error) {
 		cfg := *s.cfg
 		cfg.Token, cfg.DeviceToken, cfg.hub = "", "", nil
+		hasAdmin := cfg.AdminKey != ""
+		cfg.AdminKey = ""
 		var list []ProjectSummary
 		for _, p := range s.cfg.Projects {
-			ps := ProjectSummary{Path: p.Path, Name: filepath.Base(p.Path), Exists: exists(p.Path), Group: p.Group}
+			ps := ProjectSummary{Path: p.Path, Name: p.DisplayName(), Exists: exists(p.Path), Group: p.Group}
 			pr := &Project{Dir: p.Path, Cfg: s.cfg}
 			ps.Lock = pr.ReadLock()
 			ps.IsRepo = pr.git().IsRepo()
+			ps.Modified = projectModified(p.Path)
 			list = append(list, ps)
 		}
 		sharing := s.cfg.Sharing
@@ -337,12 +431,17 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 		}
 		return map[string]any{"config": cfg, "registered": s.cfg.Hub().Registered(), "projects": list, "windowed": s.Windowed,
 			"tools": CheckTools(), "os": OSName(), "me": s.cfg.MachineID(), "userId": s.cfg.UserID, "version": Version, "configDir": ConfigDir(),
-			"groups": s.cfg.Groups, "server": s.cfg.ServerURL(), "serverDefault": DefaultServer, "sharing": sharing, "hasToken": s.cfg.Token != "", "githubLogin": s.cfg.GitHubLogin, "serverCodeBuiltIn": DefaultServerCode != ""}, nil
+			"groups": s.cfg.Groups, "server": s.cfg.ServerURL(), "serverDefault": DefaultServer, "sharing": sharing, "hasToken": s.cfg.Token != "", "githubLogin": s.cfg.GitHubLogin, "serverCodeBuiltIn": DefaultServerCode != "", "proxy": s.cfg.Proxy, "proxyHint": SystemProxyHint(),
+			"hasAdminKey": hasAdmin, "customBg": customBackground() != "", "platform": Platform()}, nil
 	})
 	api("/api/settings", func(r *http.Request) (any, error) {
 		var req struct {
 			Token           *string  `json:"token"`
 			ExtraPluginDirs []string `json:"extraPluginDirs"`
+			Proxy           *string  `json:"proxy"`
+			SortMode        *string  `json:"sortMode"`
+			AutoUpdate      *bool    `json:"autoUpdate"`
+			ErrorReports    *bool    `json:"errorReports"`
 		}
 		if err := decode(r, &req); err != nil {
 			return nil, err
@@ -353,7 +452,43 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 		if req.ExtraPluginDirs != nil {
 			s.cfg.ExtraPluginDirs = req.ExtraPluginDirs
 		}
+		if req.SortMode != nil {
+			s.cfg.SortMode = *req.SortMode
+		}
+		if req.AutoUpdate != nil {
+			s.cfg.AutoUpdate = *req.AutoUpdate
+		}
+		if req.ErrorReports != nil {
+			s.cfg.NoErrorReports = !*req.ErrorReports
+		}
+		if req.Proxy != nil {
+			s.cfg.Proxy = strings.TrimSpace(*req.Proxy)
+			SetUserProxy(s.cfg.Proxy)
+		}
 		return "ok", s.cfg.Save()
+	})
+	api("/api/github/test", func(r *http.Request) (any, error) {
+		var req struct {
+			Proxy *string `json:"proxy"`
+		}
+		decode(r, &req)
+		if req.Proxy != nil {
+			SetUserProxy(*req.Proxy)
+			defer SetUserProxy(s.cfg.Proxy)
+		}
+		u, src := GitHubProxy()
+		via := "напрямую"
+		if u != nil {
+			via = "через " + u.Host + " (" + src + ")"
+		}
+		t0 := time.Now()
+		cl := &http.Client{Timeout: 25 * time.Second}
+		resp, err := cl.Get("https://api.github.com")
+		if err != nil {
+			return map[string]any{"ok": false, "via": via, "error": err.Error()}, nil
+		}
+		resp.Body.Close()
+		return map[string]any{"ok": true, "via": via, "ms": time.Since(t0).Milliseconds()}, nil
 	})
 	api("/api/pickfolder", func(r *http.Request) (any, error) {
 		p, err := PickFolder()
@@ -372,6 +507,10 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 		if s.cfg.Project(p) == nil {
 			s.cfg.Projects = append(s.cfg.Projects, LocalProject{Path: p, RelinkOnReceive: true, Group: req.Group})
 			pr := &Project{Dir: p, Cfg: s.cfg}
+			// название проекта сразу попадает в Project info .flp, если там пусто
+			if t, err := pr.FLTitle(); err == nil && strings.TrimSpace(t) == "" {
+				pr.SetFLTitle(filepath.Base(p))
+			}
 			if !pr.git().IsRepo() && LoadShared(p).OrganizeAudio {
 				if moved, err := pr.OrganizeAudio(); err == nil && len(moved) > 0 {
 					pr.Relink()
@@ -555,6 +694,7 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 		if err != nil {
 			return nil, err
 		}
+		p.Resolve = str(req, "resolve")
 		return p.Receive()
 	})
 	jobAPI("/api/project/send", "Отправка", func(req map[string]any, j *Job) (any, error) {
@@ -566,7 +706,20 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 		if msg == "" {
 			msg = defaultCommitMsg(s.cfg)
 		}
+		p.Resolve = str(req, "resolve")
 		return p.Send(msg, boolean(req, "release"))
+	})
+	// после конфликта: оставить одну из двух версий файла (копия «(конфликт — …)» рядом с оригиналом)
+	api("/api/project/conflict-keep", func(r *http.Request) (any, error) {
+		var req struct{ Path, Copy, Keep string }
+		if err := decode(r, &req); err != nil {
+			return nil, err
+		}
+		p, err := s.project(req.Path, nil)
+		if err != nil {
+			return nil, err
+		}
+		return "ok", p.KeepConflictVersion(req.Copy, req.Keep)
 	})
 	jobAPI("/api/project/lock", "Взять в работу", func(req map[string]any, j *Job) (any, error) {
 		p, err := s.project(str(req, "path"), j)

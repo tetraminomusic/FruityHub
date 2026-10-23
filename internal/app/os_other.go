@@ -37,3 +37,10 @@ func PickAnyFile() (string, error) {
 	out, err := exec.Command("zenity", "--file-selection").Output()
 	return trimOut(out), err
 }
+
+func OpenFile(p string) error { return exec.Command("xdg-open", p).Start() }
+
+func moveDirToTrash(p string) error {
+	home, _ := os.UserHomeDir()
+	return trashInto(filepath.Join(home, ".local", "share", "Trash", "files"), p)
+}

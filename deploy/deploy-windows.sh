@@ -1,54 +1,49 @@
 #!/usr/bin/env bash
-# Раскладывает прогу (или любые другие exe) на рабочие столы Windows-компьютеров
-# в локальной сети — через общий доступ к файлам Windows (SMB). Запускать с Mac или Linux.
+# Раскладывает FruityHub на рабочие столы Windows-ноутбуков в локальной сети — ПАРАЛЛЕЛЬНО на все сразу.
+# Запускать с Mac. Работает через общий доступ к файлам Windows (SMB, админ-шара C$).
 #
-#   ./deploy/deploy-windows.sh                         # компьютеры из deploy/hosts-windows.txt
-#   ./deploy/deploy-windows.sh 192.168.1.126           # только этот компьютер
-#   ./deploy/deploy-windows.sh -f setup.exe -f other.exe 192.168.1.111   # другие файлы
-#   ./deploy/deploy-windows.sh -u Vasya                # на рабочий стол пользователя Vasya
+#   ./deploy/deploy-windows.sh                      # на все ноутбуки из списка ниже
+#   ./deploy/deploy-windows.sh 192.168.1.126        # только на один
+#   ./deploy/deploy-windows.sh -f другой.exe        # другой файл (можно несколько -f)
 #
-# По умолчанию кладёт dist/прога узбека.exe на ОБЩИЙ рабочий стол (C:\Users\Public\Desktop):
-# его видят все пользователи компьютера. Логин и пароль Windows спросят один раз
-# (или задай WIN_USER и WIN_PASS); нужна учётная запись администратора на тех компьютерах.
-# Если exe на том компьютере сейчас запущен — старая версия отодвигается, новая всё равно встаёт.
-set -euo pipefail
+# Файл (по умолчанию dist/FruityHub.exe) кладётся на ОБЩИЙ рабочий стол C:\Users\Public\Desktop.
+# Каждый шаг с таймаутом и замером времени; подробный журнал каждого ноутбука — deploy/logs/<ip>.log.
+# Копирование идёт под временным именем и ставится на место только после сверки размера;
+# если старый exe занят запущенной прогой, он отодвигается.
+set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "$HERE")"
 
-FILES=()
-DESKTOP_USER=""
-HOSTS=()
+# ---- компьютеры: ip|логин|пароль — в файле deploy/machines.local (он не попадает в git, пароли не утекут) ----
+MACHINES_FILE="$HERE/machines.local"
+if [[ ! -f "$MACHINES_FILE" ]]; then
+  cat > "$MACHINES_FILE" <<'EOF'
+# Windows-компьютеры для deploy-windows.sh: по одному в строке — ip|логин|пароль
+# 192.168.1.126|user|пароль
+EOF
+  echo "Создал $MACHINES_FILE — впиши туда компьютеры (ip|логин|пароль) и запусти ещё раз."; exit 1
+fi
+MACHINES=()
+while IFS= read -r line || [[ -n "$line" ]]; do
+  [[ "$line" =~ ^[[:space:]]*# ]] && continue
+  line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/\r$//')"
+  [[ -n "$line" ]] && MACHINES+=("$line")
+done < "$MACHINES_FILE"
+
+FILES=(); ONLY=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -f) FILES+=("$2"); shift 2 ;;
-    -u) DESKTOP_USER="$2"; shift 2 ;;
-    -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) HOSTS+=("$1"); shift ;;
+    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) ONLY+=("$1"); shift ;;
   esac
 done
-[[ ${#FILES[@]} -gt 0 ]] || FILES=("$ROOT/dist/прога узбека.exe")
-for f in "${FILES[@]}"; do [[ -f "$f" ]] || { echo "Нет файла: $f"; exit 1; }; done
-if [[ ${#HOSTS[@]} -eq 0 ]]; then
-  [[ -f "$HERE/hosts-windows.txt" ]] || { echo "Укажи IP или заполни deploy/hosts-windows.txt"; exit 1; }
-  while read -r line; do
-    line="${line%%#*}"; line="$(echo "$line" | tr -d '[:space:]')"
-    [[ -n "$line" ]] && HOSTS+=("$line")
-  done < "$HERE/hosts-windows.txt"
-fi
+[[ ${#FILES[@]} -gt 0 ]] || FILES=("$ROOT/dist/FruityHub.exe")
+for f in "${FILES[@]}"; do [[ -f "$f" ]] || { echo "Нет файла: $f (сначала собери: ./build.sh)"; exit 1; }; done
+[[ "$(uname)" == "Darwin" ]] || { echo "Скрипт для Mac (mount_smbfs)."; exit 1; }
+mkdir -p "$HERE/logs"
 
-OS="$(uname)"
-if [[ "$OS" != "Darwin" ]] && ! command -v smbclient >/dev/null; then
-  echo "Нужен smbclient: sudo apt install smbclient"; exit 1
-fi
-
-if [[ -z "${WIN_USER:-}" ]]; then
-  read -r -p "Логин Windows с правами администратора (для учётки Microsoft — почта): " WIN_USER
-fi
-if [[ -z "${WIN_PASS:-}" ]]; then
-  read -r -s -p "Пароль (не ПИН-код): " WIN_PASS; echo
-fi
-
-urlenc() { # для адреса smb:// (по байтам UTF-8 — логин может быть по-русски)
+urlenc() { # по байтам UTF-8
   local LC_ALL=C s="$1" out="" c i
   for ((i = 0; i < ${#s}; i++)); do
     c="${s:i:1}"
@@ -57,93 +52,91 @@ urlenc() { # для адреса smb:// (по байтам UTF-8 — логин 
   printf '%s' "$out"
 }
 
-port_open() { nc -z -w 3 "$1" 445 >/dev/null 2>&1; }
+# run_to N команда… — выполнить с ограничением N секунд (код 124 = не уложилась)
+run_to() { local n="$1"; shift; "$@" >>"$LOG" 2>&1 & local p=$! i
+  for ((i = 0; i < n * 2; i++)); do kill -0 $p 2>/dev/null || { wait $p; return $?; }; sleep 0.5; done
+  kill -9 $p 2>/dev/null; wait $p 2>/dev/null; return 124; }
 
-hint_access() {
-  cat <<'TXT'
-     Что проверить на том компьютере:
-       • Параметры → Сеть → профиль «Частная сеть»; включён «Общий доступ к файлам и принтерам».
-       • Учётка — администратор. Если это локальная учётка (не Microsoft), один раз выполни там
-         в командной строке от имени администратора:
-         reg add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System /v LocalAccountTokenFilterPolicy /t REG_DWORD /d 1 /f
-TXT
-}
+# ---- один ноутбук (выполняется в своём подпроцессе) ----
+deploy_one() { # ip user pass
+  local HOST="$1" USER="$2" PASS="$3"
+  LOG="$HERE/logs/$HOST.log"; : > "$LOG"
+  local T00=$SECONDS TAG="[$HOST]"; MNT=""
+  say()  { local m="$TAG [$((SECONDS - T00))с] $*"; echo "$m"; echo "$m" >> "$LOG"; }
+  cleanup() {
+    [[ -n "$MNT" && -d "$MNT" ]] || return 0
+    cd /tmp; sync
+    run_to 8 umount "$MNT" || run_to 8 diskutil unmount force "$MNT" || say "⚠ диск не отключился сам (не страшно)"
+    rmdir "$MNT" 2>/dev/null; MNT=""
+  }
+  fail() { say "✗ $*"; say "  подробности: $LOG"; cleanup; exit 1; }
+  trap cleanup EXIT
 
-declare -a REPORT
-TS="$(date +%Y%m%d-%H%M%S)"
+  say "ping"
+  local P; P="$(ping -c 4 -W 1000 "$HOST" 2>&1 | tail -2)"; echo "$P" >> "$LOG"
+  grep -q '0.0% packet loss' <<<"$P" || say "⚠ потери пакетов: $(grep -o '[0-9.]*% packet loss' <<<"$P") — сеть нестабильна"
+  nc -z -G 3 "$HOST" 445 >/dev/null 2>&1 || fail "ноутбук не отвечает (выключен, спит или закрыт общий доступ к файлам)"
 
-deploy_mac() { # $1 host
-  local host="$1" mnt dest pub
-  mnt="$(mktemp -d /tmp/uzbek-smb.XXXX)"
-  local who; who="$(urlenc "$WIN_USER")"
-  if ! mount_smbfs -N "//$who:$(urlenc "$WIN_PASS")@$host/C\$" "$mnt" 2>/tmp/uzbek-smb-err; then
-    rmdir "$mnt"
-    echo "   ✗ не пустил: $(tr -d '\n' </tmp/uzbek-smb-err)"
-    hint_access
-    return 1
-  fi
-  pub="$mnt/Users/Public"
-  if [[ -n "$DESKTOP_USER" ]]; then
-    dest="$mnt/Users/$DESKTOP_USER/Desktop"
-    [[ -d "$mnt/Users/$DESKTOP_USER/OneDrive/Desktop" ]] && dest="$mnt/Users/$DESKTOP_USER/OneDrive/Desktop"
-    [[ -d "$mnt/Users/$DESKTOP_USER/OneDrive/Рабочий стол" ]] && dest="$mnt/Users/$DESKTOP_USER/OneDrive/Рабочий стол"
-  else
-    dest="$pub/Desktop"
-  fi
-  local rc=0
-  if [[ ! -d "$dest" ]]; then
-    echo "   ✗ нет папки $(sed "s|$mnt|C:|" <<<"$dest")"; rc=1
-  else
-    for f in "${FILES[@]}"; do
-      local name; name="$(basename "$f")"
-      if ! cp "$f" "$dest/.$name.part"; then echo "   ✗ не смог скопировать $name"; rc=1; continue; fi
-      if [[ -e "$dest/$name" ]]; then
-        # запущенный exe нельзя перезаписать, но можно переименовать — убираем его с рабочего стола
-        mv "$dest/$name" "$pub/$name.old-$TS" 2>/dev/null || mv "$dest/$name" "$dest/$name.old-$TS"
-        rm -f "$pub/$name.old-"* 2>/dev/null || true
-      fi
-      mv "$dest/.$name.part" "$dest/$name"
-      echo "   ✓ $name → $(sed "s|$mnt|C:|; s|/|\\\\|g" <<<"$dest")"
-    done
-  fi
-  umount "$mnt" 2>/dev/null || diskutil unmount force "$mnt" >/dev/null 2>&1 || true
-  rmdir "$mnt" 2>/dev/null || true
-  return $rc
-}
+  say "подключаю C\$"
+  MNT="$(mktemp -d /tmp/uzbek-smb.XXXX)"
+  run_to 25 mount_smbfs -o nobrowse -N "//$(urlenc "$USER"):$(urlenc "$PASS")@$HOST/C\$" "$MNT" \
+    || { rmdir "$MNT"; MNT=""; fail "не подключился ($(tail -1 "$LOG" | tr -d '\n')). Проверь: сеть «Частная», общий доступ к файлам, права администратора; для локальной учётки — LocalAccountTokenFilterPolicy"; }
+  local D="$MNT/Users/Public/Desktop"
+  [[ -d "$D" ]] || fail "нет папки C:\\Users\\Public\\Desktop"
 
-deploy_linux() { # $1 host
-  local host="$1" dir
-  if [[ -n "$DESKTOP_USER" ]]; then dir="Users/$DESKTOP_USER/Desktop"; else dir="Users/Public/Desktop"; fi
-  local cmds="cd \"$dir\"; "
+  local f name size tmp
   for f in "${FILES[@]}"; do
-    local name; name="$(basename "$f")"
-    cmds+="put \"$f\" \".$name.part\"; rename \"$name\" \"../$name.old-$TS\"; rename \".$name.part\" \"$name\"; "
+    name="$(basename "$f")"; size=$(stat -f%z "$f"); tmp="$D/.$name.part"
+    say "копирую $name ($((size / 1048576)) МБ)"
+    ( cp "$f" "$tmp" 2>>"$LOG" ) & local cp=$!
+    local last=-1 stall=0 S=$SECONDS shown=-1 sz pct
+    while kill -0 $cp 2>/dev/null; do
+      sleep 2; sz=$(stat -f%z "$tmp" 2>/dev/null || echo 0); pct=$((sz * 100 / size))
+      (( pct / 25 != shown )) && { shown=$((pct / 25)); say "  $pct%"; }
+      [[ "$sz" == "$last" ]] && stall=$((stall + 2)) || stall=0; last=$sz
+      if (( stall >= 30 )); then kill -9 $cp 2>/dev/null; rm -f "$tmp" 2>/dev/null
+        fail "копирование встало на $pct% — сеть/Wi-Fi или антивирус на ноутбуке"; fi
+    done
+    wait $cp || fail "ошибка копирования (см. журнал)"
+    [[ "$(stat -f%z "$tmp")" == "$size" ]] || fail "размер не совпал — файл повреждён при передаче"
+    say "  скопировано за $((SECONDS - S)) с, ставлю на место"
+    if [[ -e "$D/$name" ]] && ! run_to 10 mv -f "$tmp" "$D/$name"; then
+      say "  старый $name занят (приложение запущено) — отодвигаю"
+      run_to 10 mv "$D/$name" "$D/$name.old-$$" || fail "не смог отодвинуть старый файл"
+      run_to 10 mv "$tmp" "$D/$name" || fail "не смог поставить новый файл"
+      rm -f "$D/$name.old-"* 2>/dev/null
+    elif [[ ! -e "$D/$name" ]]; then
+      run_to 10 mv "$tmp" "$D/$name" || fail "не смог переименовать"
+    fi
+    [[ "$(stat -f%z "$D/$name")" == "$size" ]] || fail "после замены размер не тот"
+    say "✓ $name → C:\\Users\\Public\\Desktop"
   done
-  local out
-  if out="$(printf '%s\n%s\n' "username=$WIN_USER" "password=$WIN_PASS" >/tmp/uzbek-smb-auth; \
-            smbclient "//$host/C\$" -A /tmp/uzbek-smb-auth -c "$cmds" 2>&1)"; then
-    rm -f /tmp/uzbek-smb-auth
-    for f in "${FILES[@]}"; do echo "   ✓ $(basename "$f") → C:\\${dir//\//\\}"; done
-  else
-    rm -f /tmp/uzbek-smb-auth
-    echo "   ✗ $(tail -1 <<<"$out")"
-    hint_access
-    return 1
-  fi
+  # старое название приложения — убираем с рабочего стола, чтобы не было двух ярлыков
+  for oldname in "прога узбека.exe"; do
+    if [[ -e "$D/$oldname" ]]; then
+      run_to 10 rm -f "$D/$oldname" || run_to 10 mv "$D/$oldname" "$D/.$oldname.old-$$" || true
+      say "  убрал старый «$oldname»"
+    fi
+  done
+  cleanup
+  say "готово за $((SECONDS - T00)) с"
 }
 
-for host in "${HOSTS[@]}"; do
-  echo "→ $host"
-  if ! port_open "$host"; then
-    echo "   ✗ компьютер не отвечает (выключен, не в этой сети или закрыт общий доступ к файлам)"
-    REPORT+=("✗ $host — не в сети")
-    continue
-  fi
-  if [[ "$OS" == "Darwin" ]]; then deploy_mac "$host" && ok=1 || ok=""; else deploy_linux "$host" && ok=1 || ok=""; fi
-  if [[ -n "$ok" ]]; then REPORT+=("✓ $host"); else REPORT+=("✗ $host — не получилось"); fi
+# ---- запуск на всех ноутбуках одновременно ----
+PIDS=(); HOSTS=()
+for m in "${MACHINES[@]}"; do
+  IFS='|' read -r host user pass <<<"$m"
+  if [[ ${#ONLY[@]} -gt 0 ]] && [[ " ${ONLY[*]} " != *" $host "* ]]; then continue; fi
+  ( deploy_one "$host" "$user" "$pass" ) &
+  PIDS+=($!); HOSTS+=("$host")
 done
+[[ ${#PIDS[@]} -gt 0 ]] || { echo "Нет такого ноутбука в списке"; exit 1; }
 
+BAD=0
 echo
-echo "Итого:"
-for r in "${REPORT[@]}"; do echo "  $r"; done
-[[ "${REPORT[*]}" != *"✗"* ]]
+for i in "${!PIDS[@]}"; do
+  if wait "${PIDS[$i]}"; then R="✓ ${HOSTS[$i]}"; else R="✗ ${HOSTS[$i]} — не получилось (журнал: deploy/logs/${HOSTS[$i]}.log)"; BAD=1; fi
+  REP+=("$R")
+done
+echo "Итого:"; for r in "${REP[@]}"; do echo "  $r"; done
+exit $BAD

@@ -32,7 +32,12 @@ func toolsBinDirs() []string {
 	if runtime.GOOS == "windows" {
 		mg := filepath.Join(toolsDir(), "mingit", "cmd")
 		if _, err := os.Stat(mg); err == nil {
-			d = append(d, mg, filepath.Join(toolsDir(), "mingit", "mingw64", "bin"))
+			d = append(d, mg)
+			for _, sub := range []string{"ucrt64", "mingw64", "clangarm64"} {
+				if b := filepath.Join(toolsDir(), "mingit", sub, "bin"); dirExists(b) {
+					d = append(d, b)
+				}
+			}
 		}
 	}
 	return d
@@ -40,11 +45,21 @@ func toolsBinDirs() []string {
 
 func gitBinary() string {
 	if runtime.GOOS == "windows" {
-		p := filepath.Join(toolsDir(), "mingit", "cmd", "git.exe")
-		if _, err := os.Stat(p); err == nil {
-			if _, err2 := exec.LookPath("git"); err2 != nil {
+		if _, err := exec.LookPath("git"); err == nil {
+			return "git"
+		}
+		// Git for Windows, установленный обычным установщиком, но не попавший в PATH, — надёжнее нашего MinGit
+		for _, pf := range []string{os.Getenv("ProgramFiles"), os.Getenv("ProgramW6432"), os.Getenv("LOCALAPPDATA") + `\Programs`} {
+			if pf == "" {
+				continue
+			}
+			if p := filepath.Join(pf, "Git", "cmd", "git.exe"); exists(p) {
 				return p
 			}
+		}
+		p := filepath.Join(toolsDir(), "mingit", "cmd", "git.exe")
+		if _, err := os.Stat(p); err == nil {
+			return p
 		}
 	}
 	return "git"

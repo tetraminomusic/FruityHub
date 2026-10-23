@@ -484,3 +484,58 @@ func (f *File) RewritePluginPaths(fn func(old string) string) int {
 	}
 	return n
 }
+
+const (
+	evTitle   = 192 + 2  // 194 TEXT: Project info → Title
+	evFLBuild = 128 + 31 // 159 DWORD: номер сборки FL
+)
+
+// Title — название проекта из окна Project info в FL Studio.
+func (f *File) Title() string {
+	for _, e := range f.Events {
+		if e.ID == evTitle {
+			return f.text(e.Data)
+		}
+	}
+	return ""
+}
+
+// SetTitle пишет название в Project info. Если такого события нет, вставляет его сразу после версии FL
+// (там, где его кладёт сама FL Studio). Возвращает true, если файл изменился.
+func (f *File) SetTitle(s string) bool {
+	data := f.encodeText(s)
+	for i, e := range f.Events {
+		if e.ID == evTitle {
+			if bytes.Equal(e.Data, data) {
+				return false
+			}
+			f.Events[i].Data = data
+			return true
+		}
+	}
+	if s == "" {
+		return false
+	}
+	at := 0
+	for i, e := range f.Events {
+		if i > 40 {
+			break
+		}
+		if e.ID == evFLVersion || e.ID == evFLBuild {
+			at = i + 1
+		}
+	}
+	ev := Event{ID: evTitle, Data: data}
+	f.Events = append(f.Events[:at], append([]Event{ev}, f.Events[at:]...)...)
+	return true
+}
+
+// Build — номер сборки FL, в которой сохранён проект (0, если не записан).
+func (f *File) Build() uint32 {
+	for _, e := range f.Events {
+		if e.ID == evFLBuild && len(e.Data) == 4 {
+			return binary.LittleEndian.Uint32(e.Data)
+		}
+	}
+	return 0
+}

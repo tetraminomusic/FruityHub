@@ -125,3 +125,20 @@ func PickAnyFile() (string, error) {
 	out, err := c.Output()
 	return strings.TrimSpace(string(out)), err
 }
+
+// OpenFile открывает файл программой по умолчанию (.flp — в FL Studio).
+func OpenFile(p string) error {
+	return exec.Command("rundll32", "url.dll,FileProtocolHandler", p).Start()
+}
+
+// moveDirToTrash отправляет папку в Корзину.
+func moveDirToTrash(p string) error {
+	ps := `Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($env:UZBEK_TRASH, 'OnlyErrorDialogs', 'SendToRecycleBin')`
+	c := exec.Command("powershell", "-NoProfile", "-Command", ps)
+	c.Env = append(os.Environ(), "UZBEK_TRASH="+p)
+	hideWindow(c)
+	if out, err := c.CombinedOutput(); err != nil {
+		return fmt.Errorf("%v %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}

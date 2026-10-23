@@ -1,4 +1,4 @@
-// прога узбека — совместная работа над проектами FL Studio: проекты на GitHub,
+// FruityHub — совместная работа над проектами FL Studio: проекты на GitHub,
 // пользователи, приглашения и передача плагинов — через свой сервер.
 package main
 
@@ -37,6 +37,11 @@ func main() {
 		} else {
 			fmt.Println(os.Getenv("FLSYNC_TOKEN"))
 		}
+		return
+	}
+	// пробная загрузка плагина в отдельном процессе («Проверить плагин»)
+	if p := os.Getenv("FRUITYHUB_PROBE"); p != "" {
+		app.RunProbe(p)
 		return
 	}
 	app.Version = version
