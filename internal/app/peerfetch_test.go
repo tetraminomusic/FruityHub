@@ -20,6 +20,9 @@ func TestPeerFetchLFS(t *testing.T) {
 			if lan {
 				testLAN = []string{"127.0.0.1"}
 				t.Cleanup(func() { testLAN = nil })
+			} else {
+				directOff.Store(true) // на CI-машине есть настоящая локальная сеть — принудительно идём через сервер
+				t.Cleanup(func() { directOff.Store(false) })
 			}
 			root := t.TempDir()
 			t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "cfg"))
