@@ -17,6 +17,9 @@ var OnFocus func()
 type ProjectNotes struct {
 	Unread  int    `json:"unread"` // new comments from others
 	Behind  int    `json:"behind"`
+	Ahead   int    `json:"ahead"`   // мои коммиты, ещё не отправленные (-1 — на GitHub ещё нет ветки)
+	Changed int    `json:"changed"` // изменённые, но ещё не отправленные файлы
+	Remote  bool   `json:"remote"`  // есть репозиторий на GitHub
 	Checked string `json:"checked"`
 }
 
@@ -38,7 +41,15 @@ func (s *Server) computeNotes(path string) *ProjectNotes {
 			n.Unread++
 		}
 	}
-	_, n.Behind = g.AheadBehind()
+	n.Ahead, n.Behind = g.AheadBehind()
+	n.Remote = g.Remote() != ""
+	if st, err := g.Status(); err == nil {
+		for _, e := range st {
+			if !e.Hidden {
+				n.Changed++
+			}
+		}
+	}
 	s.notesMu.Lock()
 	s.notes[path] = n
 	s.notesMu.Unlock()

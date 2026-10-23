@@ -55,3 +55,21 @@ func TestTitle(t *testing.T) {
 		t.Fatalf("замена: %q %d", h.Title(), len(h.Events))
 	}
 }
+
+func TestArtist(t *testing.T) {
+	f, _ := Parse(mini())
+	if !f.SetTitle("Трек") || !f.SetArtist("Кирюха") {
+		t.Fatal("должно измениться")
+	}
+	g, err := Parse(f.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Artist() != "Кирюха" || g.Title() != "Трек" || g.Info().Artist != "Кирюха" {
+		t.Fatalf("%q %q", g.Artist(), g.Title())
+	}
+	// артист после названия, остальное на месте
+	if g.Events[2].ID != EvTitle || g.Events[3].ID != EvArtists || g.Events[4].ID != 64 {
+		t.Fatalf("порядок: %v", []byte{g.Events[2].ID, g.Events[3].ID, g.Events[4].ID})
+	}
+}

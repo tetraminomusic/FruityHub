@@ -70,6 +70,8 @@ type Plugin struct {
 // Info is what the app needs from a project.
 type Info struct {
 	FLVersion string   `json:"flVersion"`
+	Title     string   `json:"title,omitempty"`
+	Artist    string   `json:"artist,omitempty"`
 	Samples   []string `json:"samples"` // explicit channel / audio clip paths
 	Embedded  []string `json:"embedded"`
 	Plugins   []Plugin `json:"plugins"`
@@ -313,7 +315,7 @@ func parseWrapper(d []byte) (name, vendor, path string) {
 
 // Info extracts samples, plugins and version.
 func (f *File) Info() Info {
-	info := Info{FLVersion: f.Version()}
+	info := Info{FLVersion: f.Version(), Title: f.Title(), Artist: f.Artist()}
 	seenS := map[string]bool{}
 	seenE := map[string]bool{}
 	where := "channel"
@@ -490,10 +492,22 @@ const (
 	evFLBuild = 128 + 31 // 159 DWORD: номер сборки FL
 )
 
+const (
+	EvTitle   = evTitle
+	EvGenre   = 192 + 14 // 206 TEXT: Project info → Genre
+	EvArtists = 192 + 15 // 207 TEXT: Project info → Author (артист)
+)
+
 // Title — название проекта из окна Project info в FL Studio.
-func (f *File) Title() string {
+func (f *File) Title() string { return f.InfoText(evTitle) }
+
+// Artist — артист (поле Author в Project info).
+func (f *File) Artist() string { return f.InfoText(EvArtists) }
+
+// InfoText — текстовое поле Project info (название, артист, жанр).
+func (f *File) InfoText(id byte) string {
 	for _, e := range f.Events {
-		if e.ID == evTitle {
+		if e.ID == id {
 			return f.text(e.Data)
 		}
 	}
@@ -502,10 +516,17 @@ func (f *File) Title() string {
 
 // SetTitle пишет название в Project info. Если такого события нет, вставляет его сразу после версии FL
 // (там, где его кладёт сама FL Studio). Возвращает true, если файл изменился.
-func (f *File) SetTitle(s string) bool {
+func (f *File) SetTitle(s string) bool { return f.SetInfoText(evTitle, s) }
+
+// SetArtist пишет артиста (Author) в Project info.
+func (f *File) SetArtist(s string) bool { return f.SetInfoText(EvArtists, s) }
+
+// SetInfoText пишет текстовое поле Project info. Новое событие кладётся после версии FL и уже
+// записанных полей Project info (FL читает их в любом порядке, но так файл похож на сохранённый самой FL).
+func (f *File) SetInfoText(id byte, s string) bool {
 	data := f.encodeText(s)
 	for i, e := range f.Events {
-		if e.ID == evTitle {
+		if e.ID == id {
 			if bytes.Equal(e.Data, data) {
 				return false
 			}
@@ -518,14 +539,14 @@ func (f *File) SetTitle(s string) bool {
 	}
 	at := 0
 	for i, e := range f.Events {
-		if i > 40 {
+		if i > 60 {
 			break
 		}
-		if e.ID == evFLVersion || e.ID == evFLBuild {
+		if e.ID == evFLVersion || e.ID == evFLBuild || e.ID == evTitle || e.ID == EvGenre || e.ID == EvArtists {
 			at = i + 1
 		}
 	}
-	ev := Event{ID: evTitle, Data: data}
+	ev := Event{ID: id, Data: data}
 	f.Events = append(f.Events[:at], append([]Event{ev}, f.Events[at:]...)...)
 	return true
 }

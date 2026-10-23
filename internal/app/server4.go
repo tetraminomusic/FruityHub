@@ -448,6 +448,9 @@ func (s *Server) routes4(api func(string, func(*http.Request) (any, error))) {
 		s.cfg.LastParent = parent
 		dir, err := CloneServerProject(s.cfg, j, hp, parent)
 		addLocal(dir, str(b, "group"))
+		if err == nil {
+			s.autoRequestMissing(j, dir)
+		}
 		return map[string]string{"path": dir}, err
 	})
 	api("/api/available", func(r *http.Request) (any, error) {
@@ -503,6 +506,9 @@ func (s *Server) routes4(api func(string, func(*http.Request) (any, error))) {
 		s.cfg.LastParent = parent
 		dir, err := CloneServerProject(s.cfg, j, hp, parent)
 		addLocal(dir, str(b, "group"))
+		if err == nil {
+			s.autoRequestMissing(j, dir)
+		}
 		return map[string]string{"path": dir}, err
 	})
 

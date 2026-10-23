@@ -101,6 +101,51 @@ func (p *Project) FLTitle() (string, error) {
 	return f.Title(), nil
 }
 
+// FLArtist — артист (Author) в Project info главного .flp.
+func (p *Project) FLArtist() string {
+	rel := p.MainFLP()
+	if rel == "" {
+		return ""
+	}
+	info, err := parseFLPCached(filepath.Join(p.Dir, filepath.FromSlash(rel)))
+	if err != nil {
+		return ""
+	}
+	return info.Artist
+}
+
+// SetFLArtist пишет артиста в Project info главного .flp (с резервной копией).
+func (p *Project) SetFLArtist(artist string) (bool, error) {
+	return p.editMainFLP("артист", func(f *flp.File) bool { return f.SetArtist(strings.TrimSpace(artist)) })
+}
+
+func (p *Project) editMainFLP(what string, fn func(f *flp.File) bool) (bool, error) {
+	rel := p.MainFLP()
+	if rel == "" {
+		return false, errors.New("в папке проекта нет .flp")
+	}
+	abs := filepath.Join(p.Dir, filepath.FromSlash(rel))
+	raw, err := os.ReadFile(abs)
+	if err != nil {
+		return false, err
+	}
+	f, err := flp.Parse(raw)
+	if err != nil {
+		return false, err
+	}
+	if !fn(f) {
+		return false, nil
+	}
+	bdir := filepath.Join(p.Dir, ".flsync-local", "backup")
+	os.MkdirAll(bdir, 0o755)
+	os.WriteFile(filepath.Join(bdir, strings.ReplaceAll(rel, "/", "_")+"."+time.Now().Format("20060102-150405")+".flp"), raw, 0o644)
+	if err := os.WriteFile(abs, f.Bytes(), 0o644); err != nil {
+		return false, err
+	}
+	DevLog("info", 0, false, "Project info (%s) в %s изменён", what, rel)
+	return true, nil
+}
+
 // SetFLTitle пишет название в Project info главного .flp (с резервной копией в .flsync-local/backup).
 func (p *Project) SetFLTitle(title string) (bool, error) {
 	rel := p.MainFLP()
@@ -162,21 +207,38 @@ func (s *Server) TrashProject(path string) error {
 // ---------- версия FL Studio ----------
 
 var (
-	flVerMu   sync.Mutex
-	flVerAt   time.Time
-	flVerList []string
+	flVerMu sync.Mutex
+	flVerAt time.Time
 )
 
 var plistVerRe = regexp.MustCompile(`<key>CFBundleShortVersionString</key>\s*<string>([^<]+)</string>`)
 
+// FLApp — установленная FL Studio: версия и программа.
+type FLApp struct {
+	Version string `json:"version"`
+	Path    string `json:"path"`
+	Name    string `json:"name"`
+}
+
+var flAppList []FLApp
+
 // InstalledFLVersions — версии FL Studio, установленные на этом компьютере (новые первыми).
 func InstalledFLVersions() []string {
+	var out []string
+	for _, a := range InstalledFLApps() {
+		out = append(out, a.Version)
+	}
+	return out
+}
+
+// InstalledFLApps — установленные FL Studio (новые первыми).
+func InstalledFLApps() []FLApp {
 	flVerMu.Lock()
 	defer flVerMu.Unlock()
 	if !flVerAt.IsZero() && time.Since(flVerAt) < 10*time.Minute {
-		return flVerList
+		return flAppList
 	}
-	var out []string
+	var out []FLApp
 	switch runtime.GOOS {
 	case "darwin":
 		home, _ := os.UserHomeDir()
@@ -185,7 +247,7 @@ func InstalledFLVersions() []string {
 			for _, m := range ms {
 				if b, err := os.ReadFile(filepath.Join(m, "Contents", "Info.plist")); err == nil {
 					if v := plistVerRe.FindSubmatch(b); v != nil {
-						out = append(out, strings.TrimSpace(string(v[1])))
+						out = append(out, FLApp{Version: strings.TrimSpace(string(v[1])), Path: m, Name: strings.TrimSuffix(filepath.Base(m), ".app")})
 					}
 				}
 			}
@@ -209,17 +271,45 @@ func InstalledFLVersions() []string {
 			cmd := exec.Command("powershell", "-NoProfile", "-Command", "@("+strings.Join(q, ",")+") | ForEach-Object { (Get-Item -LiteralPath $_).VersionInfo.FileVersion }")
 			hideWindow(cmd)
 			if b, err := cmd.Output(); err == nil {
-				for _, l := range strings.Split(string(b), "\n") {
-					if l = strings.TrimSpace(l); l != "" {
-						out = append(out, strings.ReplaceAll(l, ",", "."))
+				i := 0
+				for _, l := range strings.Split(strings.ReplaceAll(string(b), "\r", ""), "\n") {
+					if l = strings.TrimSpace(l); l != "" && i < len(exes) {
+						out = append(out, FLApp{Version: strings.ReplaceAll(l, ",", "."), Path: exes[i], Name: filepath.Base(filepath.Dir(exes[i])) + " (" + filepath.Base(exes[i]) + ")"})
 					}
+					i++
 				}
 			}
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return newerVersion(out[i], out[j]) })
-	flVerList, flVerAt = out, time.Now()
+	sort.Slice(out, func(i, j int) bool { return newerVersion(out[i].Version, out[j].Version) })
+	flAppList, flVerAt = out, time.Now()
 	return out
+}
+
+// LaunchWith открывает главный .flp в выбранной FL Studio (путь из InstalledFLApps).
+func (p *Project) LaunchWith(app string) (string, error) {
+	ok := false
+	for _, a := range InstalledFLApps() {
+		if a.Path == app {
+			ok = true
+		}
+	}
+	if !ok {
+		return "", errors.New("такой FL Studio на этом компьютере нет")
+	}
+	rel := p.MainFLP()
+	if rel == "" {
+		return "", errors.New("в папке проекта нет .flp")
+	}
+	path := filepath.Join(p.Dir, filepath.FromSlash(rel))
+	var cmd *exec.Cmd
+	if runtime.GOOS == "darwin" {
+		cmd = exec.Command("open", "-a", app, path)
+	} else {
+		cmd = exec.Command(app, path)
+		cmd.Dir = filepath.Dir(app)
+	}
+	return rel, cmd.Start()
 }
 
 func majorMinor(v string) string {
@@ -402,11 +492,17 @@ func atoiDef(s string, def int) int {
 
 // projectModified — когда проект последний раз меняли: самое свежее время .flp в корне папки
 // (FL пишет .flp при каждом сохранении, «Получить» тоже обновляет его). Нет .flp — время самой папки.
-func projectModified(dir string) int64 {
+func projectModified(dir string) int64 { m, _ := projectMeta(dir); return m }
+
+// projectArtist — артист (Author в Project info) самого свежего .flp в корне проекта.
+func projectArtist(dir string) string { _, a := projectMeta(dir); return a }
+
+func projectMeta(dir string) (int64, string) {
 	var best time.Time
+	bestPath := ""
 	ents, err := os.ReadDir(dir)
 	if err != nil {
-		return 0
+		return 0, ""
 	}
 	for _, e := range ents {
 		n := strings.ToLower(e.Name())
@@ -414,7 +510,7 @@ func projectModified(dir string) int64 {
 			continue
 		}
 		if fi, err := e.Info(); err == nil && fi.ModTime().After(best) {
-			best = fi.ModTime()
+			best, bestPath = fi.ModTime(), filepath.Join(dir, e.Name())
 		}
 	}
 	if best.IsZero() {
@@ -422,5 +518,11 @@ func projectModified(dir string) int64 {
 			best = fi.ModTime()
 		}
 	}
-	return best.Unix()
+	artist := ""
+	if bestPath != "" {
+		if info, err := parseFLPCached(bestPath); err == nil {
+			artist = info.Artist
+		}
+	}
+	return best.Unix(), artist
 }

@@ -92,11 +92,17 @@ func (s *Server) routes5(api func(string, func(r *http.Request) (any, error))) {
 		return res, nil
 	})
 	api("/api/project/launch", func(r *http.Request) (any, error) {
-		p, err := s.project(str(body(r), "path"), nil)
+		lb := body(r)
+		p, err := s.project(str(lb, "path"), nil)
 		if err != nil {
 			return nil, err
 		}
-		rel, err := p.Launch()
+		var rel string
+		if app := str(lb, "app"); app != "" {
+			rel, err = p.LaunchWith(app)
+		} else {
+			rel, err = p.Launch()
+		}
 		return map[string]any{"flp": rel, "compat": p.FLCompat()}, err
 	})
 	api("/api/project/delete-files", func(r *http.Request) (any, error) {
@@ -114,14 +120,38 @@ func (s *Server) routes5(api func(string, func(r *http.Request) (any, error))) {
 		if err != nil {
 			return nil, err
 		}
+		changed := false
 		if t, ok := b["title"].(string); ok {
-			changed, err := p.SetFLTitle(t)
-			return map[string]any{"changed": changed}, err
+			c, err := p.SetFLTitle(t)
+			if err != nil {
+				return nil, err
+			}
+			changed = changed || c
+		}
+		if a, ok := b["artist"].(string); ok {
+			c, err := p.SetFLArtist(a)
+			if err != nil {
+				return nil, err
+			}
+			changed = changed || c
+		}
+		if _, ok := b["title"]; ok {
+			return map[string]any{"changed": changed}, nil
+		}
+		if _, ok := b["artist"]; ok {
+			return map[string]any{"changed": changed}, nil
 		}
 		t, err := p.FLTitle()
-		return map[string]any{"title": t, "flp": p.MainFLP(), "compat": p.FLCompat()}, err
+		return map[string]any{"title": t, "artist": p.FLArtist(), "flp": p.MainFLP(), "compat": p.FLCompat()}, err
 	})
 	api("/api/flversions", func(r *http.Request) (any, error) { return InstalledFLVersions(), nil })
+	api("/api/flapps", func(r *http.Request) (any, error) {
+		a := InstalledFLApps()
+		if a == nil {
+			a = []FLApp{}
+		}
+		return a, nil
+	})
 
 	// ----- репозитории на GitHub -----
 	api("/api/github/repos", func(r *http.Request) (any, error) {
@@ -154,6 +184,15 @@ func (s *Server) routes5(api func(string, func(r *http.Request) (any, error))) {
 			if err := s.TrashProject(p); err != nil {
 				return map[string]any{"deleted": full, "trashError": err.Error()}, nil
 			}
+		} else if p != "" && b["unlist"] == true { // убрать из списка FruityHub, файлы на месте
+			var keep []LocalProject
+			for _, lp := range s.cfg.Projects {
+				if !samePath(lp.Path, p) {
+					keep = append(keep, lp)
+				}
+			}
+			s.cfg.Projects = keep
+			s.cfg.Save()
 		}
 		return map[string]any{"deleted": full}, nil
 	})

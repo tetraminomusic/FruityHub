@@ -336,7 +336,8 @@ type ProjectSummary struct {
 	Shared   SharedSettings `json:"shared"`
 	Machines []Machine      `json:"machines"`
 	LastSync string         `json:"lastSync"`
-	Modified int64          `json:"modified"` // когда последний раз сохраняли .flp (unix), для сортировки
+	Artist   string         `json:"artist,omitempty"` // Author из Project info самого свежего .flp
+	Modified int64          `json:"modified"`         // когда последний раз сохраняли .flp (unix), для сортировки
 	Adopted  bool           `json:"adopted"`
 	Extra    []string       `json:"extraFlps"`
 	MainFLP  string         `json:"mainFlp"`
@@ -422,7 +423,7 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 			pr := &Project{Dir: p.Path, Cfg: s.cfg}
 			ps.Lock = pr.ReadLock()
 			ps.IsRepo = pr.git().IsRepo()
-			ps.Modified = projectModified(p.Path)
+			ps.Modified, ps.Artist = projectMeta(p.Path)
 			list = append(list, ps)
 		}
 		sharing := s.cfg.Sharing
@@ -442,6 +443,9 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 			SortMode        *string  `json:"sortMode"`
 			AutoUpdate      *bool    `json:"autoUpdate"`
 			ErrorReports    *bool    `json:"errorReports"`
+			AutoFetch       *bool    `json:"autoFetchPlugins"`
+			SeenVersion     *string  `json:"seenVersion"`
+			GuideSeen       *bool    `json:"guideSeen"`
 		}
 		if err := decode(r, &req); err != nil {
 			return nil, err
@@ -460,6 +464,15 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 		}
 		if req.ErrorReports != nil {
 			s.cfg.NoErrorReports = !*req.ErrorReports
+		}
+		if req.AutoFetch != nil {
+			s.cfg.AutoFetchPlugins = *req.AutoFetch
+		}
+		if req.SeenVersion != nil {
+			s.cfg.SeenVersion = *req.SeenVersion
+		}
+		if req.GuideSeen != nil {
+			s.cfg.GuideSeen = *req.GuideSeen
 		}
 		if req.Proxy != nil {
 			s.cfg.Proxy = strings.TrimSpace(*req.Proxy)

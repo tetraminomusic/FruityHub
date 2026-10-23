@@ -714,3 +714,24 @@ func TestReceiveUnrelatedHistories(t *testing.T) {
 		run(b, "push", "-q", "origin", "HEAD:main")
 	})
 }
+
+func TestMissingPluginRequests(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "cfg"))
+	t.Setenv("HOME", filepath.Join(root, "home"))
+	t.Cleanup(func() { scanMu.Lock(); scanCache = nil; scanMu.Unlock() })
+	scanMu.Lock()
+	scanCache = nil
+	scanMu.Unlock()
+	dir := filepath.Join(root, "proj")
+	writeF(t, filepath.Join(dir, "Track.flp"), string(synthFLP("vox.wav")))
+	writeJSON(filepath.Join(dir, ".flsync", "machines", "mac-friend.json"), Machine{User: "кирюха на маке", OS: "macOS",
+		Plugins: []InstalledPlugin{{Name: "Serum", Format: "VST3", Version: "1.3"}}})
+	writeJSON(filepath.Join(dir, ".flsync", "machines", "win-friend.json"), Machine{User: "Кирюха на MSI", OS: OSName(),
+		Plugins: []InstalledPlugin{{Name: "Serum", Format: "VST3", Version: "1.3"}}})
+	p := &Project{Dir: dir, Cfg: &Config{UserName: "me"}, Job: &Job{}}
+	got := missingPluginRequests(p)
+	if len(got) != 1 || len(got["Кирюха на MSI"]) != 1 || got["Кирюха на MSI"][0].Plugin != "Serum" {
+		t.Fatalf("должен попросить Serum у того, у кого та же система: %+v", got)
+	}
+}

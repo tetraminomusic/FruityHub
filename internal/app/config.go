@@ -28,25 +28,28 @@ type Group struct {
 
 // Config is the per-machine app configuration (never committed).
 type Config struct {
-	UserName        string         `json:"userName"` // nick on the server (= in the app)
-	UserID          string         `json:"userId,omitempty"`
-	GitHubLogin     string         `json:"githubLogin,omitempty"`
-	Server          string         `json:"server,omitempty"`      // server address (empty = built-in)
-	DeviceToken     string         `json:"deviceToken,omitempty"` // this device's key on the server
-	Sharing         string         `json:"sharing,omitempty"`     // who may download plugins from me: off|ask|members|all
-	Token           string         `json:"token,omitempty"`       // GitHub token: projects are the user's own repos
-	Proxy           string         `json:"proxy,omitempty"`       // прокси для GitHub, например http://127.0.0.1:10809 (пусто = авто)
-	ExtraPluginDirs []string       `json:"extraPluginDirs"`
-	Projects        []LocalProject `json:"projects"`
-	Groups          []Group        `json:"groups,omitempty"`
-	LastParent      string         `json:"lastParent,omitempty"`
-	BgDim           int            `json:"bgDim,omitempty"`    // затемнение фона, % (0 = по умолчанию)
-	DevMode         bool           `json:"devMode,omitempty"`  // режим разработчика: журнал команд, админка сервера
-	AdminKey        string         `json:"adminKey,omitempty"` // ключ администратора сервера
-	SkipUpdate      string         `json:"skipUpdate,omitempty"`
-	AutoUpdate      bool           `json:"autoUpdate,omitempty"`     // ставить обновления сами, когда ничего не передаётся
-	NoErrorReports  bool           `json:"noErrorReports,omitempty"` // не отправлять свои ошибки в журнал сервера
-	SortMode        string         `json:"sortMode,omitempty"`       // порядок списка проектов: manual, name, name-desc, modified, modified-asc
+	UserName         string         `json:"userName"` // nick on the server (= in the app)
+	UserID           string         `json:"userId,omitempty"`
+	GitHubLogin      string         `json:"githubLogin,omitempty"`
+	Server           string         `json:"server,omitempty"`      // server address (empty = built-in)
+	DeviceToken      string         `json:"deviceToken,omitempty"` // this device's key on the server
+	Sharing          string         `json:"sharing,omitempty"`     // who may download plugins from me: off|ask|members|all
+	Token            string         `json:"token,omitempty"`       // GitHub token: projects are the user's own repos
+	Proxy            string         `json:"proxy,omitempty"`       // прокси для GitHub, например http://127.0.0.1:10809 (пусто = авто)
+	ExtraPluginDirs  []string       `json:"extraPluginDirs"`
+	Projects         []LocalProject `json:"projects"`
+	Groups           []Group        `json:"groups,omitempty"`
+	LastParent       string         `json:"lastParent,omitempty"`
+	BgDim            int            `json:"bgDim,omitempty"`    // затемнение фона, % (0 = по умолчанию)
+	DevMode          bool           `json:"devMode,omitempty"`  // режим разработчика: журнал команд, админка сервера
+	AdminKey         string         `json:"adminKey,omitempty"` // ключ администратора сервера
+	SkipUpdate       string         `json:"skipUpdate,omitempty"`
+	AutoUpdate       bool           `json:"autoUpdate,omitempty"`
+	AutoFetchPlugins bool           `json:"autoFetchPlugins,omitempty"` // после скачивания проекта запросить недостающие плагины
+	SeenVersion      string         `json:"seenVersion,omitempty"`      // версия, для которой уже показали «Что нового»
+	GuideSeen        bool           `json:"guideSeen,omitempty"`        // показали знакомство с программой     // ставить обновления сами, когда ничего не передаётся
+	NoErrorReports   bool           `json:"noErrorReports,omitempty"`   // не отправлять свои ошибки в журнал сервера
+	SortMode         string         `json:"sortMode,omitempty"`         // порядок списка проектов: manual, name, name-desc, modified, modified-asc
 
 	hub *Hub
 }

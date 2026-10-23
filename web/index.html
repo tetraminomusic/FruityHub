@@ -58,6 +58,19 @@ aside .list{flex:1;overflow:auto;padding:8px}
 .badge.v{background:rgba(167,139,250,.22);color:#d6c9ff}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
 .dot.ok{background:var(--ok)} .dot.me{background:var(--accent)} .dot.other{background:var(--bad)}
+.dot.none{background:transparent;box-shadow:inset 0 0 0 1.5px var(--muted)} .dot.local{background:#5aa9ff} .dot.behind{background:#f7d038} .dot.both{background:linear-gradient(90deg,#5aa9ff 50%,#f7d038 50%)}
+.dot.mine{box-shadow:0 0 0 2px rgba(247,165,49,.55)}
+.pitem .nn{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.2}
+.pitem .art{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.legend{display:flex;flex-wrap:wrap;gap:4px 10px;padding:6px 10px;font-size:11px;color:var(--muted)} .legend span{display:inline-flex;align-items:center;gap:4px}
+/* полосы прокрутки: тонкие и тёмные, без серого системного ползунка (Windows) */
+*{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) transparent}
+::-webkit-scrollbar{width:8px;height:8px;background:transparent}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.28);background-clip:padding-box;border:2px solid transparent}
+::-webkit-scrollbar-corner{background:transparent}
+html,body{overflow:hidden}
 aside .bottom{padding:10px;display:grid;gap:6px;border-top:1px solid var(--line)}
 main{flex:1;overflow:auto;padding:20px 26px}
 h1{font-size:23px;margin:0;text-shadow:0 1px 12px rgba(0,0,0,.5)}
@@ -187,6 +200,7 @@ tr.prow{cursor:pointer} tr.prow:hover td{background:rgba(255,255,255,.04)} tr.pr
   <button class="ghost" onclick="openTransfers()">Передачи</button>
   <button class="ghost" onclick="openJournal()">Журнал</button>
   <button class="ghost" onclick="openSettings()">Настройки</button>
+  <button class="ghost" onclick="openGuide()" title="Как пользоваться FruityHub">?</button>
   <button class="ghost" id="quitBtn" title="Закрыть" onclick="quitApp()" style="display:none">⏻</button>
 </header>
 <div class="wrap">
@@ -195,6 +209,7 @@ tr.prow{cursor:pointer} tr.prow:hover td{background:rgba(255,255,255,.04)} tr.pr
     <div class="stabs"><div class="stab sel" id="st_my" onclick="sideTab('my')">Мои проекты</div><div class="stab" id="st_av" onclick="sideTab('av')">Доступные<span class="badge" id="avcnt" style="display:none"></span></div></div>
     <div class="sortbar" id="sortbar"></div>
     <div class="list" id="plist"></div>
+    <div class="legend" id="legend"></div>
     <div class="list" id="alist" style="display:none"></div>
     <div class="bottom">
       <div class="row" style="flex-wrap:nowrap;gap:6px"><button style="flex:1" onclick="addProject()">＋ Добавить проект</button><button title="Новая папка в списке" onclick="newGroup()">＋</button></div>
@@ -206,6 +221,7 @@ tr.prow{cursor:pointer} tr.prow:hover td{background:rgba(255,255,255,.04)} tr.pr
 <div class="tasks" id="tasks"></div>
 
 <script>
+const TOKEN_URL='https://github.com/settings/tokens/new?scopes=repo,delete_repo&description=FruityHub';
 const TOKEN = "__FLSYNC_TOKEN__";
 const STAGES = ["Идея","Набросок","Аранжировка","Запись","Сведение","Мастеринг","Готово"];
 let S = {state:null, sel:null, proj:null, analysis:null, history:null, comments:null, preview:null, previewErr:null, previewProgress:null,
@@ -346,17 +362,84 @@ async function refreshAll(){
   renderList(); renderInvites();
   if(S.side==='av' || (st.registered && !S.avail)) loadAvailable(true);
   if(S.sel) await loadProject(S.sel); else renderMain();
+  if(!S.introShown){ S.introShown=true;
+    if(!st.config.guideSeen){ api('/api/settings',{guideSeen:true,seenVersion:st.version}).catch(()=>{}); st.config.guideSeen=true; st.config.seenVersion=st.version; await openGuide(true) }
+    else if(st.version && st.version!=='dev' && st.config.seenVersion!==st.version){ api('/api/settings',{seenVersion:st.version}).catch(()=>{}); st.config.seenVersion=st.version; openWhatsNew(true) }
+  }
   if(!st.registered && !S.askedName){ S.askedName=true; openRegister(true) }
 }
+// ---------- знакомство и «Что нового» ----------
+const GUIDE=[
+  ['Что такое FruityHub', `Программа для совместной работы над проектами FL Studio. Каждый проект хранится в приватном репозитории на твоём GitHub со всей историей версий, а друзья получают его одной кнопкой. Плагины друг другу можно передавать прямо из программы.`],
+  ['1. Регистрация', `Придумай ник и вставь GitHub-токен — по нему FruityHub отправляет и получает проекты (пароль и SSH-ключ не нужны). Нет аккаунта — зарегистрируйся на <a href="https://github.com/signup">github.com/signup</a>, токен создаётся <a href="${TOKEN_URL}">по этой ссылке</a> (галочки уже стоят).`],
+  ['2. Проект', `«＋ Добавить проект» — выбери папку с .flp (или перетащи её в окно). Затем «Создать репозиторий и отправить» и отметь, кого позвать: друзьям придёт приглашение, проект появится у них во вкладке «Доступные».`],
+  ['3. Рабочий цикл', `<b>Получить</b> (забрать свежую версию) → <b>Взять в работу</b> (друзья увидят, что ты занят) → <b>Запустить проект</b> (правый клик или ▾ — выбрать версию FL) → работаешь и сохраняешь в FL (Ctrl/⌘+S) → <b>Отправить</b> с галочкой «освободить». Сэмплы сами копируются в папку Audio проекта.`],
+  ['4. Цвета в списке', `<span class="dot ok" style="display:inline-block"></span> актуально · <span class="dot local" style="display:inline-block"></span> есть твои неотправленные изменения · <span class="dot behind" style="display:inline-block"></span> на GitHub новое — нажми «Получить» · <span class="dot other" style="display:inline-block"></span> проект в работе у друга · <span class="dot none" style="display:inline-block"></span> без GitHub. Под названием — артист из Project info.`],
+  ['5. Если вы оба поменяли проект', `Ничего не теряется: FruityHub предложит, какую версию оставить — с GitHub, свою или обе (вторая ляжет рядом копией).`],
+  ['6. Плагины', `Вкладка «Плагины» проекта показывает, у кого какие плагины есть. Нет плагина — «Скачать у …», он придёт с компьютера друга вместе со своими данными и встанет сам. Нажми на плагин — проверка, зависимости, переустановка. Лицензии не переносятся: платные плагины активируй своей лицензией (Arturia Software Center, Native Access и т. п.).`],
+  ['7. Один раз в FL Studio', `<i>Options → File settings → Browser extra search folders</i> — добавь папку со всеми проектами. В проекте: <i>Project → General settings → Data folder</i> = папка <b>Audio</b> проекта — тогда записи сразу падают туда.`],
+  ['Если что-то не так', `Красная плашка задачи → «Подробности». В «Настройках» есть проверка системы, у плагина — «Диагностика». Ошибки автоматически попадают в журнал сервера, по нему проще найти причину.`],
+];
+function openGuide(first){
+  return new Promise(res=>{
+    let i=0;
+    const m=modal(`<div class="row" style="justify-content:space-between"><h2 style="margin:0">${first?'Добро пожаловать в FruityHub':'Как пользоваться FruityHub'}</h2><button class="ghost sm" id="x">✕</button></div>
+      <div class="muted small" id="gi"></div><h3 id="gt" style="margin-top:6px"></h3><div id="gb" style="line-height:1.55;min-height:110px"></div>
+      <div class="row" style="margin-top:12px"><span class="muted small" id="gn"></span><span class="spacer"></span><button id="gp">Назад</button><button class="primary" id="gx">Дальше</button></div>`);
+    m.querySelector('.modal').style.width='min(620px,94vw)';
+    const draw=()=>{ const [t,b]=GUIDE[i]; m.querySelector('#gt').textContent=t; m.querySelector('#gb').innerHTML=b;
+      m.querySelector('#gn').textContent=(i+1)+' из '+GUIDE.length; m.querySelector('#gp').disabled=i===0;
+      m.querySelector('#gx').textContent=i===GUIDE.length-1?(first?'Начать':'Готово'):'Дальше' };
+    const done=()=>{ m.close(); res() };
+    m.querySelector('#x').onclick=done;
+    m.querySelector('#gp').onclick=()=>{ if(i>0){ i--; draw() } };
+    m.querySelector('#gx').onclick=()=>{ if(i<GUIDE.length-1){ i++; draw() } else done() };
+    draw();
+  });
+}
+// новое в версиях (самое свежее сверху)
+const CHANGES=[
+  ['0.9.0',['Настройки по вкладкам: Профиль, GitHub, Плагины, Обновления, Вид, Система','Цвета в списке проектов: актуально, есть твои изменения, на GitHub новое, занят другом; артист под названием','Поле «Артист» (Author в Project info) в настройках проекта','Запуск в выбранной версии FL Studio: правый клик по «Запустить проект» или ▾','«Открыть репозиторий на GitHub» в настройках проекта; при удалении репозитория — убрать проект из списка и/или удалить папку','Галочка «запрашивать недостающие плагины» при скачивании проекта','Подсказки про GitHub-токен с прямыми ссылками, знакомство с программой и этот блок «Что нового»','Понятное предупреждение, если у участников разные версии плагина (из-за этого слетают пресеты) или плагин в другом формате','Тёмные тонкие полосы прокрутки вместо серых в Windows']],
+  ['0.8.5',['Выбор версии, если проект здесь и на GitHub начат отдельно: с GitHub, своя или обе','После конфликта — выбор по каждому файлу']],
+  ['0.8.3',['Git ставится сам, если его нет на компьютере','Предупреждение, если git на компьютере часто падает (антивирус, защита Windows)']],
+  ['0.8.2',['Плагины Arturia: уезжает их собственная папка ресурсов — нет «Error on GUI loading»']],
+  ['0.8.0',['Карточка плагина: нажми на плагин — проверка, зависимости, переустановка, ссылка и файлы','«Установлен частично» вместо ошибки, отправитель видит итог у получателя']],
+  ['0.7.9',['Проверка плагина: пробная загрузка, недостающие библиотеки и папки, программа активации','Переустановка плагина начисто со всеми данными']],
+  ['0.7.6',['Логи сервера в админке','Автообновление']],
+  ['0.7.4',['«Взять в работу» — мгновенно','Зависимости плагинов не передаются повторно, быстрее передача']],
+  ['0.7.3',['Плагины переносятся со всеми зависимостями (библиотеки, пути, реестр)','Другая версия плагина, отмена и повтор передачи']],
+];
+function openWhatsNew(auto){
+  const cur=S.state?.version||'';
+  const m=modal(`<div class="row" style="justify-content:space-between"><h2 style="margin:0">${auto?'FruityHub обновился до '+esc(cur):'Что нового'}</h2><button class="ghost sm" id="x">✕</button></div>
+    ${CHANGES.map(([v,l],k)=>`<h3 style="margin-bottom:4px">${esc(v)}${v===cur?' <span class="tag ok">у тебя</span>':''}</h3><ul class="small" style="margin:0 0 0 18px;line-height:1.6">${l.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`).join('')}
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="primary" id="ok">Понятно</button></div>`);
+  m.querySelector('.modal').style.width='min(680px,94vw)';
+  m.querySelector('#x').onclick=m.querySelector('#ok').onclick=()=>m.close();
+}
+// цвет точки: занят ли другом, есть ли новое на GitHub, есть ли твои неотправленные изменения, всё ли актуально
+function projState(p){
+  const n=S.notes[p.path]||{};
+  if(p.lock && p.lock.user!==S.state.me) return ['other','в работе у '+p.lock.user+' — не открывай для правки'];
+  const mine=p.lock&&p.lock.user===S.state.me;
+  if(!p.isRepo||n.remote===false) return ['none','не синхронизируется (нет репозитория на GitHub)'];
+  const local=(n.changed>0)||(n.ahead>0), behind=n.behind>0;
+  const tail=mine?' · в работе у тебя':'';
+  if(local&&behind) return ['both','есть и твои неотправленные изменения, и новое на GitHub — сначала «Получить»'+tail];
+  if(behind) return ['behind','на GitHub есть новое — нажми «Получить»'+tail];
+  if(local) return ['local','у тебя есть неотправленные изменения'+(n.changed?' ('+n.changed+' файлов)':'')+tail];
+  if(n.checked===undefined) return ['ok','свободен'+tail];
+  return ['ok','актуально: у тебя последняя версия'+tail];
+}
+function renderLegend(){ const el=$('#legend'); if(!el) return;
+  el.innerHTML=[['ok','актуально'],['local','есть твои изменения'],['behind','на GitHub новое'],['both','и то и другое'],['other','занят другом'],['none','без GitHub']].map(([c,t])=>`<span><span class="dot ${c}"></span>${t}</span>`).join('') }
 function projItem(p){
-  let cls='', tip='';
-  if(p.lock){ cls = p.lock.user===S.state.me?'me':'other'; tip = 'в работе у '+p.lock.user }
-  else if(p.isRepo){ cls='ok'; tip='свободен' }
+  const [cls, tip]=projState(p), mine=p.lock&&p.lock.user===S.state.me;
   const n=S.notes[p.path]||{};
   const badges=(n.unread?`<span class="badge" title="новые комментарии">${n.unread}</span>`:'')+
     (n.behind>0?`<span class="badge" title="на сервере новое">⤓</span>`:'');
   return `<div class="pitem ${S.sel===p.path?'sel':''}" draggable="true" data-path="${esc(p.path)}" title="${esc(p.path)}${p.modified?'\nизменён '+esc(fmtTime(p.modified)):''}" onclick="selectProject('${enc(p.path)}')">
-    <span class="dot ${cls}" title="${esc(tip)}"></span><span class="n">${esc(p.name)}</span>${badges}${p.exists?'':'<span class="tag bad">нет папки</span>'}
+    <span class="dot ${cls}${mine?' mine':''}" title="${esc(tip)}"></span><span class="nn"><span class="n">${esc(p.name)}</span>${p.artist?`<span class="art">${esc(p.artist)}</span>`:''}</span>${badges}${p.exists?'':'<span class="tag bad">нет папки</span>'}
     <span class="more" onclick="event.stopPropagation();projMenu(event,'${enc(p.path)}')">⋯</span></div>`;
 }
 const SORTS=[['manual','как добавлены'],['name','по названию А–Я'],['name-desc','по названию Я–А'],['modified','по дате изменения — новые сверху'],['modified-asc','по дате изменения — старые сверху']];
@@ -404,7 +487,7 @@ function renderList(){
   const top=ps.filter(p=>!p.group||!ids.has(p.group));
   h+=`<div data-group="" class="topzone" style="min-height:${groups.length?24:0}px">${top.map(projItem).join('')}</div>`;
   if(!ps.length) h=`<div class="muted small" style="padding:10px">Проектов пока нет. Добавь папку с .flp или прими приглашение друга.</div>`+ (groups.length?h:'');
-  $('#plist').innerHTML=h;
+  $('#plist').innerHTML=h; renderLegend();
   // drag & drop projects between folders
   document.querySelectorAll('.pitem[draggable]').forEach(el=>el.ondragstart=e=>{ e.dataTransfer.setData('text/x-project', el.dataset.path); e.dataTransfer.effectAllowed='move' });
   document.querySelectorAll('[data-group]').forEach(z=>{
@@ -591,16 +674,18 @@ function deleteRepoDialog(){
   const repo=p.remote.replace(/^.*github\.com[:/]+/,'').replace(/\.git$/,'');
   const m=modal(`<h2>Удалить репозиторий с GitHub</h2>
     <div>Репозиторий <b class="mono">${esc(repo)}</b> будет удалён с GitHub <b>навсегда</b> вместе со всей историей версий, а проект — с сервера FruityHub (у участников он пропадёт из «Доступных»). Файлы проекта на компьютерах останутся.</div>
-    <label class="switch"><input type="checkbox" id="drt"> Заодно убрать папку проекта на этом компьютере в Корзину</label>
+    <label class="switch"><input type="checkbox" id="dru" checked> Убрать проект из списка FruityHub</label>
+    <label class="switch"><input type="checkbox" id="drt"> Удалить папку проекта с этого компьютера (в Корзину — оттуда можно вернуть)</label>
     <label>Чтобы подтвердить, впиши название проекта: <b>${esc(p.name)}</b></label><input id="drn" autocomplete="off">
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button id="no">Отмена</button><button class="danger" id="ok" disabled>Удалить навсегда</button></div>`);
   const inp=m.querySelector('#drn'), ok=m.querySelector('#ok'); inp.focus();
   inp.oninput=()=>{ ok.disabled=inp.value.trim()!==p.name.trim() };
   m.querySelector('#no').onclick=()=>m.close();
   ok.onclick=async()=>{ ok.disabled=true; ok.textContent='Удаляю…';
-    try{ const r=await api('/api/github/delete-repo',{path:S.sel,trash:m.querySelector('#drt').checked}); m.close();
+    const trash=m.querySelector('#drt').checked, unlist=m.querySelector('#dru').checked||trash;
+    try{ const r=await api('/api/github/delete-repo',{path:S.sel,trash,unlist}); m.close();
       toast('Репозиторий '+esc(r.deleted)+' удалён'+(r.trashError?'. Папку в корзину не убрал: '+esc(r.trashError):''),6000);
-      if(m.querySelector('#drt').checked && !r.trashError){ S.sel=null; S.proj=null } await refreshAll() }
+      if(unlist && !r.trashError){ S.sel=null; S.proj=null } await refreshAll() }
     catch(e){ m.close(); fail(e) } };
 }
 // все репозитории проектов на моём GitHub: где используются, удалить ненужные
@@ -780,14 +865,21 @@ function renderMain(){
 function launchPanel(p){
   const fl=p.fl||{};
   const info=fl.saved?`Сохранён в FL Studio ${esc(fl.saved.split('.').slice(0,2).join('.'))}${fl.installed?` · у тебя ${esc(fl.installed.split('.').slice(0,2).join('.'))}`:''}`:'';
-  return `<button class="primary big" onclick="launchProject()">Запустить проект</button>
+  return `<div class="row" style="flex-wrap:nowrap;gap:4px"><button class="primary big" style="flex:1" onclick="launchProject()" oncontextmenu="event.preventDefault();launchMenu(event)" title="Правый клик — выбрать версию FL Studio">Запустить проект</button><button class="primary big" style="padding:12px 10px" onclick="launchMenu(event)" title="В какой версии FL Studio открыть">▾</button></div>
     <div class="muted small">${info||'Откроется в FL Studio'}${fl.tooOld?` · <span style="color:var(--bad)">твоя FL старее</span>`:''}</div>`;
 }
-async function launchProject(){
+// выбор версии FL Studio для запуска (правый клик по «Запустить проект» или ▾)
+async function launchMenu(ev){
+  const x={clientX:ev.clientX, clientY:ev.clientY};
+  let apps=[]; try{ apps=await api('/api/flapps') }catch(e){}
+  if(!apps.length){ popMenu(x,[['Открыть программой по умолчанию', ()=>launchProject()],['<span class="muted">Другие версии FL Studio не найдены</span>', ()=>{}]]); return }
+  popMenu(x,[...apps.map(a=>[`FL Studio ${esc(a.version)} <span class="muted small">${esc(a.name)}</span>`, ()=>launchProject(a.path)]), '-', ['Программой по умолчанию', ()=>launchProject()]]);
+}
+async function launchProject(app){
   const p=S.proj; if(!p) return;
   if(p.fl?.tooOld && !await uiConfirm(esc(p.fl.text)+'<br><br>Всё равно открыть?',{title:'Старая версия FL Studio',ok:'Открыть'})) return;
   if(p.lock && p.lock.user!==p.me && !await uiConfirm(`Сейчас проектом занят ${esc(p.lock.user)}. Если сохранишь его у себя — получится конфликт. Открыть?`,{title:'Проект в работе у друга',ok:'Открыть'})) return;
-  try{ const r=await api('/api/project/launch',{path:S.sel}); toast('Открываю '+esc(r.flp)+' в FL Studio') }catch(e){ fail(e) }
+  try{ const r=await api('/api/project/launch',{path:S.sel,app:app||''}); toast('Открываю '+esc(r.flp)+' в FL Studio') }catch(e){ fail(e) }
 }
 async function renameProject(path){
   path=path||S.sel; const cur=(S.state.projects||[]).find(x=>x.path===path); if(!cur) return;
@@ -808,8 +900,13 @@ async function trashProject(path){
 }
 async function loadFLTitle(){
   const el=$('#fltitle'); if(!el) return;
-  try{ const r=await api('/api/project/fltitle',{path:S.sel}); el.value=r.title||''; el.placeholder=r.title?'':'не задано'; const n=$('#fltitleNote'); if(n) n.textContent=r.flp?('Файл: '+r.flp):'' }catch(e){ el.placeholder=e.message }
+  try{ const r=await api('/api/project/fltitle',{path:S.sel}); el.value=r.title||''; el.placeholder=r.title?'':'не задано';
+    const ar=$('#flartist'); if(ar){ ar.value=r.artist||''; ar.placeholder=r.artist?'':'не задан' } const n=$('#fltitleNote'); if(n) n.textContent=r.flp?('Файл: '+r.flp):'' }catch(e){ el.placeholder=e.message }
 }
+async function saveFLArtist(v){
+  try{ const r=await api('/api/project/fltitle',{path:S.sel,artist:v}); toast(r.changed?'Артист записан в .flp. Если проект открыт в FL — закрой его без сохранения и открой снова.':'Без изменений',5000); await refreshAll(); loadProject(S.sel) }catch(e){ fail(e) }
+}
+function repoWebURL(remote){ const m=(remote||'').match(/github\.com[:/]+([^/]+\/[^/]+?)(\.git)?\/?$/); return m?'https://github.com/'+m[1]:'' }
 async function saveFLTitle(v){
   try{ const r=await api('/api/project/fltitle',{path:S.sel,title:v}); toast(r.changed?'Записал в .flp. Если проект открыт в FL — закрой его без сохранения и открой снова.':'Без изменений',5000); loadProject(S.sel) }catch(e){ fail(e) }
 }
@@ -930,9 +1027,10 @@ function renderTab(){
       <label>Всегда отправлять (папки с «/» на конце, по одной в строке)</label><textarea id="s_inc" placeholder="Stems/&#10;Vocals/take3.wav">${esc((sh.alwaysInclude||[]).join('\n'))}</textarea>
       <label>Расширения для Git LFS</label><input id="s_lfs" value="${esc((sh.lfsExtensions||[]).join(', '))}">
       <div style="margin-top:12px"><button class="primary" onclick="saveShared()">Сохранить</button></div></div>
-      <div class="card"><h3 style="margin-top:0">Название в FL Studio</h3>
-      <div class="muted small">То, что FL показывает в Project info → Title. Записывается прямо в .flp и уходит другу со следующей отправкой.</div>
-      <div class="row" style="flex-wrap:nowrap;margin-top:6px"><input id="fltitle" placeholder="загружаю…" onkeydown="if(event.key==='Enter')saveFLTitle(this.value)"><button onclick="saveFLTitle($('#fltitle').value)">Записать</button></div>
+      <div class="card"><h3 style="margin-top:0">Название и артист в FL Studio</h3>
+      <div class="muted small">То, что FL показывает в Project info (Title и Author). Записывается прямо в .flp и уходит другу со следующей отправкой. Артист виден и под названием проекта в списке слева.</div>
+      <label>Название</label><div class="row" style="flex-wrap:nowrap"><input id="fltitle" placeholder="загружаю…" onkeydown="if(event.key==='Enter')saveFLTitle(this.value)"><button onclick="saveFLTitle($('#fltitle').value)">Записать</button></div>
+      <label>Артист</label><div class="row" style="flex-wrap:nowrap"><input id="flartist" placeholder="загружаю…" onkeydown="if(event.key==='Enter')saveFLArtist(this.value)"><button onclick="saveFLArtist($('#flartist').value)">Записать</button></div>
       <div class="row" style="margin-top:6px"><a class="small" onclick="$('#fltitle').value=S.proj.name;saveFLTitle(S.proj.name)">взять название проекта</a><span class="muted small" id="fltitleNote"></span></div>
       <div class="muted small" style="margin-top:6px">${p.fl?.saved?`Проект сохранён в FL Studio ${esc(p.fl.saved)}${p.fl.installed?`, у тебя установлена ${esc(p.fl.installed)}`:''}.`:''}</div></div>
       <div class="card"><h3 style="margin-top:0">Этот компьютер</h3>
@@ -940,7 +1038,8 @@ function renderTab(){
       <div class="muted small">Резервная копия .flp перед правкой лежит в .flsync-local/backup.</div>
       <label>Сервер (git remote)</label><input id="s_remote" value="${esc(p.remote)}" placeholder="https://github.com/you/track.git">
       <div class="row" style="margin-top:8px"><button onclick="api('/api/project/settings',{path:S.sel,remote:$('#s_remote').value}).then(()=>{toast('Сохранено');refreshAll()}).catch(fail)">Сохранить адрес</button>
-        ${!p.remote?`<button class="primary" onclick="createRepoDialog()">Создать репозиторий на GitHub…</button>`:''}</div>
+        ${!p.remote?`<button class="primary" onclick="createRepoDialog()">Создать репозиторий на GitHub…</button>`:''}
+        ${repoWebURL(p.remote)?`<button onclick="api('/api/openurl',{url:repoWebURL(S.proj.remote)})">Открыть репозиторий на GitHub ↗</button>`:''}</div>
       ${!p.remote?'<div class="muted small">Репозитория у проекта нет (или его создание не дошло до конца) — можно указать адрес существующего или создать новый.</div>':''}
       <h3>Участники</h3><div id="parts">${partsHtml()}</div>
       ${p.onServer?`<label>Позвать в проект</label><div id="invPick"></div><div style="margin-top:6px"><button onclick="inviteFromSettings()">Пригласить выбранных</button></div>`:''}
@@ -1241,13 +1340,40 @@ async function addProject(){
 async function removeProject(){ if(!await uiConfirm('Убрать проект из списка? Файлы не удаляются.',{ok:'Убрать'})) return; await api('/api/projects/remove',{path:S.sel}); S.sel=null; refreshAll() }
 const SHARE={off:['Никому','С твоего компьютера плагины не скачать.'],ask:['Спрашивать каждый раз','У тебя всплывает запрос — разрешить или отказать.'],
   members:['Участникам моих проектов — без вопросов','Тем, с кем у тебя общий проект, плагины уходят автоматически.'],all:['Всем пользователям FruityHub — без вопросов','Любой зарегистрированный может скачать плагин, ты ничего не нажимаешь.']};
+const SET_TABS=[['profile','Профиль'],['github','GitHub'],['plugins','Плагины'],['updates','Обновления'],['look','Вид'],['system','Система']];
+// как получить токен — с прямыми ссылками; пароль и SSH-ключ не нужны
+function githubHelpHtml(){
+  return `<details style="margin-top:10px"><summary class="small" style="cursor:pointer">Нет аккаунта на GitHub или не знаешь, где взять токен?</summary>
+    <ol class="small" style="margin:6px 0 0 18px;line-height:1.6">
+      <li>Зарегистрируйся на GitHub (бесплатно): <a href="https://github.com/signup">github.com/signup</a>. Подтверди почту.</li>
+      <li>Открой <a href="${TOKEN_URL}">страницу создания токена</a> — нужные галочки <b>repo</b> и <b>delete_repo</b> уже стоят. В «Expiration» выбери <b>No expiration</b> (или подольше), внизу нажми <b>Generate token</b>.</li>
+      <li>Скопируй токен (начинается с <span class="mono">ghp_</span>) — GitHub показывает его один раз — и вставь в FruityHub.</li>
+    </ol>
+    <div class="muted small">SSH-ключ и пароль от GitHub не нужны: FruityHub сам подставляет токен при отправке и получении. Токен хранится только на этом компьютере. Если GitHub открывается только через VPN — во вкладке «GitHub» есть прокси.</div></details>`;
+}
+function changeTokenDialog(){
+  const m=modal(`<h2>Сменить GitHub-токен</h2>
+    <div class="small">1. Открой <a href="${TOKEN_URL}">страницу создания токена на GitHub ↗</a> — галочки <b>repo</b> и <b>delete_repo</b> уже стоят.<br>2. Срок — <b>No expiration</b>, внизу <b>Generate token</b>.<br>3. Скопируй токен и вставь сюда:</div>
+    <input id="tk" type="password" placeholder="ghp_…" style="margin-top:8px">
+    ${githubHelpHtml()}
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button id="no">Отмена</button><button class="primary" id="ok">Сохранить</button></div>`);
+  m.querySelector('#tk').focus();
+  m.querySelector('#no').onclick=()=>m.close();
+  m.querySelector('#ok').onclick=async()=>{ const t=m.querySelector('#tk').value.trim(); if(!t) return;
+    try{ const u=await api('/api/account/update',{token:t}); m.close(); toast('Токен обновлён — GitHub @'+esc(u.github)); refreshAll() }catch(e){ fail(e) } };
+}
 async function openSettings(){
   const st=S.state, c=st.config, t=st.tools;
   const m=modal(`<div class="row" style="justify-content:space-between"><h2>Настройки</h2><button class="ghost sm" id="x">✕</button></div>
+    <div class="seg stabsx" style="margin-bottom:6px;flex-wrap:wrap">${SET_TABS.map(([k,t])=>`<button data-st="${k}">${t}</button>`).join('')}</div>
+    <div data-sp="profile">
     <h3>Профиль</h3>
     ${st.registered?`<div class="row">${avatar({nick:c.userName},34)}<div><b style="font-size:16px">${esc(c.userName)}</b><div class="muted small">GitHub @${esc(st.githubLogin||'?')} · сервер ${esc(st.server)} ${S.serverError?`<span style="color:var(--bad)">· ${esc(S.serverError)}</span>`:'<span style="color:var(--ok)">· на связи</span>'}</div></div><span class="spacer"></span><button class="sm" id="rn">Сменить ник</button><button class="sm" id="rt">Сменить GitHub-токен</button></div>
       <div class="muted small" style="margin-top:6px">Одно устройство — один пользователь: этот компьютер и есть твой аккаунт.</div>`
       :`<div class="row"><span class="muted">Не зарегистрирован</span><button class="sm primary" id="regb">Зарегистрироваться</button></div>`}
+    <div class="row" style="margin-top:10px"><button class="sm" onclick="openGuide()">Как пользоваться FruityHub</button><button class="sm" onclick="openWhatsNew()">Что нового</button></div>
+    </div>
+    <div data-sp="plugins">
     <h3>Кто может скачивать плагины с моего компьютера</h3>
     <div id="share">${Object.entries(SHARE).map(([k,[t1,d]])=>`<label class="radio ${st.sharing===k?'on':''}"><input type="radio" name="sh" value="${k}" ${st.sharing===k?'checked':''} ${st.registered?'':'disabled'}><span><b>${t1}</b><div class="muted small">${d}</div></span></label>`).join('')}</div>
     <div class="muted small">Плагин идёт напрямую с твоего компьютера на компьютер друга, когда у обоих открыт FruityHub. Без вопросов отправляется только то, что подойдёт на систему друга как есть. Если нужен установщик — FruityHub всё равно спросит. Передавай только бесплатные плагины или те, на которые у друга есть лицензия.</div>
@@ -1257,37 +1383,60 @@ async function openSettings(){
     <label>Свои папки</label>
     <div id="pdlist" class="droplist"></div>
     <div class="row" style="margin-top:6px"><button class="sm" id="pdadd">＋ Добавить папку…</button><span class="muted small">или перетащи папку сюда из Finder / Проводника</span></div>
+    <h3>Недостающие плагины</h3>
+    <label class="switch"><input type="checkbox" id="autoplug" ${c.autoFetchPlugins?'checked':''}> Когда скачиваю проект — сразу запрашивать у участников плагины, которых у меня нет</label>
+    <div class="muted small">Запрос уходит тому, у кого плагин есть (лучше с той же системой). Если он разрешил передачу без вопросов — плагин придёт и встанет сам, иначе у него всплывёт запрос.</div>
+    <h3>Проверка системы для плагинов</h3>
+    <div id="syscheck" class="small muted">Проверяю…</div>
+    </div>
+    <div data-sp="github">
+    <h3>GitHub-токен</h3>
+    ${st.registered?`<div class="small">Сейчас: GitHub <b>@${esc(st.githubLogin||'?')}</b>. Токен хранится только на этом компьютере — им FruityHub отправляет и получает проекты, пароль и SSH-ключ не нужны.</div>
+      <div class="row" style="margin-top:6px"><button class="sm" id="rt2">Сменить GitHub-токен…</button><a class="small" href="${TOKEN_URL}">создать новый токен на GitHub ↗</a></div>`:'<div class="muted small">Сначала зарегистрируйся (вкладка «Профиль»).</div>'}
+    ${githubHelpHtml()}
     <h3>Прокси для GitHub</h3>
     <div class="muted small">Нужен, если GitHub у тебя открывается только через VPN. FruityHub сам берёт «системный прокси» Windows, если он включён в VPN-программе; иначе впиши адрес сюда.</div>
     <input id="px" placeholder="${esc(st.proxyHint?('например '+st.proxyHint):'http://127.0.0.1:10809')}" value="${esc(st.proxy||'')}">
     <div class="row" style="margin-top:6px"><button class="sm" id="pxt">Проверить связь с GitHub</button><span class="small" id="pxr"></span></div>
     <h3>Мои репозитории на GitHub</h3>
     <div class="row"><button class="sm" id="repos">Показать репозитории проектов…</button><span class="muted small">все, что создал FruityHub, — можно удалить ненужные</span></div>
+    </div>
+    <div data-sp="look">
     <h3>Фон</h3>
     <div class="row"><button class="sm" id="bgpick">Выбрать картинку…</button><button class="sm ghost" id="bgreset" ${st.customBg?'':'disabled'}>Вернуть стандартный</button></div>
     <label>Затемнение фона</label><input type="range" id="bgdim" min="0" max="90" step="1" value="${c.bgDim||50}" style="padding:0">
-    <h3>Проверка системы для плагинов</h3>
-    <div id="syscheck" class="small muted">Проверяю…</div>
+    </div>
+    <div data-sp="system">
     <h3>Компоненты</h3>
     <div class="small">${t.gitOk?esc(t.git):'git не найден'}<br>${t.lfsOk?esc(t.lfs):'git-lfs не найден'}</div>
     ${(!t.gitOk||!t.lfsOk)?`<div style="margin-top:8px"><button onclick="installTools()">Установить автоматически</button></div>`:''}
     <div class="card small muted">Один раз в FL Studio: <i>Options → File settings → Browser extra search folders</i> — добавь папку, где лежат все проекты. И в каждом проекте: <i>Project → General settings → Data folder</i> = папка <b>Audio</b> проекта, тогда записи сразу будут падать туда.</div>
+    <h3>Для разработчика</h3>
+    <label class="switch"><input type="checkbox" id="devm" ${c.devMode?'checked':''}> Режим разработчика — журнал команд и управление сервером (кнопка «Разработчик» вверху)</label>
+    <div class="muted small">Настройки: <span class="mono">${esc(st.configDir)}</span></div>
+    </div>
+    <div data-sp="updates">
     <h3>Обновления</h3>
     <label class="switch"><input type="checkbox" id="autoup" ${c.autoUpdate?'checked':''}> Автоматически обновлять FruityHub, когда выходит новая версия</label>
     <div class="muted small">Обновление ставится, только когда ничего не передаётся и не отправляется: если идёт передача плагина или синхронизация проекта, FruityHub дождётся её конца и перезапустится сам.</div>
     <label class="switch"><input type="checkbox" id="errrep" ${c.noErrorReports?'':'checked'}> Отправлять мои ошибки в журнал сервера (их видит администратор — так проще разобраться, что сломалось)</label>
-    <h3>Для разработчика</h3>
-    <label class="switch"><input type="checkbox" id="devm" ${c.devMode?'checked':''}> Режим разработчика — журнал команд и управление сервером (кнопка «Разработчик» вверху)</label>
-    <div class="muted small">Версия ${esc(st.version)} · настройки: <span class="mono">${esc(st.configDir)}</span> · <a onclick="checkUpdate()">проверить обновления</a></div>
+    <div class="row" style="margin-top:8px"><span class="small">Версия <b>${esc(st.version)}</b></span><button class="sm" onclick="checkUpdate()">Проверить обновления</button><button class="sm" onclick="openWhatsNew()">Что нового</button></div>
+    </div>
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button id="cancel">Закрыть</button><button class="primary" id="ok">Сохранить</button></div>`);
   m.querySelector('#x').onclick=m.querySelector('#cancel').onclick=()=>m.close();
+  m.querySelector('.modal').style.width='min(860px,94vw)';
+  // вкладки настроек (последняя открытая запоминается)
+  const showSet=k=>{ m.querySelectorAll('[data-sp]').forEach(d=>d.style.display=d.dataset.sp===k?'':'none'); m.querySelectorAll('[data-st]').forEach(b=>b.classList.toggle('on',b.dataset.st===k)); try{ localStorage.setItem('setTab',k) }catch(e){} };
+  m.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>showSet(b.dataset.st));
+  let st0='profile'; try{ st0=localStorage.getItem('setTab')||'profile' }catch(e){} if(!SET_TABS.some(([k])=>k===st0)) st0='profile'; showSet(st0);
+  m.querySelector('#autoplug').onchange=async e=>{ try{ await api('/api/settings',{autoFetchPlugins:e.target.checked}); S.state.config.autoFetchPlugins=e.target.checked; toast('Сохранено') }catch(er){ fail(er) } };
+  const rt2=m.querySelector('#rt2'); if(rt2) rt2.onclick=()=>{ m.close(); changeTokenDialog() };
   const rb=m.querySelector('#regb'); if(rb) rb.onclick=()=>{ m.close(); openRegister(true) };
   m.querySelector('#autoup').onchange=async e=>{ try{ await api('/api/settings',{autoUpdate:e.target.checked}); S.state.config.autoUpdate=e.target.checked; toast(e.target.checked?'Буду обновляться сам':'Автообновление выключено') }catch(er){ fail(er) } };
   m.querySelector('#errrep').onchange=async e=>{ try{ await api('/api/settings',{errorReports:e.target.checked}); S.state.config.noErrorReports=!e.target.checked; toast('Сохранено') }catch(er){ fail(er) } };
   const rn=m.querySelector('#rn'); if(rn) rn.onclick=async()=>{ const n=await uiPrompt('Новый ник',{value:c.userName}); if(!n||!n.trim()||n.trim()===c.userName) return;
     try{ await api('/api/account/update',{nick:n.trim()}); toast('Ник изменён'); m.close(); refreshAll() }catch(e){ fail(e) } };
-  const rt=m.querySelector('#rt'); if(rt) rt.onclick=async()=>{ const t=await uiPrompt('Новый GitHub-токen',{label:'Tokens (classic), галочки repo и delete_repo',placeholder:'ghp_…'}); if(!t||!t.trim()) return;
-    try{ const u=await api('/api/account/update',{token:t.trim()}); toast('Токен обновлён — GitHub @'+esc(u.github)); m.close(); refreshAll() }catch(e){ fail(e) } };
+  const rt=m.querySelector('#rt'); if(rt) rt.onclick=()=>{ m.close(); changeTokenDialog() };
   m.querySelectorAll('input[name=sh]').forEach(i=>i.onchange=async()=>{
     try{ await api('/api/account/update',{sharing:i.value}); S.state.sharing=i.value; m.querySelectorAll('.radio').forEach(l=>l.classList.toggle('on',l.querySelector('input').checked)); toast('Сохранено') }catch(e){ fail(e) } });
   m.querySelector('#pxt').onclick=async()=>{ const o=m.querySelector('#pxr'); o.textContent='Проверяю…';
@@ -1334,7 +1483,8 @@ function openRegister(first){
     <div class="muted small">Одно устройство — один пользователь: аккаунт привязывается к этому компьютеру. Друзья зовут тебя в проекты по нику, через него же вы обмениваетесь плагинами.</div>
     <label>Ник</label><input id="un" placeholder="напр. tetramino" maxlength="32" value="${esc(st.config.userName||'')}">
     <label>GitHub-токен ${st.hasToken?'<span class="tag ok">уже сохранён</span>':''}</label><input id="tk" type="password" placeholder="${st.hasToken?'оставь пустым, чтобы использовать сохранённый':'ghp_…'}">
-    <div class="muted small">Проекты лежат на твоём GitHub — по репозиторию на проект. Токен: github.com → Settings → Developer settings → Personal access tokens → <b>Tokens (classic)</b>, галочки <b>repo</b> и <b>delete_repo</b> (вторая — чтобы удалять ненужные репозитории прямо из FruityHub). <a href="${'https://github.com/settings/tokens/new?scopes=repo,delete_repo&description=FruityHub'}">Открыть страницу создания</a>. Токен хранится только на этом компьютере; сервер лишь один раз сверяет, чей он.</div>
+    <div class="muted small">Проекты лежат на твоём GitHub — по репозиторию на проект. <a href="${TOKEN_URL}"><b>Создать токен на GitHub ↗</b></a> — нужные галочки (<b>repo</b> и <b>delete_repo</b>, чтобы можно было удалять ненужные репозитории прямо из FruityHub) уже стоят; срок — No expiration. Токен хранится только на этом компьютере; сервер лишь один раз сверяет, чей он.</div>
+    ${githubHelpHtml()}
     <details style="margin-top:10px" ${st.serverDefault?'':'open'}><summary class="muted small" style="cursor:pointer">Сервер</summary>
       <div class="muted small" style="margin-top:6px">${st.serverDefault?'Адрес встроен в FruityHub — менять не нужно.':'Адрес и код сервера даёт тот, кто его поднял.'}</div>
       <label>Адрес</label><input id="srv" value="${esc(st.server||'')}" placeholder="https://1-2-3-4.sslip.io">
@@ -1635,7 +1785,7 @@ async function openDev(){
     } else {
       const i=await api('/api/dev/info',{}).catch(e=>({error:e.message}));
       body.innerHTML=`<table>${Object.entries(i).map(([k,v])=>`<tr><td class="muted">${esc(k)}</td><td class="mono small">${esc(typeof v==='object'?JSON.stringify(v):v)}</td></tr>`).join('')}</table>
-        <div class="row" style="margin-top:10px"><button class="sm" onclick="checkUpdate()">Проверить обновления</button><button class="sm ghost" id="akc">Забыть ключ администратора</button></div>`;
+        <div class="row" style="margin-top:10px"><button class="sm" onclick="checkUpdate()">Проверить обновления</button><button class="sm" onclick="openRepos()">Мои репозитории на GitHub (удалить ненужные)…</button><button class="sm ghost" id="akc">Забыть ключ администратора</button></div>`;
       body.querySelector('#akc').onclick=async()=>{ await api('/api/dev/settings',{adminKey:''}); S.state.hasAdminKey=false; toast('Ключ удалён') };
     }
   }
