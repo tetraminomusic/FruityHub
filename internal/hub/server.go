@@ -31,6 +31,10 @@ type Server struct {
 	relays  map[string]*relay
 	negoMu  sync.Mutex
 	negos   map[string]*nego
+	fetchMu sync.Mutex
+	fetches map[string]*fetchReq
+	directs map[string]*directInfo
+	caps    map[string]time.Time // кто из приложений умеет отдавать аудио проектов (id пользователя → когда сказал)
 	log     *serverLog
 	started time.Time
 }
@@ -239,7 +243,7 @@ func (s *Server) reqView(r *PluginReq) ReqView {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/ping", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]any{"ok": true, "service": "prog-uzbeka", "name": "FruityHub", "version": 4})
+		writeJSON(w, 200, map[string]any{"ok": true, "service": "prog-uzbeka", "name": "FruityHub", "version": 5})
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -286,6 +290,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/plugin-requests/{id}/done", s.wrap(true, s.doneRequest))
 	mux.HandleFunc("PUT /api/plugin-requests/{id}/stream", s.wrap(true, s.streamSend))
 	mux.HandleFunc("GET /api/plugin-requests/{id}/stream", s.wrap(true, s.streamRecv))
+	mux.HandleFunc("PUT /api/plugin-requests/{id}/direct", s.wrap(true, s.putDirect))
+	mux.HandleFunc("GET /api/plugin-requests/{id}/direct", s.wrap(true, s.getDirect))
+	mux.HandleFunc("POST /api/projects/{id}/fetch", s.wrap(true, s.createFetch))
+	mux.HandleFunc("GET /api/fetches/{id}", s.wrap(true, s.getFetch))
+	mux.HandleFunc("POST /api/fetches/{id}/claim", s.wrap(true, s.claimFetch))
+	mux.HandleFunc("GET /api/speedtest", s.wrap(true, s.speedDown))
+	mux.HandleFunc("PUT /api/speedtest", s.wrap(true, s.speedUp))
+	mux.HandleFunc("POST /api/fetches/{id}/decline", s.wrap(true, s.declineFetch))
+	mux.HandleFunc("DELETE /api/fetches/{id}", s.wrap(true, s.closeFetch))
+	mux.HandleFunc("PUT /api/fetches/{id}/stream", s.wrap(true, s.fetchStreamSend))
+	mux.HandleFunc("GET /api/fetches/{id}/stream", s.wrap(true, s.fetchStreamRecv))
 	s.adminRoutes(mux)
 	return mux
 }
@@ -699,6 +714,14 @@ func (s *Server) declineInvite(w http.ResponseWriter, r *http.Request, me *User)
 }
 
 func (s *Server) inbox(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
+	if strings.Contains(r.URL.Query().Get("caps"), "fetch") {
+		s.fetchMu.Lock()
+		if s.caps == nil {
+			s.caps = map[string]time.Time{}
+		}
+		s.caps[me.ID] = time.Now()
+		s.fetchMu.Unlock()
+	}
 	s.st.mu.Lock()
 	defer s.st.mu.Unlock()
 	out := struct {
@@ -710,7 +733,8 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request, me *User) (any, e
 		MoveTo   string               `json:"moveTo,omitempty"` // сервер переехал — приложение переключится само
 		Update   string               `json:"update,omitempty"` // последняя версия приложения на сервере
 		Locks    map[string]*LockView `json:"locks"`            // кто какой проект взял в работу (id проекта → замок, null — свободен)
-	}{Invites: []InviteView{}, Incoming: []ReqView{}, ToSend: []ReqView{}, Ready: []ReqView{}, Me: view(me), MoveTo: s.st.db.Settings.MoveTo, Locks: s.myLocks(me)}
+		Fetches  []FetchView          `json:"fetches"`          // участники просят файлы проектов, которые есть у меня
+	}{Invites: []InviteView{}, Incoming: []ReqView{}, ToSend: []ReqView{}, Ready: []ReqView{}, Me: view(me), MoveTo: s.st.db.Settings.MoveTo, Locks: s.myLocks(me), Fetches: s.myFetches(me)}
 	if m := s.manifest(); m != nil {
 		out.Update = m.Version
 	}
@@ -761,8 +785,8 @@ func (s *Server) createRequests(w http.ResponseWriter, r *http.Request, me *User
 	var req struct {
 		To    string `json:"to"` // nick
 		Items []struct {
-			Plugin, Format, Vendor string
-			Reinstall              bool
+			Plugin, Format, Vendor, Project string
+			Reinstall                       bool
 		} `json:"items"`
 	}
 	if err := decode(r, &req); err != nil {
@@ -795,7 +819,7 @@ func (s *Server) createRequests(w http.ResponseWriter, r *http.Request, me *User
 			continue
 		}
 		q := &PluginReq{ID: newID(), From: me.ID, To: to.ID, FromOS: me.OS, Plugin: it.Plugin, Format: it.Format, Vendor: it.Vendor,
-			Status: "pending", Created: now(), Updated: now(), Reinstall: it.Reinstall}
+			Status: "pending", Created: now(), Updated: now(), Reinstall: it.Reinstall, Project: it.Project}
 		s.st.db.Requests[q.ID] = q
 		out = append(out, s.reqView(q))
 	}

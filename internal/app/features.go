@@ -116,7 +116,7 @@ func (p *Project) FLArtist() string {
 
 // SetFLArtist пишет артиста в Project info главного .flp (с резервной копией).
 func (p *Project) SetFLArtist(artist string) (bool, error) {
-	return p.editMainFLP("артист", func(f *flp.File) bool { return f.SetArtist(strings.TrimSpace(artist)) })
+	return p.editMainFLP("артист", func(f *flp.File) bool { return f.SetArtist(toLatin(strings.TrimSpace(artist))) })
 }
 
 func (p *Project) editMainFLP(what string, fn func(f *flp.File) bool) (bool, error) {
@@ -161,7 +161,7 @@ func (p *Project) SetFLTitle(title string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if !f.SetTitle(strings.TrimSpace(title)) {
+	if !f.SetTitle(toLatin(strings.TrimSpace(title))) { // FL не показывает кириллицу — пишем латиницей
 		return false, nil
 	}
 	bdir := filepath.Join(p.Dir, ".flsync-local", "backup")

@@ -63,29 +63,34 @@ func (s *Server) assetStamp() string {
 }
 
 type Server struct {
-	Assets   fs.FS // background picture, icon (optional)
-	cfg      *Config
-	token    string
-	index    []byte
-	mu       sync.Mutex // serialises git operations
-	jobsMu   sync.Mutex
-	jobs     map[string]*Job
-	running  int
-	lastPing time.Time
-	quit     chan struct{}
-	quitOnce sync.Once
-	Windowed bool
-	notesMu  sync.Mutex
-	notes    map[string]*ProjectNotes
-	busyReq  sync.Map // plugin request id -> "sending" | "installing" | "human"
-	reqJobs  sync.Map // plugin request id -> *Job идущей передачи (для отмены)
-	hubError string
+	Assets    fs.FS // background picture, icon (optional)
+	cfg       *Config
+	token     string
+	index     []byte
+	mu        sync.Mutex // serialises git operations
+	jobsMu    sync.Mutex
+	jobs      map[string]*Job
+	running   int
+	lastPing  time.Time
+	quit      chan struct{}
+	quitOnce  sync.Once
+	Windowed  bool
+	notesMu   sync.Mutex
+	notes     map[string]*ProjectNotes
+	busyReq   sync.Map // plugin request id -> "sending" | "installing" | "human"
+	fetchSeen sync.Map // просьбы участников об аудио проектов, которые уже обработаны
+	cloning   sync.Map // id проекта на сервере → id задачи, которая его скачивает
+	fixPaths  sync.Map // папки из ошибки «уже существует», которые можно убрать кнопкой
+	reqJobs   sync.Map // plugin request id -> *Job идущей передачи (для отмены)
+	hubError  string
 }
 
 func NewServer(index []byte) *Server {
 	b := make([]byte, 16)
 	rand.Read(b)
-	return &Server{cfg: LoadConfig(), token: hex.EncodeToString(b), index: index, jobs: map[string]*Job{},
+	cfg := LoadConfig()
+	directOff.Store(cfg.NoLAN)
+	return &Server{cfg: cfg, token: hex.EncodeToString(b), index: index, jobs: map[string]*Job{},
 		lastPing: time.Now(), quit: make(chan struct{}), notes: map[string]*ProjectNotes{}}
 }
 
@@ -268,6 +273,10 @@ func (s *Server) startJobOpt(title, project string, lock bool, fn func(j *Job) (
 		j.Res = res
 		if err != nil {
 			j.Err = err.Error()
+			var fe *FixError
+			if errors.As(err, &fe) {
+				j.Fix = fe.Fix
+			}
 			j.Details = errDetails(err)
 			if j.Details == "" && len(j.raw) > 0 {
 				j.Details = strings.Join(j.raw[max(0, len(j.raw)-15):], "\n")
@@ -321,6 +330,7 @@ func (s *Server) project(path string, j *Job) (*Project, error) {
 }
 
 type ProjectSummary struct {
+	ReqKey   string         `json:"reqKey,omitempty"` // метка запросов плагинов из этого проекта
 	Path     string         `json:"path"`
 	Name     string         `json:"name"`
 	Exists   bool           `json:"exists"`
@@ -394,6 +404,7 @@ func (s *Server) summary(path string) ProjectSummary {
 		}
 	}
 	ps.Lock = p.ReadLock()
+	ps.ReqKey = p.requestKey()
 	ps.Machines = p.Machines()
 	for i := range ps.Machines {
 		ps.Machines[i].Plugins = nil
@@ -446,6 +457,10 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 			AutoFetch       *bool    `json:"autoFetchPlugins"`
 			SeenVersion     *string  `json:"seenVersion"`
 			GuideSeen       *bool    `json:"guideSeen"`
+			HideHelp        *bool    `json:"hideHelp"`
+			PeerFetch       *bool    `json:"peerFetch"`
+			LAN             *bool    `json:"lan"`
+			ToastSec        *int     `json:"toastSec"`
 		}
 		if err := decode(r, &req); err != nil {
 			return nil, err
@@ -470,6 +485,20 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 		}
 		if req.SeenVersion != nil {
 			s.cfg.SeenVersion = *req.SeenVersion
+		}
+		if req.PeerFetch != nil {
+			s.cfg.NoPeerFetch = !*req.PeerFetch
+		}
+		if req.LAN != nil {
+			s.cfg.NoLAN = !*req.LAN
+			directOff.Store(s.cfg.NoLAN)
+		}
+		if req.HideHelp != nil {
+			s.cfg.HideHelp = *req.HideHelp
+		}
+		if req.ToastSec != nil {
+			v := max(0, min(*req.ToastSec, 600))
+			s.cfg.ToastSec = &v
 		}
 		if req.GuideSeen != nil {
 			s.cfg.GuideSeen = *req.GuideSeen

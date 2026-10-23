@@ -29,12 +29,30 @@ type Job struct {
 	Steps    []string  `json:"steps"`
 	Progress *Progress `json:"progress,omitempty"`
 	Res      any       `json:"result,omitempty"`
+	Fix      *JobFix   `json:"fix,omitempty"` // что можно сделать с ошибкой одной кнопкой
 	Started  int64     `json:"started"`
 	raw      []string
+	lfsTotal int64 // скачивание аудио: сколько всего (для понятного прогресса)
+	lfsFiles int
 	mu       sync.Mutex
 	ctx      context.Context
 	cancel   context.CancelFunc
 }
+
+// JobFix — ошибка, которую можно исправить кнопкой: exists — папка уже есть (удалить и скачать заново).
+type JobFix struct {
+	Kind string `json:"kind"`
+	Path string `json:"path,omitempty"`
+	Same bool   `json:"same,omitempty"` // в папке тот же проект
+}
+
+// FixError — ошибка с предложением, как её исправить.
+type FixError struct {
+	Msg string
+	Fix *JobFix
+}
+
+func (e *FixError) Error() string { return e.Msg }
 
 // Ctx — контекст задачи: отменяется кнопкой «Отменить» (передача плагина).
 func (j *Job) Ctx() context.Context {
@@ -54,6 +72,16 @@ func (j *Job) Cancel() {
 type Progress struct {
 	Label string `json:"label"`
 	Pct   int    `json:"pct"` // -1 = unknown
+}
+
+// setLFS — сколько аудио ожидается (для прогресса «… из …»).
+func (j *Job) setLFS(total int64, files int) {
+	if j == nil {
+		return
+	}
+	j.mu.Lock()
+	j.lfsTotal, j.lfsFiles = total, files
+	j.mu.Unlock()
 }
 
 // Logf adds a human-readable step.
@@ -112,10 +140,66 @@ var gitProgressLabels = []struct{ prefix, label string }{
 	{"Enumerating objects", "Подготовка"},
 }
 
+// lfsProgRe: «Downloading LFS objects:  45% (9/20), 120 MB | 5.2 MB/s»
+var lfsProgRe = regexp.MustCompile(`\((\d+)/(\d+)\),\s*([\d.]+\s*[KMGT]?i?B)(?:\s*\|\s*([\d.]+\s*[KMGT]?i?B/s))?`)
+
+func ruUnits(s string) string {
+	r := strings.NewReplacer("GiB", "ГБ", "MiB", "МБ", "KiB", "КБ", "GB", "ГБ", "MB", "МБ", "KB", "КБ", "kB", "КБ", " B", " Б")
+	return r.Replace(s)
+}
+
+// parseHumanBytes: «120 MB» → 120000000 (git-lfs считает по 1000, git — по 1024 с «MiB»).
+func parseHumanBytes(s string) int64 {
+	s = strings.TrimSpace(s)
+	var v float64
+	var unit string
+	fmt.Sscanf(s, "%f %s", &v, &unit)
+	mul := map[string]float64{"B": 1, "KB": 1e3, "kB": 1e3, "MB": 1e6, "GB": 1e9, "TB": 1e12, "KiB": 1 << 10, "MiB": 1 << 20, "GiB": 1 << 30}[unit]
+	return int64(v * mul)
+}
+
 func (j *Job) gitLine(line string) {
 	j.addRaw(line)
 	if strings.HasPrefix(line, "remote: ") {
 		line = strings.TrimPrefix(line, "remote: ")
+	}
+	if strings.HasPrefix(line, "Downloading LFS objects") || strings.HasPrefix(line, "Uploading LFS objects") {
+		if m := lfsProgRe.FindStringSubmatch(line); m != nil {
+			verb := "Скачивание аудио с GitHub"
+			if strings.HasPrefix(line, "Uploading") {
+				verb = "Загрузка аудио на GitHub"
+			}
+			done := parseHumanBytes(m[3])
+			j.mu.Lock()
+			total := j.lfsTotal
+			j.mu.Unlock()
+			label := fmt.Sprintf("%s · файл %s из %s · %s", verb, m[1], m[2], ruUnits(m[3]))
+			pct := -1
+			if mm := pctRe.FindStringSubmatch(line); mm != nil {
+				fmt.Sscanf(mm[1], "%d", &pct)
+			}
+			if total > 0 && done > 0 {
+				label = fmt.Sprintf("%s · файл %s из %s · %s из %s", verb, m[1], m[2], fmtBytes(done), fmtBytes(total))
+				pct = int(min(done*100/total, 100))
+			}
+			if m[4] != "" {
+				label += " · " + ruUnits(m[4])
+			}
+			j.SetProgress(label, pct)
+			return
+		}
+	}
+	if strings.HasPrefix(line, "Receiving objects") {
+		pct := -1
+		if mm := pctRe.FindStringSubmatch(line); mm != nil {
+			fmt.Sscanf(mm[1], "%d", &pct)
+		}
+		label := "Скачивание проекта"
+		if i := strings.Index(line, "),"); i > 0 {
+			label += " · " + ruUnits(strings.TrimSpace(strings.ReplaceAll(line[i+2:], "|", "·")))
+		}
+		j.SetProgress(label, pct)
+		return
 	}
 	for _, g := range gitProgressLabels {
 		if strings.HasPrefix(line, g.prefix) {
@@ -187,6 +271,7 @@ func gitEnvToken(cfg *Config, token string) []string {
 	}
 	env = setEnv(env, "PATH", path)
 	env = setEnv(env, "GIT_TERMINAL_PROMPT", "0")
+	env = setEnv(env, "GIT_LFS_FORCE_PROGRESS", "1") // без терминала git-lfs молчит — а нам нужен прогресс скачивания аудио
 	if u, _ := GitHubProxy(); u != nil {
 		for _, k := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"} {
 			env = setEnv(env, k, u.String())

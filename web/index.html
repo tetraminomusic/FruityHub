@@ -143,7 +143,15 @@ input[type=range]{accent-color:var(--accent)}
 .seg{display:inline-flex;border:1px solid var(--line2);border-radius:9px;overflow:hidden}
 .seg button{border:0;border-radius:0;background:transparent;color:var(--muted)}
 .seg button.on{background:var(--panel2);color:var(--text)}
-.tasks{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;gap:8px;z-index:25;width:360px;max-width:calc(100vw - 32px)}
+.tasks{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;gap:8px;z-index:25;width:360px;max-width:calc(100vw - 32px);overflow-y:auto;overscroll-behavior:contain;padding-right:2px}
+.tasks .task,.toasts .toast{flex:none}
+.stackmore{position:fixed;right:22px;z-index:26;font-size:11px;color:var(--muted);background:rgba(30,32,38,.9);border:1px solid var(--line2);border-radius:99px;padding:1px 8px;pointer-events:none}
+.toasts{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:6px;z-index:30;max-width:440px;width:max-content;overflow-y:auto}
+.toasts .toast{position:static;transform:none;left:auto;bottom:auto}
+.busy{position:fixed;inset:0;z-index:9;background:rgba(8,9,12,.62);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:var(--text);font-size:16px;text-align:center;padding:20px}
+.busy .spin{width:54px;height:54px;border-width:4px}
+.busy .sub{color:var(--muted);font-size:13px;max-width:520px}
+.dragall{position:fixed;inset:10px;z-index:9;border:3px dashed var(--accent);border-radius:18px;background:rgba(60,40,10,.35);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:650;pointer-events:none;text-shadow:0 1px 8px rgba(0,0,0,.7)}
 .task{background:rgba(30,32,38,.86);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);border:1px solid var(--line2);border-radius:12px;padding:12px 14px;box-shadow:0 10px 30px rgba(0,0,0,.45)}
 .task.ok{border-color:rgba(76,195,138,.5)}.task.err{border-color:#8a3434;background:rgba(55,20,20,.9)}
 .task .t{display:flex;align-items:center;gap:8px;font-weight:600}
@@ -200,7 +208,7 @@ tr.prow{cursor:pointer} tr.prow:hover td{background:rgba(255,255,255,.04)} tr.pr
   <button class="ghost" onclick="openTransfers()">Передачи</button>
   <button class="ghost" onclick="openJournal()">Журнал</button>
   <button class="ghost" onclick="openSettings()">Настройки</button>
-  <button class="ghost" onclick="openGuide()" title="Как пользоваться FruityHub">?</button>
+  <button class="ghost" id="helpBtn" onclick="openGuide()" title="Как пользоваться FruityHub (убрать — Настройки → Вид)">?</button>
   <button class="ghost" id="quitBtn" title="Закрыть" onclick="quitApp()" style="display:none">⏻</button>
 </header>
 <div class="wrap">
@@ -219,6 +227,7 @@ tr.prow{cursor:pointer} tr.prow:hover td{background:rgba(255,255,255,.04)} tr.pr
 </div>
 <div id="modals"></div>
 <div class="tasks" id="tasks"></div>
+<div class="toasts" id="toasts"></div>
 
 <script>
 const TOKEN_URL='https://github.com/settings/tokens/new?scopes=repo,delete_repo&description=FruityHub';
@@ -240,7 +249,30 @@ async function api(path, body){
   const r = await fetch(path,opt); const j = await r.json().catch(()=>({error:'bad response'}));
   if(!r.ok) throw new Error(j.error||r.statusText); return j;
 }
-function toast(msg, ms=3500){const d=document.createElement('div');d.className='toast';d.innerHTML=msg;document.body.appendChild(d);setTimeout(()=>d.remove(),ms);return d}
+// сколько держать уведомления (Настройки → Вид): 0 — пока не закрою
+function noteSec(){ const v=S.state?.config?.toastSec; return v==null||v===''?4:+v }
+function toast(msg, ms=3500){const d=document.createElement('div');d.className='toast';d.innerHTML=msg;$('#toasts').prepend(d);
+  const sec=noteSec(), t=sec===0?Math.max(ms,10000):Math.max(ms,sec*1000); setTimeout(()=>{ d.remove(); stackFit() },t); stackFit(); return d}
+// не больше 3 уведомлений на экране: новые сверху, остальные — прокруткой вниз
+function stackFit(){
+  for(const id of ['tasks','toasts']){ const box=$('#'+id); if(!box) continue;
+    const kids=[...box.children]; let h=0; kids.slice(0,3).forEach((k,i)=>h+=k.offsetHeight+(i?(id==='tasks'?8:6):0));
+    box.style.maxHeight=kids.length>3?(h+2)+'px':'calc(100vh - 32px)';
+    let more=document.getElementById(id+'More');
+    if(kids.length>3){ if(!more){ more=document.createElement('div'); more.id=id+'More'; more.className='stackmore'; document.body.appendChild(more) }
+      more.textContent='ещё '+(kids.length-3)+' ↓ прокрути'; const r=box.getBoundingClientRect();
+      if(id==='toasts'){ more.style.right='auto'; more.style.left=(r.left+r.width/2-40)+'px' } more.style.top=(r.top-20)+'px' }
+    else if(more) more.remove();
+  }
+}
+for(const id of ['tasks','toasts']) new MutationObserver(()=>stackFit()).observe(document.getElementById(id),{childList:true,subtree:true,characterData:true});
+window.addEventListener('resize',()=>stackFit());
+// загрузка на весь экран (перетащили папку — видно, что она добавляется)
+function busyOverlay(text, sub=''){
+  const d=document.createElement('div'); d.className='busy'; d.innerHTML=`<span class="spin"></span><div class="bt">${esc(text)}</div><div class="sub">${esc(sub)}</div>`;
+  document.body.appendChild(d);
+  return {set:(t,s2='')=>{ d.querySelector('.bt').textContent=t; d.querySelector('.sub').textContent=s2 }, hide:()=>d.style.display='none', show:()=>d.style.display='', close:()=>d.remove()};
+}
 setInterval(()=>api('/api/ping',{}).catch(()=>{}),20000); api('/api/ping',{}).catch(()=>{});
 
 // External links open in the system browser (inside the app window they would go nowhere)
@@ -267,7 +299,7 @@ const fail = e => uiAlert(e.message||String(e));
 function taskCard(title){
   const el=document.createElement('div'); el.className='task';
   el.innerHTML=`<div class="t"><span class="spin"></span><span class="tt">${esc(title)}</span></div><div class="s">Начинаю…</div><div class="bar ind"><i style="width:0"></i></div>`;
-  $('#tasks').appendChild(el); return el;
+  $('#tasks').prepend(el); return el;
 }
 function paintTask(el, j){
   const last=(j.steps||[])[(j.steps||[]).length-1]||'';
@@ -282,31 +314,41 @@ function finishTask(el, j){
   if(j.error){
     el.classList.add('err');
     tt.innerHTML=`<span class="tt">${esc(j.title)} — не получилось</span><span class="spacer"></span><button class="ghost sm" onclick="this.closest('.task').remove()">✕</button>`;
-    el.querySelector('.s').innerHTML=`<div style="color:#ffc4c4;font-size:13px;margin-top:2px">${esc(j.error)}</div>`+(j.details?`<a class="small muted" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">Подробности для знающих</a><div class="details" hidden>${esc(j.details)}</div>`:'');
+    const fx=j.fix;
+    el.querySelector('.s').innerHTML=`<div style="color:#ffc4c4;font-size:13px;margin-top:2px">${esc(j.error)}</div>`+
+      (fx&&fx.kind==='exists'?`<div class="row" style="gap:6px;margin:8px 0 4px">${fx.same?'<button class="sm primary" data-fx="add">Открыть его</button>':''}<button class="sm ${fx.same?'':'primary'}" data-fx="trash">Удалить папку и скачать заново</button><button class="sm ghost" data-fx="open">Показать папку</button></div>`:'')+(j.details?`<a class="small muted" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">Подробности для знающих</a><div class="details" hidden>${esc(j.details)}</div>`:'');
+    el.querySelectorAll('[data-fx]').forEach(b=>b.onclick=async()=>{
+      const k=b.dataset.fx;
+      if(k==='open') return api('/api/project/open',{path:fx.path}).catch(fail);
+      if(k==='add'){ try{ await api('/api/projects/add',{path:fx.path}); el.remove(); S.sel=fx.path; S.comments=null; sideTab('my'); await refreshAll() }catch(e){ fail(e) } return }
+      if(!await uiConfirm(`Папка <span class="mono">${esc(fx.path)}</span> уйдёт в Корзину целиком (оттуда можно вернуть)${fx.same?'':' — проверь, что там нет ничего нужного'}, и проект скачается заново.`,{title:'Удалить папку и скачать заново',ok:'Удалить и скачать',danger:true})) return;
+      try{ await api('/api/clone/trash-existing',{path:fx.path}); el.remove(); el.retry&&el.retry() }catch(e){ fail(e) } });
   } else {
     el.classList.add('ok');
-    tt.innerHTML=`<span style="color:var(--ok)">✓</span><span class="tt">${esc(j.title)}</span>`;
+    tt.innerHTML=`<span style="color:var(--ok)">✓</span><span class="tt">${esc(j.title)}</span><span class="spacer"></span><button class="ghost sm" onclick="this.closest('.task').remove()">✕</button>`;
     const st=(j.steps||[]).filter(x=>!/^✓/.test(x)).slice(-3);
     el.querySelector('.s').innerHTML = st.length? st.map(x=>`<div>${esc(x)}</div>`).join('') : 'Готово';
-    setTimeout(()=>{ el.style.transition='opacity .4s'; el.style.opacity=0; setTimeout(()=>el.remove(),400) }, st.some(x=>x.startsWith('Внимание'))?9000:3500);
+    const sec=noteSec();
+    if(sec>0) setTimeout(()=>{ el.style.transition='opacity .4s'; el.style.opacity=0; setTimeout(()=>el.remove(),400) }, st.some(x=>x.startsWith('Внимание'))?Math.max(9000,sec*2000):sec*1000);
   }
 }
-async function followJob(id, title, onDone){
+async function followJob(id, title, onDone, retry){
   S.followed[id]=1;
-  const el=taskCard(title);
+  const el=taskCard(title); el.retry=retry;
   for(;;){
     let j; try{ j=await api('/api/job?id='+id) }catch(e){ await new Promise(r=>setTimeout(r,1000)); continue }
     if(title!==j.title) el.querySelector('.tt').textContent=j.title;
     if(!j.done){ paintTask(el,j); await new Promise(r=>setTimeout(r,400)); continue }
     finishTask(el,j);
     const r=j.result||{};
+    if(r.already) toast('Этот проект уже скачивается — смотри соседнюю задачу');
     if(!j.error && r.conflicts && r.conflicts.length) showConflicts(r.conflicts);
     onDone && onDone(j); refreshAll(); return j;
   }
 }
 async function runJob(path, body, {title, onDone}={}){
   let job; try{ job = await api(path, body) }catch(e){ fail(e); return null }
-  const j=await followJob(job.id, title||job.title, onDone);
+  const j=await followJob(job.id, title||job.title, onDone, ()=>runJob(path, body, {title, onDone}));
   // проект здесь и на GitHub начаты отдельно — спрашиваем, какую версию оставить, и повторяем
   if(j && !j.error && j.result && j.result.needChoice==='unrelated' && body && !body.resolve){
     const how=await chooseVersion(); if(!how) return j;
@@ -357,6 +399,7 @@ async function refreshAll(){
   renderWho();
   setDim(st.config.bgDim||50); renderDevBtn();
   $('#quitBtn').style.display = st.windowed ? 'none' : '';
+  $('#helpBtn').style.display = st.config.hideHelp ? 'none' : '';
   const t=st.tools, tc=$('#toolsChip');
   if(!t.gitOk||!t.lfsOk){ tc.style.display=''; tc.innerHTML=`<span style="color:var(--warn)">${!t.gitOk?'нет git':'нет git-lfs'}</span> <a onclick="installTools()">установить</a>` } else tc.style.display='none';
   renderList(); renderInvites();
@@ -376,7 +419,7 @@ const GUIDE=[
   ['3. Рабочий цикл', `<b>Получить</b> (забрать свежую версию) → <b>Взять в работу</b> (друзья увидят, что ты занят) → <b>Запустить проект</b> (правый клик или ▾ — выбрать версию FL) → работаешь и сохраняешь в FL (Ctrl/⌘+S) → <b>Отправить</b> с галочкой «освободить». Сэмплы сами копируются в папку Audio проекта.`],
   ['4. Цвета в списке', `<span class="dot ok" style="display:inline-block"></span> актуально · <span class="dot local" style="display:inline-block"></span> есть твои неотправленные изменения · <span class="dot behind" style="display:inline-block"></span> на GitHub новое — нажми «Получить» · <span class="dot other" style="display:inline-block"></span> проект в работе у друга · <span class="dot none" style="display:inline-block"></span> без GitHub. Под названием — артист из Project info.`],
   ['5. Если вы оба поменяли проект', `Ничего не теряется: FruityHub предложит, какую версию оставить — с GitHub, свою или обе (вторая ляжет рядом копией).`],
-  ['6. Плагины', `Вкладка «Плагины» проекта показывает, у кого какие плагины есть. Нет плагина — «Скачать у …», он придёт с компьютера друга вместе со своими данными и встанет сам. Нажми на плагин — проверка, зависимости, переустановка. Лицензии не переносятся: платные плагины активируй своей лицензией (Arturia Software Center, Native Access и т. п.).`],
+  ['6. Плагины', `Вкладка «Плагины» проекта показывает, у кого какие плагины есть. Нет плагина — «Скачать у …», он придёт с компьютера друга вместе со своими данными и встанет сам. Нажми на плагин — проверка, зависимости, переустановка, удаление. Если вы в одной сети — всё идёт напрямую, быстрее. Лицензии не переносятся: платные плагины активируй своей лицензией (Arturia Software Center, Native Access и т. п.).`],
   ['7. Один раз в FL Studio', `<i>Options → File settings → Browser extra search folders</i> — добавь папку со всеми проектами. В проекте: <i>Project → General settings → Data folder</i> = папка <b>Audio</b> проекта — тогда записи сразу падают туда.`],
   ['Если что-то не так', `Красная плашка задачи → «Подробности». В «Настройках» есть проверка системы, у плагина — «Диагностика». Ошибки автоматически попадают в журнал сервера, по нему проще найти причину.`],
 ];
@@ -399,6 +442,7 @@ function openGuide(first){
 }
 // новое в версиях (самое свежее сверху)
 const CHANGES=[
+  ['0.9.1',['Аудио проекта — с компьютера участника: при скачивании проекта и «Получить» недостающие wav сначала просятся у тех, кто в сети, остальное — с GitHub','В одной сети (дома, в студии) плагины и аудио идут напрямую по локальной сети, мимо сервера','Прогресс скачивания проекта: шаги, файлы, мегабайты и скорость','Один проект нельзя скачать дважды одновременно; если папка уже есть — кнопка «Удалить папку и скачать заново»','Удаление плагина у себя — в карточке плагина','В «Плагинах» проекта — передачи только этого проекта','Название и артист пишутся в FL латиницей (FL не понимает кириллицу)','Настройки → Вид: сколько держать уведомления, убрать кнопку «?»; на экране не больше трёх уведомлений','Перетащил папку — на весь экран видно, что она добавляется','Проверка скорости связи с сервером (Настройки → Система)']],
   ['0.9.0',['Настройки по вкладкам: Профиль, GitHub, Плагины, Обновления, Вид, Система','Цвета в списке проектов: актуально, есть твои изменения, на GitHub новое, занят другом; артист под названием','Поле «Артист» (Author в Project info) в настройках проекта','Запуск в выбранной версии FL Studio: правый клик по «Запустить проект» или ▾','«Открыть репозиторий на GitHub» в настройках проекта; при удалении репозитория — убрать проект из списка и/или удалить папку','Галочка «запрашивать недостающие плагины» при скачивании проекта','Подсказки про GitHub-токен с прямыми ссылками, знакомство с программой и этот блок «Что нового»','Понятное предупреждение, если у участников разные версии плагина (из-за этого слетают пресеты) или плагин в другом формате','Тёмные тонкие полосы прокрутки вместо серых в Windows']],
   ['0.8.5',['Выбор версии, если проект здесь и на GitHub начат отдельно: с GitHub, своя или обе','После конфликта — выбор по каждому файлу']],
   ['0.8.3',['Git ставится сам, если его нет на компьютере','Предупреждение, если git на компьютере часто падает (антивирус, защита Windows)']],
@@ -591,7 +635,7 @@ function renderAvailable(){
   el.innerHTML=`<div class="muted small" style="padding:4px 4px 6px">Проекты, где ты участник, и все проекты, к которым у твоего GitHub-аккаунта есть доступ (свои с других устройств и где ты коллаборатор), — которых ещё нет на этом компьютере.</div>`+
     (list.length?list.map(a=>`<div class="avail"><div class="an">${esc(a.name)}</div>
       <div class="muted small">${a.isOwner?'твой проект':'от '+esc(a.owner.nick)} · участники: ${(a.members||[]).map(m=>esc(m.nick)).join(', ')}</div>
-      <div style="margin-top:6px"><button class="sm primary" onclick="downloadAvailable('${a.id}')">Скачать</button></div></div>`).join('')
+      <div style="margin-top:6px">${a.downloading?'<span class="tag blue">скачивается…</span>':`<button class="sm primary" onclick="downloadAvailable('${a.id}')">Скачать</button>`}</div></div>`).join('')
     :`<div class="muted small" style="padding:10px">Здесь пусто: всё уже скачано или тебя ещё никуда не позвали. Проект друга появится здесь, когда он позовёт тебя: в проекте Участники → ник или «Позвать всех».</div>`)+
     `<div style="padding:4px"><a class="small" onclick="loadAvailable()">↻ обновить</a></div>`;
 }
@@ -607,13 +651,17 @@ function pickParentDialog(title, text, onGo, okText='Скачать'){
 async function openDownloaded(j){ if(j&&!j.error&&j.result&&j.result.path){ S.sel=j.result.path; S.comments=null; S.preview=null; sideTab('my'); await refreshAll() } }
 function downloadAvailable(id){
   const a=(S.avail||[]).find(x=>x.id===id); if(!a) return;
+  if(a.downloading) return toast('«'+esc(a.name)+'» уже скачивается');
   pickParentDialog(`⤓ Скачать «${esc(a.name)}»`, `<div class="muted small">${a.isOwner?'Твой проект':'Проект '+esc(a.owner.nick)}. Аудио докачается автоматически.</div>`, async parent=>{
+    a.downloading=true; renderAvailable();
     const j=await runJob('/api/available/clone',{id,parent},{title:'Скачиваю «'+a.name+'»'}); await openDownloaded(j); loadAvailable(true) });
 }
 function acceptInvite(id){
   const inv=(S.invites||[]).find(x=>x.id===id); if(!inv) return;
   pickParentDialog('Приглашение в проект', `<b>${esc(inv.from.nick)}</b> приглашает тебя в проект <b>«${esc(inv.name)}»</b>.`, async parent=>{
-    const j=await runJob('/api/invitations/accept',{id,parent},{title:'Скачиваю «'+inv.name+'»'}); await openDownloaded(j); pollNotes() }, 'Принять и скачать');
+    S.invites=(S.invites||[]).filter(x=>x.id!==id); renderInvites();
+    setTimeout(()=>loadAvailable(true),1500);
+    const j=await runJob('/api/invitations/accept',{id,parent},{title:'Скачиваю «'+inv.name+'»'}); await openDownloaded(j); pollNotes(); loadAvailable(true) }, 'Принять и скачать');
 }
 // ---------- participants of a project ----------
 async function participantsDialog(){
@@ -886,7 +934,7 @@ async function renameProject(path){
   const folder=path.split(/[\\/]/).pop();
   const m=modal(`<h2>Переименовать проект</h2><div class="muted small">Название меняется только на этом компьютере — папка, репозиторий на GitHub и сервер остаются как были.</div>
     <label>Название</label><input id="rn" value="${esc(cur.name)}" placeholder="${esc(folder)}">
-    <label class="switch"><input type="checkbox" id="rfl" checked> Записать это название и в FL Studio (Project info → Title)</label>
+    <label class="switch"><input type="checkbox" id="rfl" checked> Записать это название и в FL Studio (Project info → Title, русские буквы — латиницей)</label>
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button id="no">Отмена</button><button class="primary" id="ok">Сохранить</button></div>`);
   const i=m.querySelector('#rn'); i.focus(); i.select();
   const go=async()=>{ try{ const r=await api('/api/project/rename',{path,name:i.value,flTitle:m.querySelector('#rfl').checked}); m.close();
@@ -904,11 +952,11 @@ async function loadFLTitle(){
     const ar=$('#flartist'); if(ar){ ar.value=r.artist||''; ar.placeholder=r.artist?'':'не задан' } const n=$('#fltitleNote'); if(n) n.textContent=r.flp?('Файл: '+r.flp):'' }catch(e){ el.placeholder=e.message }
 }
 async function saveFLArtist(v){
-  try{ const r=await api('/api/project/fltitle',{path:S.sel,artist:v}); toast(r.changed?'Артист записан в .flp. Если проект открыт в FL — закрой его без сохранения и открой снова.':'Без изменений',5000); await refreshAll(); loadProject(S.sel) }catch(e){ fail(e) }
+  try{ const r=await api('/api/project/fltitle',{path:S.sel,artist:v}); toast(r.changed?(r.latin?'FL не понимает кириллицу — артист записан латиницей: <b>'+esc(r.latin)+'</b>. ':'Артист записан в .flp. ')+'Если проект открыт в FL — закрой его без сохранения и открой снова.':'Без изменений',6000); await refreshAll(); loadProject(S.sel) }catch(e){ fail(e) }
 }
 function repoWebURL(remote){ const m=(remote||'').match(/github\.com[:/]+([^/]+\/[^/]+?)(\.git)?\/?$/); return m?'https://github.com/'+m[1]:'' }
 async function saveFLTitle(v){
-  try{ const r=await api('/api/project/fltitle',{path:S.sel,title:v}); toast(r.changed?'Записал в .flp. Если проект открыт в FL — закрой его без сохранения и открой снова.':'Без изменений',5000); loadProject(S.sel) }catch(e){ fail(e) }
+  try{ const r=await api('/api/project/fltitle',{path:S.sel,title:v}); toast(r.changed?(r.latin?'FL не понимает кириллицу — название записано латиницей: <b>'+esc(r.latin)+'</b>. ':'Записал в .flp. ')+'Если проект открыт в FL — закрой его без сохранения и открой снова.':'Без изменений',6000); loadProject(S.sel) }catch(e){ fail(e) }
 }
 function setTab(t){ S.tab=t; if(t==='plugins') loadReqs(); if(t==='history'&&!S.history) loadHistory(); if(t==='talk') loadComments(true); if(t==='settings') S.parts=null; renderMain(); if(t==='settings'){ loadParticipants(); loadFLTitle() } }
 function layoutBanners(p){
@@ -1028,7 +1076,7 @@ function renderTab(){
       <label>Расширения для Git LFS</label><input id="s_lfs" value="${esc((sh.lfsExtensions||[]).join(', '))}">
       <div style="margin-top:12px"><button class="primary" onclick="saveShared()">Сохранить</button></div></div>
       <div class="card"><h3 style="margin-top:0">Название и артист в FL Studio</h3>
-      <div class="muted small">То, что FL показывает в Project info (Title и Author). Записывается прямо в .flp и уходит другу со следующей отправкой. Артист виден и под названием проекта в списке слева.</div>
+      <div class="muted small">То, что FL показывает в Project info (Title и Author). Записывается прямо в .flp и уходит другу со следующей отправкой. Артист виден и под названием проекта в списке слева. Русские буквы FL не понимает — запишу латиницей (Кирюха → Kiryukha).</div>
       <label>Название</label><div class="row" style="flex-wrap:nowrap"><input id="fltitle" placeholder="загружаю…" onkeydown="if(event.key==='Enter')saveFLTitle(this.value)"><button onclick="saveFLTitle($('#fltitle').value)">Записать</button></div>
       <label>Артист</label><div class="row" style="flex-wrap:nowrap"><input id="flartist" placeholder="загружаю…" onkeydown="if(event.key==='Enter')saveFLArtist(this.value)"><button onclick="saveFLArtist($('#flartist').value)">Записать</button></div>
       <div class="row" style="margin-top:6px"><a class="small" onclick="$('#fltitle').value=S.proj.name;saveFLTitle(S.proj.name)">взять название проекта</a><span class="muted small" id="fltitleNote"></span></div>
@@ -1060,7 +1108,7 @@ function renderTalk(){
   return `<div class="grid2" style="margin-top:12px;grid-template-columns:2fr 1fr">
     <div>
       <div class="card" style="margin-top:0">
-        <div class="row" style="justify-content:space-between"><div class="seg"><button class="${S.ckind==='note'?'on':''}" onclick="S.ckind='note';renderMain()">Заметка</button><button class="${S.ckind==='todo'?'on':''}" onclick="S.ckind='todo';renderMain()">☐ Задача</button></div>
+        <div class="row" style="justify-content:space-between"><div class="seg"><button class="${S.ckind==='note'?'on':''}" onclick="S.ckind='note';renderMain()">Заметка</button><button class="${S.ckind==='todo'?'on':''}" onclick="S.ckind='todo';renderMain()">Задача</button></div>
         <span class="muted small">⌘/Ctrl + Enter — отправить</span></div>
         <textarea id="ctext" style="margin-top:8px" placeholder="${S.ckind==='todo'?'Что нужно сделать: «дописать бридж», «перезаписать вокал во 2 куплете»…':'Что сейчас с проектом, идеи, что попробовать…'}" onkeydown="if((event.metaKey||event.ctrlKey)&&event.key==='Enter')postComment()"></textarea>
         <div class="row" style="justify-content:flex-end;margin-top:8px"><button class="primary" id="cpost" onclick="postComment()">Отправить</button></div>
@@ -1126,7 +1174,8 @@ function renderPlugins(){
   const lastReq=name=>reqs.filter(r=>r.from===myId&&r.plugin.toLowerCase()===name.toLowerCase()).sort((a,b)=>b.updated-a.updated)[0];
   S.pluginRows={}; for(const r of rows) S.pluginRows[r.name+'|'+r.format]=r;
   S.bulk=bulk;
-  const projReqs=reqs.filter(q=>rows.some(r=>r.name.toLowerCase()===q.plugin.toLowerCase()));
+  // только передачи, запрошенные из этого проекта (тот же плагин для другого проекта — в окне «Передачи»)
+  const projReqs=reqs.filter(q=>q.project&&q.project===S.proj.reqKey);
   return `<div class="muted small" style="margin:10px 0">Список собирается из .flp и записывается в <b>PLUGINS.txt</b> в корне проекта. Каждый участник при отправке публикует, какие плагины (и каких версий) стоят у него.
       ${S.analysis.machines<2?'<br><span style="color:var(--warn)">Пока известен только твой компьютер — данные друга появятся после его первой отправки.</span>':''}</div>
     <div class="row"><button onclick="rescan()">Пересканировать мои плагины</button>
@@ -1138,7 +1187,7 @@ function renderPlugins(){
       <td class="small">${r.link?`<a href="${esc(r.link)}" onclick="event.stopPropagation()">ссылка</a>`:''}${(r.files||[]).length?` <span class="muted">файлов: ${r.files.length}</span>`:''}</td></tr>`).join('')}</table>
       <div class="muted small" style="margin-top:4px">Нажми на плагин — проверка, зависимости, переустановка, ссылка и файлы.</div>`:'<p class="muted">Плагинов не найдено.</p>'}
     ${projReqs.length?`<h3>Передачи плагинов этого проекта</h3>${reqTable(projReqs.slice(0,30))}`:''}
-    <div class="card small muted">Плагин идёт напрямую с компьютера друга на твой (через сервер FruityHub потоком, там ничего не хранится), поэтому оба компьютера должны быть включены и FruityHub открыт. Плагин сам ложится в папку, где у тебя лежат плагины этого формата, и добавляется в базу плагинов FL. Между одинаковыми системами плагин переносится и ставится сам. Между Mac и Windows — если в пакете плагина есть версия для обеих систем (так бывает у VST3), иначе друг пришлёт установщик, и FruityHub его запустит. Вместе с плагином переносятся его данные (пресеты, ресурсы из «Документов», ProgramData, AppData), если они не больше 2 ГБ. Большие библиотеки сэмплов и лицензии не переносятся — после установки FruityHub покажет, что ещё нужно сделать.</div>`;
+    <div class="card small muted">Плагин идёт с компьютера друга на твой: если вы в одной сети — напрямую по ней, иначе потоком через сервер FruityHub (там ничего не хранится). Поэтому оба компьютера должны быть включены и FruityHub открыт. Плагин сам ложится в папку, где у тебя лежат плагины этого формата, и добавляется в базу плагинов FL. Между одинаковыми системами плагин переносится и ставится сам. Между Mac и Windows — если в пакете плагина есть версия для обеих систем (так бывает у VST3), иначе друг пришлёт установщик, и FruityHub его запустит. Вместе с плагином переносятся его данные (пресеты, ресурсы из «Документов», ProgramData, AppData), если они не больше 2 ГБ. Большие библиотеки сэмплов и лицензии не переносятся — после установки FruityHub покажет, что ещё нужно сделать.</div>`;
 }
 function reqTable(list){
   const myId=S.state.userId;
@@ -1157,7 +1206,7 @@ async function requestPlugins(encTo, items){
   const list=items.map(([n,f,v])=>({plugin:decodeURIComponent(n),format:f,vendor:decodeURIComponent(v)}));
   const what=list.length===1?`плагин <b>${esc(list[0].plugin)}</b>`:`плагины (${list.length}): ${list.slice(0,8).map(x=>'<b>'+esc(x.plugin)+'</b>').join(', ')}${list.length>8?'…':''}`;
   if(!await uiConfirm(`Скачать ${what} с компьютера <b>${esc(to)}</b>? Если ${esc(to)} разрешил это в настройках — всё придёт и установится само, иначе у него всплывёт запрос.`,{ok:'Отправить запрос',title:'Плагины от друга'})) return;
-  try{ const r=await api('/api/plugin/request',{to,items:list}); toast(r.length?`Запрошено у ${esc(to)}: ${r.length}`:'Эти плагины уже запрошены — ждём ответа'); loadReqs() }catch(e){ fail(e) }
+  try{ const r=await api('/api/plugin/request',{to,items:list,path:S.sel||''}); toast(r.length?`Запрошено у ${esc(to)}: ${r.length}`:'Эти плагины уже запрошены — ждём ответа'); loadReqs() }catch(e){ fail(e) }
 }
 function requestBulk(encU){ const list=(S.bulk||{})[decodeURIComponent(encU)]||[]; if(list.length) requestPlugins(encU, list.map(r=>[enc(r.name),r.format,enc(r.vendor||'')])) }
 async function cancelReq(id){ const r=(S.reqs||[]).find(x=>x.id===id);
@@ -1179,7 +1228,7 @@ function openPluginCard(encName, format){
     if(active) act.push(`<div><span class="tag blue">${active.status==='streaming'?'передаётся…':active.status==='approved'?'разрешён — придёт, когда вы оба в сети':'запрошен у '+esc(active.toNick)}</span> <button class="sm ghost" data-a="cancel">Отменить</button></div>`);
     else if(mine.state==='ok'){
       act.push(`<div class="row"><button class="sm" data-a="check">Проверить</button><button class="sm" data-a="deps">Зависимости</button><button class="sm" data-a="diag" title="Подробный отчёт: где лежат файлы плагина, что уйдёт при передаче — чтобы сравнить два компьютера">Диагностика</button>
-        ${sameOS.map(o=>`<button class="sm" data-a="reinstall" data-u="${esc(o.user)}" title="Плагин и все его данные придут заново и заменят твои">Переустановить у ${esc(o.user)}</button>`).join('')}</div>`);
+        ${sameOS.map(o=>`<button class="sm" data-a="reinstall" data-u="${esc(o.user)}" title="Плагин и все его данные придут заново и заменят твои">Переустановить у ${esc(o.user)}</button>`).join('')}<span class="spacer"></span><button class="sm danger" data-a="uninstall" title="Убрать плагин и его данные с этого компьютера (в Корзину)">Удалить у себя</button></div>`);
       const diff=others.filter(o=>o.version&&mine.version&&o.version!==mine.version);
       if(diff.length) act.push(`<div class="row">${diff.map(o=>`<button class="sm ghost" data-a="get" data-u="${esc(o.user)}" title="Твоя версия заменится, старая уйдёт в резервную копию">Взять версию ${esc(o.version)} у ${esc(o.user)}</button>`).join('')}</div>`);
       act.push(`<div class="muted small">«Проверить» — загружается ли плагин, хватает ли библиотек и папок, нужна ли активация. «Переустановить» — плагин и все его данные придут заново и заменят то, что есть.</div>`);
@@ -1208,6 +1257,7 @@ function openPluginCard(encName, format){
       case 'get': return requestPlugins(u,[[enc(name),format,enc(r.vendor||'')]]);
       case 'cancel': return cancelReq(active.id);
       case 'link': return editLink(enc(name),enc(r.link||''),enc(r.linkNote||''));
+      case 'uninstall': return uninstallPlugin(name,format);
     } }));
   m.querySelectorAll('[data-f]').forEach(a=>a.onclick=()=>getLinkFile(enc(name),enc(a.dataset.f)));
 }
@@ -1215,10 +1265,30 @@ const REINSTALL_TXT='Плагин и <b>все</b> его данные (ресу
 async function reinstallPlugin(encU, encName, format, encVendor){
   const u=decodeURIComponent(encU), name=decodeURIComponent(encName);
   if(!await uiConfirm(`Переустановить <b>${esc(name)}</b> с компьютера <b>${esc(u)}</b>?<br><br>${REINSTALL_TXT}`,{ok:'Переустановить',title:'Переустановка плагина'})) return;
-  try{ const r=await api('/api/plugin/request',{to:u,items:[{plugin:name,format,vendor:decodeURIComponent(encVendor),reinstall:true}]}); toast(r.length?`Запрошено у ${esc(u)} — придёт и переустановится`:'Этот плагин уже запрошен — дождись или отмени тот запрос'); loadReqs() }catch(e){ fail(e) } }
+  try{ const r=await api('/api/plugin/request',{to:u,path:S.sel||'',items:[{plugin:name,format,vendor:decodeURIComponent(encVendor),reinstall:true}]}); toast(r.length?`Запрошено у ${esc(u)} — придёт и переустановится`:'Этот плагин уже запрошен — дождись или отмени тот запрос'); loadReqs() }catch(e){ fail(e) } }
 async function reinstallReq(id){ const r=(S.reqs||[]).find(x=>x.id===id);
   if(!await uiConfirm(`Переустановить <b>${esc(r?.plugin||'плагин')}</b>?<br><br>${REINSTALL_TXT}`,{ok:'Переустановить',title:'Переустановка плагина'})) return;
   try{ await api('/api/plugin/retry',{id,reinstall:true}); toast('Переустановлю, как только вы оба будете в сети'); loadReqs(); if(document.querySelector('#tl')&&S.trRefresh) S.trRefresh() }catch(e){ fail(e) } }
+// удалить плагин у себя: что именно — галочками (сам плагин, его данные, запись в базе FL)
+async function uninstallPlugin(name, format){
+  const m=modal(`<h2>Удалить ${esc(name)}</h2><div id="ul" class="muted">Ищу файлы плагина…</div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button id="no">Отмена</button><button class="danger" id="ok" disabled>Удалить</button></div>`);
+  m.querySelector('.modal').style.width='min(780px,94vw)';
+  m.querySelector('#no').onclick=()=>m.close();
+  let plan; try{ plan=await api('/api/plugin/uninstall-plan',{name,format}) }catch(e){ m.querySelector('#ul').innerHTML=`<div class="badbox">${esc(e.message)}</div>`; return }
+  const KIND={plugin:'Плагин',data:'Данные',fldb:'База FL'};
+  m.querySelector('#ul').innerHTML=`<div class="small" style="color:var(--text)">Отмеченное уйдёт в Корзину — оттуда можно вернуть${plan.items.some(i=>i.admin)?' (из защищённых папок — в резервную папку FruityHub, понадобятся права администратора)':''}. Закрой FL Studio.</div>
+    <div style="max-height:46vh;overflow:auto;margin-top:8px"><table>${plan.items.map((it,i)=>`<tr><td style="width:24px"><input type="checkbox" style="width:auto" data-i="${i}" ${it.checked?'checked':''}></td>
+      <td><span class="tag ${it.kind==='plugin'?'bad':''}">${KIND[it.kind]||it.kind}</span></td><td class="mono small" style="word-break:break-all">${esc(it.path)}${it.why?`<div class="muted" style="font-family:inherit">${esc(it.why)}</div>`:''}</td>
+      <td class="muted small" style="text-align:right;white-space:nowrap">${it.size?fmtSize(it.size):''}</td></tr>`).join('')}</table></div>
+    <div class="muted small" style="margin-top:6px">Лицензии в системе и пути в реестре не трогаются. Без галочки — то, что может быть общим с другими плагинами (большие библиотеки).</div>`;
+  const boxes=[...m.querySelectorAll('input[data-i]')], ok=m.querySelector('#ok');
+  const upd=()=>{ const n=boxes.filter(b=>b.checked).length; ok.disabled=!n; ok.textContent=n?`Удалить (${n})`:'Удалить' };
+  boxes.forEach(b=>b.onchange=upd); upd();
+  ok.onclick=async()=>{ const paths=boxes.filter(b=>b.checked).map(b=>plan.items[+b.dataset.i].path); m.close();
+    const j=await runJob('/api/plugin/uninstall',{name,format,paths},{title:'Удаляю '+name});
+    if(j&&!j.error){ S.analysis=null; if(S.sel) loadProject(S.sel) } };
+}
 async function pluginDiag(name, format){
   const j=await runJob('/api/plugin/diag',{name,format},{title:'Диагностика '+name}); if(!j||j.error||!j.result) return;
   const m=modal(`<div class="row" style="justify-content:space-between"><h2 style="margin:0">Диагностика: ${esc(name)}</h2><button class="ghost sm" id="x">✕</button></div>
@@ -1405,8 +1475,21 @@ async function openSettings(){
     <h3>Фон</h3>
     <div class="row"><button class="sm" id="bgpick">Выбрать картинку…</button><button class="sm ghost" id="bgreset" ${st.customBg?'':'disabled'}>Вернуть стандартный</button></div>
     <label>Затемнение фона</label><input type="range" id="bgdim" min="0" max="90" step="1" value="${c.bgDim||50}" style="padding:0">
+    <h3>Уведомления</h3>
+    <label>Сколько держать на экране сообщения о готовых задачах (справа снизу) и подсказки</label>
+    <select id="tsec" style="width:auto">${[[3,'3 секунды'],[4,'4 секунды (обычно)'],[6,'6 секунд'],[10,'10 секунд'],[20,'20 секунд'],[60,'минуту'],[0,'пока не закрою']].map(([v,t])=>`<option value="${v}" ${noteSec()===v?'selected':''}>${t}</option>`).join('')}</select>
+    <div class="muted small">Ошибки висят, пока их не закроешь. На экране не больше трёх сообщений — остальные прокручиваются вниз.</div>
+    <h3>Подсказки</h3>
+    <label class="switch"><input type="checkbox" id="helpb" ${c.hideHelp?'':'checked'}> Показывать кнопку «?» (знакомство с программой) в шапке</label>
+    <div class="muted small">Знакомство всегда можно открыть во вкладке «Профиль».</div>
     </div>
     <div data-sp="system">
+    <h3>Передача между участниками</h3>
+    <label class="switch"><input type="checkbox" id="lanx" ${c.noLan?'':'checked'}> Если мы в одной сети (дома, в студии) — передавать напрямую, мимо сервера</label>
+    <div class="muted small">Плагины и аудио идут по локальной сети на её скорости. Windows один раз спросит разрешение для FruityHub в брандмауэре — разреши для частных сетей. Не получилось напрямую — передача сама пойдёт через сервер.</div>
+    <label class="switch"><input type="checkbox" id="peerx" ${c.noPeerFetch?'':'checked'}> Аудио проектов брать у участников, а не только с GitHub</label>
+    <div class="muted small">Когда скачиваешь проект или жмёшь «Получить», FruityHub сначала просит недостающие wav у участников в сети (это быстрее GitHub и не тратит его лимит), остальное докачивает с GitHub. Своё аудио так же отдаётся участникам.</div>
+    <div class="row" style="margin-top:8px"><button class="sm" id="spd">Проверить скорость связи с сервером</button></div>
     <h3>Компоненты</h3>
     <div class="small">${t.gitOk?esc(t.git):'git не найден'}<br>${t.lfsOk?esc(t.lfs):'git-lfs не найден'}</div>
     ${(!t.gitOk||!t.lfsOk)?`<div style="margin-top:8px"><button onclick="installTools()">Установить автоматически</button></div>`:''}
@@ -1429,6 +1512,11 @@ async function openSettings(){
   const showSet=k=>{ m.querySelectorAll('[data-sp]').forEach(d=>d.style.display=d.dataset.sp===k?'':'none'); m.querySelectorAll('[data-st]').forEach(b=>b.classList.toggle('on',b.dataset.st===k)); try{ localStorage.setItem('setTab',k) }catch(e){} };
   m.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>showSet(b.dataset.st));
   let st0='profile'; try{ st0=localStorage.getItem('setTab')||'profile' }catch(e){} if(!SET_TABS.some(([k])=>k===st0)) st0='profile'; showSet(st0);
+  m.querySelector('#lanx').onchange=async e=>{ try{ await api('/api/settings',{lan:e.target.checked}); S.state.config.noLan=!e.target.checked; toast('Сохранено') }catch(er){ fail(er) } };
+  m.querySelector('#peerx').onchange=async e=>{ try{ await api('/api/settings',{peerFetch:e.target.checked}); S.state.config.noPeerFetch=!e.target.checked; toast('Сохранено') }catch(er){ fail(er) } };
+  m.querySelector('#spd').onclick=async()=>{ const j=await runJob('/api/system/speedtest',{},{title:'Проверяю скорость связи с сервером'}); if(j&&!j.error&&j.result) uiAlert(j.result,'Скорость связи с сервером') };
+  m.querySelector('#tsec').onchange=async e=>{ const v=+e.target.value; try{ await api('/api/settings',{toastSec:v}); S.state.config.toastSec=v; toast('Сохранено') }catch(er){ fail(er) } };
+  m.querySelector('#helpb').onchange=async e=>{ try{ await api('/api/settings',{hideHelp:!e.target.checked}); S.state.config.hideHelp=!e.target.checked; $('#helpBtn').style.display=e.target.checked?'':'none' }catch(er){ fail(er) } };
   m.querySelector('#autoplug').onchange=async e=>{ try{ await api('/api/settings',{autoFetchPlugins:e.target.checked}); S.state.config.autoFetchPlugins=e.target.checked; toast('Сохранено') }catch(er){ fail(er) } };
   const rt2=m.querySelector('#rt2'); if(rt2) rt2.onclick=()=>{ m.close(); changeTokenDialog() };
   const rb=m.querySelector('#regb'); if(rb) rb.onclick=()=>{ m.close(); openRegister(true) };
@@ -1578,28 +1666,37 @@ async function readDropped(dt){
 function hasFiles(e){ return [...(e.dataTransfer?.types||[])].includes('Files') }
 function bindFolderDrop(el, plugins, onPaths){
   if(!el) return;
-  el.addEventListener('dragover', e=>{ if(hasFiles(e)){ e.preventDefault(); e.stopPropagation(); el.classList.add('dropping') } });
+  // папку проекта можно бросить в любое место окна — рамка на всё окно, пока тащишь
+  let hint=null, hintT=0;
+  const showHint=()=>{ if(plugins) return; if(!hint){ hint=document.createElement('div'); hint.className='dragall'; hint.textContent='Отпусти — папка добавится как проект'; document.body.appendChild(hint) } clearTimeout(hintT); hintT=setTimeout(hideHint,250) };
+  const hideHint=()=>{ if(hint){ hint.remove(); hint=null } };
+  el.addEventListener('dragover', e=>{ if(hasFiles(e) && (plugins || !topModal())){ e.preventDefault(); e.stopPropagation(); el.classList.add('dropping'); showHint() } });
   el.addEventListener('dragleave', e=>{ if(e.target===el) el.classList.remove('dropping') });
   el.addEventListener('drop', async e=>{
-    if(!hasFiles(e)) return;
-    e.preventDefault(); e.stopPropagation(); el.classList.remove('dropping');
+    if(!hasFiles(e) || (!plugins && topModal())) return;
+    e.preventDefault(); e.stopPropagation(); el.classList.remove('dropping'); hideHint();
     const items=await readDropped(e.dataTransfer);
     const dirs=items.filter(x=>x.dir);
     if(!dirs.length){ toast('Перетащи папку (не файл)'); return }
-    const t=toast('Ищу папку «'+esc(dirs[0].name)+'» на диске…',15000);
+    const busy=plugins?null:busyOverlay('Добавляю «'+dirs[0].name+'»…','Ищу папку на диске');
+    const t=plugins?toast('Ищу папку «'+esc(dirs[0].name)+'» на диске…',15000):null;
     const paths=[];
-    for(const d of dirs){
-      let found=[]; try{ found=await api('/api/locate-dropped',{name:d.name,children:d.children,plugins}) }catch(er){}
-      if(found.length===1) paths.push(found[0]);
-      else if(found.length>1){ const p=await choosePath(d.name, found); if(p) paths.push(p) }
-      else {
-        t.remove();
-        if(await uiConfirm(`Не нашёл папку «${esc(d.name)}» на диске. Выбрать её вручную?`,{title:'Папка не найдена',ok:'Выбрать…'})){
-          const r=await api('/api/pickfolder',{}).catch(()=>({})); if(r.path) paths.push(r.path) }
+    try{
+      for(const d of dirs){
+        busy&&busy.set('Добавляю «'+d.name+'»…','Ищу папку на диске');
+        let found=[]; try{ found=await api('/api/locate-dropped',{name:d.name,children:d.children,plugins}) }catch(er){}
+        if(found.length===1) paths.push(found[0]);
+        else if(found.length>1){ busy&&busy.hide(); const p=await choosePath(d.name, found); busy&&busy.show(); if(p) paths.push(p) }
+        else {
+          t&&t.remove(); busy&&busy.hide();
+          if(await uiConfirm(`Не нашёл папку «${esc(d.name)}» на диске. Выбрать её вручную?`,{title:'Папка не найдена',ok:'Выбрать…'})){
+            const r=await api('/api/pickfolder',{}).catch(()=>({})); if(r.path) paths.push(r.path) }
+          busy&&busy.show();
+        }
       }
-    }
-    t.remove();
-    if(paths.length) onPaths(paths);
+      t&&t.remove();
+      if(paths.length){ busy&&busy.set(paths.length>1?`Добавляю проекты (${paths.length})…`:'Добавляю «'+paths[0].split(/[\\/]/).pop()+'»…','Разбираю .flp, сэмплы и плагины'); await onPaths(paths) }
+    } finally { busy&&busy.close() }
   });
 }
 function choosePath(name, list){ return new Promise(res=>{ let v=null;
@@ -1611,7 +1708,7 @@ async function addProjectPaths(paths){
   for(const path of paths){ try{ await api('/api/projects/add',{path}); last=path }catch(e){ fail(e) } }
   if(last){ S.sel=last; S.analysis=null; S.comments=null; await refreshAll(); toast(paths.length>1?`Добавлено проектов: ${paths.length}`:'Проект добавлен') }
 }
-bindFolderDrop(document.querySelector('aside'), false, addProjectPaths);
+bindFolderDrop(document.querySelector('.wrap'), false, addProjectPaths);
 // чтобы случайно брошенный файл не открылся в окне вместо приложения
 window.addEventListener('dragover', e=>{ if(hasFiles(e)) e.preventDefault() });
 window.addEventListener('drop', e=>{ if(hasFiles(e)) e.preventDefault() });

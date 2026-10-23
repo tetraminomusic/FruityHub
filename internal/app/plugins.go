@@ -354,30 +354,17 @@ func (p *Project) PluginReport(a *Analysis, machines []Machine) []PluginRow {
 			case "missing":
 				probs = append(probs, "нет у "+ms.User)
 			case "other-format":
-				probs = append(probs, ms.User+": "+ms.Note+" — настройки плагина из "+pl.Format+" другой формат обычно не читает (пресет слетит); поставь "+pl.Format+"-версию")
+				probs = append(probs, ms.User+": другой формат. Возможно, слетят пресеты")
 			}
 		}
 		if len(uniq(versions)) > 1 {
-			// состояние плагина (пресет) из более новой версии старая часто не читает — «ошибка парсинга», сброс пресета
-			newest := versions[0]
-			for _, v := range versions {
-				if cmpVersion(v, newest) > 0 {
-					newest = v
-				}
-			}
-			var old []string
-			for _, ms := range r.Machines {
-				if ms.Version != "" && cmpVersion(ms.Version, newest) < 0 {
-					old = append(old, ms.User+" "+ms.Version)
-				}
-			}
-			probs = append(probs, "разные версии: у "+strings.Join(old, ", ")+" старее, чем "+newest+
-				" — настройки плагина, сохранённые в новой версии, старая может не прочитать (сброс пресета, ошибка загрузки). Обновите плагин до одной версии")
+			// состояние плагина из более новой версии старая часто не читает — сброс пресета
+			probs = append(probs, "разные версии. Возможно, слетят пресеты")
 		}
 		if pl.Format == "AU" {
 			for _, m := range machines {
 				if m.OS == "Windows" {
-					probs = append(probs, "AU не существует на Windows — используй VST3-версию")
+					probs = append(probs, "AU нет на Windows — нужен VST3")
 					break
 				}
 			}

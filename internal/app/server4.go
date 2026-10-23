@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -75,10 +76,11 @@ func (s *Server) HubLoop(every time.Duration) {
 				s.receiveAllowed(in.Ready)
 				s.answerOffers(in.Ready)
 				s.reconcileClaims(in.Ready)
+				s.serveFetches(in.Fetches)
 				go flushErrorReports(s.cfg)
 				s.maybeAutoUpdate(in.Update)
 				go h.PutInventory(ScanInstalled(s.cfg, false))
-				if len(in.Incoming)+len(in.ToSend)+len(in.Ready) > 0 {
+				if len(in.Incoming)+len(in.ToSend)+len(in.Ready)+len(in.Fetches) > 0 {
 					wait = 2 * time.Second // a transfer is going on: react fast
 				}
 			} else if he, ok := err.(*HubError); ok && he.Code == 401 {
@@ -433,7 +435,7 @@ func (s *Server) routes4(api func(string, func(*http.Request) (any, error))) {
 		go h().Inbox()
 		return "ok", err
 	})
-	jobAPI("/api/invitations/accept", "Принимаю приглашение", true, func(b map[string]any, j *Job) (any, error) {
+	jobAPI("/api/invitations/accept", "Принимаю приглашение", false, func(b map[string]any, j *Job) (any, error) {
 		parent := strings.TrimSpace(str(b, "parent"))
 		if parent == "" {
 			return nil, errors.New("не выбрана папка, куда скачать проект")
@@ -446,12 +448,7 @@ func (s *Server) routes4(api func(string, func(*http.Request) (any, error))) {
 		j.Logf("Приглашение принято")
 		LogActivity("", "ok", "Принято приглашение в «"+hp.Name+"» от "+hp.Owner.Nick)
 		s.cfg.LastParent = parent
-		dir, err := CloneServerProject(s.cfg, j, hp, parent)
-		addLocal(dir, str(b, "group"))
-		if err == nil {
-			s.autoRequestMissing(j, dir)
-		}
-		return map[string]string{"path": dir}, err
+		return s.cloneOnce(j, hp, parent, str(b, "group"), addLocal)
 	})
 	api("/api/available", func(r *http.Request) (any, error) {
 		if !h().Registered() {
@@ -488,13 +485,14 @@ func (s *Server) routes4(api func(string, func(*http.Request) (any, error))) {
 				}
 			}
 			if !here {
+				_, p.Downloading = s.cloning.Load(p.ID)
 				out = append(out, p)
 			}
 		}
 		sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
 		return out, nil
 	})
-	jobAPI("/api/available/clone", "Скачиваю проект", true, func(b map[string]any, j *Job) (any, error) {
+	jobAPI("/api/available/clone", "Скачиваю проект", false, func(b map[string]any, j *Job) (any, error) {
 		parent := strings.TrimSpace(str(b, "parent"))
 		if parent == "" {
 			return nil, errors.New("выбери папку, куда скачать проект")
@@ -504,12 +502,32 @@ func (s *Server) routes4(api func(string, func(*http.Request) (any, error))) {
 			return nil, err
 		}
 		s.cfg.LastParent = parent
-		dir, err := CloneServerProject(s.cfg, j, hp, parent)
-		addLocal(dir, str(b, "group"))
-		if err == nil {
-			s.autoRequestMissing(j, dir)
+		return s.cloneOnce(j, hp, parent, str(b, "group"), addLocal)
+	})
+	// «папка уже есть» → убрать её в Корзину (дальше UI запускает скачивание заново)
+	api("/api/clone/trash-existing", func(r *http.Request) (any, error) {
+		path := str(body(r), "path")
+		if _, ok := s.fixPaths.Load(path); !ok {
+			return nil, errors.New("эту папку так удалить нельзя")
 		}
-		return map[string]string{"path": dir}, err
+		home, _ := os.UserHomeDir()
+		clean := filepath.Clean(path)
+		if clean == filepath.Clean(home) || len(clean) < 4 || filepath.Dir(clean) == clean {
+			return nil, errors.New("эту папку удалять нельзя")
+		}
+		if err := moveDirToTrash(clean); err != nil {
+			return nil, fmt.Errorf("не получилось убрать в Корзину (закрой проект в FL Studio): %w", err)
+		}
+		s.fixPaths.Delete(path)
+		var keep []LocalProject
+		for _, lp := range s.cfg.Projects {
+			if !samePath(lp.Path, path) {
+				keep = append(keep, lp)
+			}
+		}
+		s.cfg.Projects = keep
+		s.cfg.Save()
+		return "ok", nil
 	})
 
 	// ----- что проверено после установки плагина, и система -----
@@ -518,6 +536,9 @@ func (s *Server) routes4(api func(string, func(*http.Request) (any, error))) {
 		return "ok", nil
 	})
 	api("/api/plugin/reports", func(r *http.Request) (any, error) { return allReports(), nil })
+	jobAPI("/api/system/speedtest", "Проверяю скорость связи с сервером", false, func(b map[string]any, j *Job) (any, error) {
+		return SpeedTest(s.cfg, j)
+	})
 	api("/api/system/check", func(r *http.Request) (any, error) {
 		sysGit := gitBinary() != filepath.Join(toolsDir(), "mingit", "cmd", "git.exe")
 		return map[string]any{"os": OSName(), "arch": hostArch(), "vcredistMissing": VCRedistMissing(), "gpus": GPUs(), "basicGpu": BasicGPU(),
@@ -531,10 +552,19 @@ func (s *Server) routes4(api func(string, func(*http.Request) (any, error))) {
 	api("/api/plugin/request", func(r *http.Request) (any, error) {
 		var req struct {
 			To    string    `json:"to"`
+			Path  string    `json:"path"` // из какого проекта просят — чтобы история передач была по проекту
 			Items []ReqItem `json:"items"`
 		}
 		if err := decode(r, &req); err != nil {
 			return nil, err
+		}
+		if req.Path != "" {
+			key := (&Project{Dir: req.Path, Cfg: s.cfg}).requestKey()
+			for i := range req.Items {
+				if req.Items[i].Project == "" {
+					req.Items[i].Project = key
+				}
+			}
 		}
 		out, err := h().RequestPlugins(req.To, req.Items)
 		if err == nil && len(out) > 0 {
@@ -559,6 +589,21 @@ func (s *Server) routes4(api func(string, func(*http.Request) (any, error))) {
 	})
 	jobAPI("/api/plugin/retry-data", "Кладу данные плагина", false, func(req map[string]any, j *Job) (any, error) {
 		return "ok", RetryPendingData(j, str(req, "id"))
+	})
+	api("/api/plugin/uninstall-plan", func(r *http.Request) (any, error) {
+		b := body(r)
+		return uninstallPlan(s.cfg, str(b, "name"), str(b, "format"))
+	})
+	jobAPI("/api/plugin/uninstall", "Удаляю плагин", false, func(b map[string]any, j *Job) (any, error) {
+		var paths []string
+		if l, ok := b["paths"].([]any); ok {
+			for _, x := range l {
+				if v, ok := x.(string); ok {
+					paths = append(paths, v)
+				}
+			}
+		}
+		return UninstallPlugin(s.cfg, j, str(b, "name"), str(b, "format"), paths)
 	})
 	jobAPI("/api/plugin/diag", "Диагностика плагина", false, func(b map[string]any, j *Job) (any, error) {
 		return PluginDiag(s.cfg, j, str(b, "name"), str(b, "format"))
@@ -877,6 +922,31 @@ func (p *Project) RemoveParticipant(userID string) error {
 }
 
 // CloneServerProject accepts the GitHub invitation (if any) and downloads.
+// cloneOnce: один и тот же проект не скачивается двумя задачами сразу (приглашение + «Доступные»).
+func (s *Server) cloneOnce(j *Job, hp *HubProject, parent, group string, addLocal func(dir, group string)) (any, error) {
+	if other, busy := s.cloning.LoadOrStore(hp.ID, j.ID); busy && other != j.ID {
+		j.Logf("Внимание: «%s» уже скачивается — смотри соседнюю задачу", hp.Name)
+		return map[string]string{"path": "", "already": other.(string)}, nil
+	}
+	defer s.cloning.Delete(hp.ID)
+	for _, lp := range s.cfg.Projects { // уже есть на этом компьютере
+		if exists(lp.Path) && normRemote((&Git{Dir: lp.Path, Cfg: s.cfg}).Remote()) == normRemote(hp.CloneURL) && hp.CloneURL != "" {
+			j.Logf("Внимание: «%s» уже есть на этом компьютере: %s", hp.Name, lp.Path)
+			return map[string]string{"path": lp.Path}, nil
+		}
+	}
+	dir, err := CloneServerProject(s.cfg, j, hp, parent)
+	var fe *FixError
+	if errors.As(err, &fe) && fe.Fix != nil && fe.Fix.Path != "" {
+		s.fixPaths.Store(fe.Fix.Path, true)
+	}
+	addLocal(dir, group)
+	if err == nil {
+		s.autoRequestMissing(j, dir)
+	}
+	return map[string]string{"path": dir}, err
+}
+
 func CloneServerProject(cfg *Config, j *Job, hp *HubProject, parent string) (string, error) {
 	if err := ghAcceptInvitation(cfg, hp.Repo); err != nil {
 		j.Logf("Внимание: GitHub: %v", err)

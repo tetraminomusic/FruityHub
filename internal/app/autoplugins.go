@@ -57,6 +57,12 @@ func (s *Server) autoRequestMissing(j *Job, dir string) {
 	}
 	p := &Project{Dir: dir, Cfg: s.cfg, Job: j}
 	want := missingPluginRequests(p)
+	key := p.requestKey()
+	for who := range want {
+		for i := range want[who] {
+			want[who][i].Project = key
+		}
+	}
 	if len(want) == 0 {
 		j.Logf("✓ Все плагины проекта у тебя есть")
 		return

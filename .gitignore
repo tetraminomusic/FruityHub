@@ -8,3 +8,4 @@ deploy/logs/
 server-backups/
 devstack-data/
 *.local
+.DS_Store

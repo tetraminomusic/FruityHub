@@ -47,7 +47,11 @@ type Config struct {
 	AutoUpdate       bool           `json:"autoUpdate,omitempty"`
 	AutoFetchPlugins bool           `json:"autoFetchPlugins,omitempty"` // после скачивания проекта запросить недостающие плагины
 	SeenVersion      string         `json:"seenVersion,omitempty"`      // версия, для которой уже показали «Что нового»
-	GuideSeen        bool           `json:"guideSeen,omitempty"`        // показали знакомство с программой     // ставить обновления сами, когда ничего не передаётся
+	GuideSeen        bool           `json:"guideSeen,omitempty"`        // показали знакомство с программой
+	HideHelp         bool           `json:"hideHelp,omitempty"`         // убрать кнопку «?» из шапки
+	NoPeerFetch      bool           `json:"noPeerFetch,omitempty"`      // не брать/не отдавать аудио проектов напрямую между участниками
+	NoLAN            bool           `json:"noLan,omitempty"`            // не передавать напрямую по локальной сети (только через сервер)
+	ToastSec         *int           `json:"toastSec,omitempty"`         // сколько секунд держать уведомления (0 — пока не закроют)
 	NoErrorReports   bool           `json:"noErrorReports,omitempty"`   // не отправлять свои ошибки в журнал сервера
 	SortMode         string         `json:"sortMode,omitempty"`         // порядок списка проектов: manual, name, name-desc, modified, modified-asc
 

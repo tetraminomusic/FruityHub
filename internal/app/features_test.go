@@ -46,10 +46,10 @@ func TestProjectNameAndFLTitle(t *testing.T) {
 		t.Fatal(changed, err)
 	}
 	f, _ := flp.ParseFile(filepath.Join(dir, "Track.flp"))
-	if f.Title() != "Дрифт v2" || len(f.Info().Plugins) == 0 {
+	if f.Title() != "Drift v2" || len(f.Info().Plugins) == 0 { // FL не понимает кириллицу — пишем латиницей
 		t.Fatalf("title %q, плагины %d", f.Title(), len(f.Info().Plugins))
 	}
-	if got, _ := p.FLTitle(); got != "Дрифт v2" {
+	if got, _ := p.FLTitle(); got != "Drift v2" {
 		t.Fatal(got)
 	}
 	if c := p.FLCompat(); c.Saved != "21.2.3.4004" {

@@ -594,30 +594,48 @@ func CloneNamed(cfg *Config, job *Job, url, parent, name string) (string, error)
 	if exists(dir) {
 		ents, _ := os.ReadDir(dir)
 		if len(ents) > 0 {
-			return "", fmt.Errorf("папка %s уже существует и не пустая", dir)
+			// та же папка уже есть: это может быть этот же проект (скачан раньше) или что-то чужое
+			same := normRemote((&Git{Dir: dir, Cfg: cfg}).Remote()) == normRemote(url)
+			msg := fmt.Sprintf("папка %s уже существует и не пустая", dir)
+			if same {
+				msg = fmt.Sprintf("этот проект уже скачан в %s", dir)
+			}
+			return "", &FixError{Msg: msg, Fix: &JobFix{Kind: "exists", Path: dir, Same: same}}
 		}
 	}
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return "", err
 	}
-	g := &Git{Dir: parent, Cfg: cfg, Job: job, URL: url}
-	os.Setenv("GIT_LFS_SKIP_SMUDGE", "1")
-	job.Logf("Скачиваю проект…")
+	g := &Git{Dir: parent, Cfg: cfg, Job: job, URL: url, Env: []string{"GIT_LFS_SKIP_SMUDGE=1"}}
+	job.Logf("Шаг 1 из 2: скачиваю проект (.flp и история)…")
+	job.SetProgress("Скачивание проекта · подключаюсь к GitHub", -1)
 	_, err := g.Run("clone", "--progress", url, dir)
-	os.Unsetenv("GIT_LFS_SKIP_SMUDGE")
 	if err != nil {
 		return "", err
 	}
-	g.Dir = dir
+	g.Dir, g.Env = dir, nil
 	if _, err := g.Run("lfs", "install", "--local", "--skip-repo"); err != nil {
 		return dir, err
 	}
 	g.RunQuiet("config", "uzbek.adopted", "true")
-	job.Logf("Проект скачан, докачиваю аудио…")
-	if _, err := g.Run("lfs", "pull"); err != nil {
-		return dir, err
-	}
+	g.RunQuiet("config", "lfs.concurrenttransfers", "8") // аудио с GitHub — в 8 потоков, а не в 3
 	p := &Project{Dir: dir, Cfg: cfg, Job: job}
+	objs := lfsObjects(g, "")
+	var total int64
+	for _, o := range objs {
+		total += o.Size
+	}
+	if len(objs) > 0 {
+		job.Logf("Шаг 2 из 2: аудио — %d файлов%s", len(objs), map[bool]string{true: ", " + fmtBytes(total), false: ""}[total > 0])
+		p.peerFetchLFS("")
+		job.setLFS(total, len(objs))
+		job.SetProgress("Скачивание аудио с GitHub", -1)
+		_, err := g.Run("lfs", "pull")
+		job.setLFS(0, 0)
+		if err != nil {
+			return dir, err
+		}
+	}
 	if n, _ := p.Relink(); n > 0 {
 		job.Logf("Пути к сэмплам направлены в папку проекта: %d", n)
 	}
@@ -718,6 +736,8 @@ func (p *Project) fetchMerge() (conflicts []string, err error) {
 		p.Job.Logf("На сервере ещё нет ветки %s — получать нечего", b)
 		return nil, nil
 	}
+	// новое аудио — сначала с компьютера участника (быстрее), остальное git докачает с GitHub при слиянии
+	p.peerFetchLFS("origin/" + b)
 	if !g.HasCommits() {
 		_, err := g.Run("reset", "--mixed", "origin/"+b)
 		if err == nil {
@@ -985,6 +1005,14 @@ func (p *Project) hubID() string {
 	}
 	hubIDCache.Store(p.Dir, hubIDEntry{id, time.Now()})
 	return id
+}
+
+// requestKey — чем помечаются запросы плагинов из этого проекта: id на сервере, иначе папка.
+func (p *Project) requestKey() string {
+	if id := p.hubID(); id != "" {
+		return id
+	}
+	return "local:" + filepath.Base(p.Dir)
 }
 
 func (p *Project) lockFile() string { return filepath.Join(p.Dir, ".flsync", "lock.json") }

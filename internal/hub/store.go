@@ -85,6 +85,8 @@ type PluginReq struct {
 	Reinstall bool `json:"reinstall,omitempty"`
 	// Partial — плагин встал, но что-то из его данных/путей не легло (предупреждения у получателя)
 	Partial bool `json:"partial,omitempty"`
+	// Project — для какого проекта просили (id проекта на сервере или «local:<папка>»): история передач в проекте
+	Project string `json:"project,omitempty"`
 }
 
 type DB struct {

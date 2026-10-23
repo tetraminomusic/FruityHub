@@ -135,11 +135,17 @@ func (s *Server) routes5(api func(string, func(r *http.Request) (any, error))) {
 			}
 			changed = changed || c
 		}
-		if _, ok := b["title"]; ok {
-			return map[string]any{"changed": changed}, nil
-		}
-		if _, ok := b["artist"]; ok {
-			return map[string]any{"changed": changed}, nil
+		_, okT := b["title"].(string)
+		_, okA := b["artist"].(string)
+		if okT || okA {
+			// что на самом деле записано в .flp (кириллица — латиницей)
+			res := map[string]any{"changed": changed}
+			for _, k := range []string{"title", "artist"} {
+				if v, ok := b[k].(string); ok && hasCyrillic(v) {
+					res["latin"] = toLatin(strings.TrimSpace(v))
+				}
+			}
+			return res, nil
 		}
 		t, err := p.FLTitle()
 		return map[string]any{"title": t, "artist": p.FLArtist(), "flp": p.MainFLP(), "compat": p.FLCompat()}, err

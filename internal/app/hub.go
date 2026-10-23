@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -78,6 +79,8 @@ type HubProject struct {
 	Invited  []HubInvite `json:"invited"`
 	IsOwner  bool        `json:"isOwner"`
 	Lock     *HubLock    `json:"lock"`
+	// Downloading — этот проект сейчас скачивается на этот компьютер (заполняет приложение)
+	Downloading bool `json:"downloading,omitempty"`
 }
 
 // PluginRequest is a plugin transfer between two users (through the server).
@@ -104,6 +107,7 @@ type PluginRequest struct {
 	OfferSeq   int    `json:"offerSeq,omitempty"`
 	Reinstall  bool   `json:"reinstall,omitempty"`
 	Partial    bool   `json:"partial,omitempty"`
+	Project    string `json:"project,omitempty"`
 }
 
 // Statuses
@@ -126,6 +130,7 @@ type Inbox struct {
 	MoveTo   string              `json:"moveTo,omitempty"` // сервер переехал
 	Update   string              `json:"update,omitempty"` // последняя версия приложения на сервере
 	Locks    map[string]*HubLock `json:"locks"`            // замки проектов (сервер 0.7.4+)
+	Fetches  []FetchView         `json:"fetches"`          // участники просят аудио проектов (сервер 0.9.1+)
 }
 
 var hubsMu sync.Mutex
@@ -470,7 +475,7 @@ func (h *Hub) DeclineInvite(id string) error {
 
 func (h *Hub) Inbox() (*Inbox, error) {
 	var in Inbox
-	if err := h.do("GET", "/api/inbox", nil, &in); err != nil {
+	if err := h.do("GET", "/api/inbox?caps=fetch", nil, &in); err != nil {
 		return nil, err
 	}
 	h.mu.Lock()
@@ -523,6 +528,7 @@ type ReqItem struct {
 	Format    string `json:"format"`
 	Vendor    string `json:"vendor,omitempty"`
 	Reinstall bool   `json:"reinstall,omitempty"`
+	Project   string `json:"project,omitempty"`
 }
 
 func (h *Hub) RequestPlugins(toNick string, items []ReqItem) ([]PluginRequest, error) {
@@ -685,17 +691,26 @@ var errStalled = errors.New("связь оборвалась: полторы м�
 
 const stallAfter = 90 * time.Second
 
-func (h *Hub) StreamSend(job *Job, id, path string) error {
+func (h *Hub) relaySend(job *Job, id, path string) error {
+	return h.relaySendCtx(job.Ctx(), job, id, path, nil)
+}
+
+// relaySendCtx: first — вызывается перед тем, как пойдут данные (получатель подключился к серверу);
+// false — данные уже идут по локальной сети, через сервер не отправляем.
+func (h *Hub) relaySendCtx(parent context.Context, job *Job, id, path string, first func() bool) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 	st, _ := f.Stat()
-	ctx, touch, stop, stalled := stallGuard(job.Ctx(), stallAfter)
+	ctx, touch, stop, stalled := stallGuard(parent, stallAfter)
 	defer stop()
-	req, err := http.NewRequestWithContext(ctx, "PUT", h.cfg.ServerURL()+"/api/plugin-requests/"+url.PathEscape(id)+"/stream",
-		&progressReader{r: f, total: st.Size(), job: job, verb: "Передаю", touch: touch})
+	var body io.Reader = &progressReader{r: f, total: st.Size(), job: job, verb: "Передаю", touch: touch}
+	if first != nil {
+		body = &firstReader{r: body, first: first}
+	}
+	req, err := http.NewRequestWithContext(ctx, "PUT", h.cfg.ServerURL()+"/api/plugin-requests/"+url.PathEscape(id)+"/stream", body)
 	if err != nil {
 		return err
 	}
@@ -710,7 +725,7 @@ func (h *Hub) StreamSend(job *Job, id, path string) error {
 		if stalled() {
 			return errStalled
 		}
-		if job.Ctx().Err() != nil {
+		if parent.Err() != nil {
 			return errCancelled
 		}
 		return fmt.Errorf("передача прервалась: %v", err)
@@ -725,8 +740,8 @@ func (h *Hub) StreamSend(job *Job, id, path string) error {
 	return readHubResp(resp, nil)
 }
 
-// StreamRecv takes the file while the owner's app is sending it.
-func (h *Hub) StreamRecv(job *Job, r *PluginRequest, dst string) error {
+// relayRecv takes the file while the owner's app is sending it (through the server).
+func (h *Hub) relayRecv(job *Job, r *PluginRequest, dst string) error {
 	ctx, touch, stop, stalled := stallGuard(job.Ctx(), stallAfter)
 	defer stop()
 	req, _ := http.NewRequestWithContext(ctx, "GET", h.cfg.ServerURL()+"/api/plugin-requests/"+url.PathEscape(r.ID)+"/stream", nil)
