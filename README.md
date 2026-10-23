@@ -1,5 +1,12 @@
 # FruityHub
 
+[![Лицензия: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+![Go 1.22](https://img.shields.io/badge/Go-1.22-00ADD8?logo=go&logoColor=white)
+![Платформы](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue)
+![Версия](https://img.shields.io/badge/version-0.9.1-orange)
+![Git LFS](https://img.shields.io/badge/Git-LFS-F05032?logo=git&logoColor=white)
+![FL Studio](https://img.shields.io/badge/FL%20Studio-compatible-ff8c00)
+
 Приложение для совместной работы над проектами FL Studio (раньше называлось «прога узбека»). Внутри обычный git и Git LFS, но руками с ними работать не нужно: в окне три кнопки — **Получить**, **Взять в работу**, **Отправить**. Кроме них — кнопка **Запустить проект**, обсуждение проекта и обмен плагинами.
 
 Устроено так:
