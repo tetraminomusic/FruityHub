@@ -55,3 +55,8 @@ Exe и app не подписаны сертификатом разработчи
 SERVER=<адрес> SERVER_CODE=<код> ./build.sh 0.9.1   # → dist/
 ```
 Подробно — [docs/development.md](docs/development.md).
+
+## Лицензия
+[MIT](LICENSE) — код можно свободно использовать, изменять и распространять, сохранив строку об авторстве.
+
+FruityHub — независимый проект, он не связан с Image-Line и не одобрен ею. FL Studio — товарный знак Image-Line Software.
