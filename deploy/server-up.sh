@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # Сервер FruityHub на VPS — одной командой с Mac.
 #
-#   ./deploy/server-up.sh                                # поднять / обновить сервер на root@vpn_fi
+#   ./deploy/server-up.sh                                # поднять / обновить сервер из deploy/server.local
 #   ./deploy/server-up.sh root@1.2.3.4 [домен]           # на другом сервере (домен — необязательно)
-#   ./deploy/server-up.sh backup [root@vpn_fi]           # скачать все данные сервера в server-backups/
+#   ./deploy/server-up.sh backup [root@сервер]           # скачать все данные сервера в server-backups/
 #   ./deploy/server-up.sh restore ФАЙЛ root@новый [домен] # переезд: поднять сервер и восстановить данные
 #
 # При обычном запуске скрипт ещё и выкладывает на сервер новые версии приложения из dist/ (после ./build.sh):
 # у всех появится плашка «Доступно обновление». Чтобы не выкладывать — добавь --no-update.
 #
-# vpn_fi — имя сервера из ~/.ssh/config (или из DNS). Пароль, если ключа нет, спросят один раз.
+# Сервер по умолчанию — строка вида root@1.2.3.4 (или имя из ~/.ssh/config) в deploy/server.local:
+# он не попадает в git. Пароль, если ключа нет, спросят один раз.
 # В конце печатает адрес, код сервера и ключ администратора и сохраняет их в server.txt.
 # Все данные сервера — в одной папке /var/lib/uzbek-server (db.json, server-code, admin-key…);
 # перенос = backup на старом + restore на новом. Установщик для VPS зашит в конец этого файла.
@@ -33,7 +34,9 @@ case "${1:-}" in
   restore) MODE=restore; RESTORE="${2:-}"; shift 2 || true
     [[ -f "$RESTORE" ]] || { echo "Укажи файл бэкапа: ./deploy/server-up.sh restore server-backups/….tar.gz root@новый-сервер"; exit 1; } ;;
 esac
-TARGET="${1:-root@vpn_fi}"
+DEFAULT_TARGET="$(grep -v '^[[:space:]]*#' "$HERE/server.local" 2>/dev/null | head -1 | tr -d '[:space:]' || true)"
+TARGET="${1:-$DEFAULT_TARGET}"
+[[ -n "$TARGET" ]] || { echo "Куда ставить? ./deploy/server-up.sh root@1.2.3.4 — или впиши root@сервер в deploy/server.local"; exit 1; }
 DOMAIN="${2:-}"
 
 WORK="$(mktemp -d)"

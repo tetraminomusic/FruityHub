@@ -3,10 +3,8 @@
 package main
 
 import (
-	"embed"
 	"fmt"
 	"io"
-	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,13 +14,8 @@ import (
 
 	"flsync/internal/app"
 	"flsync/internal/ui"
+	"flsync/web"
 )
-
-//go:embed web/index.html
-var indexHTML []byte
-
-//go:embed web
-var webFS embed.FS
 
 var version = "dev"
 
@@ -70,8 +63,8 @@ func main() {
 		fmt.Println("не удалось запустить:", err)
 		os.Exit(1)
 	}
-	srv := app.NewServer(indexHTML)
-	srv.Assets, _ = fs.Sub(webFS, "web")
+	srv := app.NewServer(web.Index)
+	srv.Assets = web.FS
 	url := fmt.Sprintf("http://127.0.0.1:%d/", port)
 	fmt.Println(app.AppName, version, "→", url)
 	go http.Serve(l, srv.Handler(port))

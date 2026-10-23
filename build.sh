@@ -18,13 +18,13 @@ echo "$VERSION" > dist/VERSION
 export CGO_ENABLED=0
 
 echo "→ Windows"
-# rsrc_windows_amd64.syso (иконка + манифест) подхватывается автоматически
-GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$LD -H windowsgui" -o "dist/$NAME.exe" .
+# cmd/fruityhub/rsrc_windows_amd64.syso (иконка + манифест) подхватывается автоматически
+GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$LD -H windowsgui" -o "dist/$NAME.exe" ./cmd/fruityhub
 
 make_app() { # $1 arch, $2 zip name
   local app="dist/mac-$1/$NAME.app"
   mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-  GOOS=darwin GOARCH=$1 go build -trimpath -ldflags "$LD" -o "$app/Contents/MacOS/FruityHub" .
+  GOOS=darwin GOARCH=$1 go build -trimpath -ldflags "$LD" -o "$app/Contents/MacOS/FruityHub" ./cmd/fruityhub
   cp assets/icon.icns "$app/Contents/Resources/icon.icns"
   cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

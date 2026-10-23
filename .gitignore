@@ -1,11 +1,14 @@
+# сборка
 dist/
 *.exe
-dist/
-_to_delete/
+
+# локальное: адреса, ключи, пароли — не в git
 server.txt
-deploy/machines.local
+*.local
 deploy/logs/
 server-backups/
 devstack-data/
-*.local
+
+# мусор
+_to_delete/
 .DS_Store

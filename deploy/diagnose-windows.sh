@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Диагностика: почему не деплоится на Windows-ноутбук. Запускать с Mac.
-#   ./deploy/diagnose-windows.sh                 # проверяет 192.168.1.111
+#   ./deploy/diagnose-windows.sh                 # первый компьютер из deploy/machines.local
 #   ./deploy/diagnose-windows.sh 192.168.1.126
-# Логин и пароль берутся из deploy-windows.sh. Ничего на ноутбуке не ломает: пишет и удаляет только свой тестовый файл.
+# Логин и пароль берутся из deploy/machines.local (ip|логин|пароль). Ничего на ноутбуке не ломает: пишет и удаляет только свой тестовый файл.
 HERE="$(cd "$(dirname "$0")" && pwd)"
-HOST="${1:-192.168.1.111}"
-LINE="$(grep "\"$HOST|" "$HERE/deploy-windows.sh" | head -1 | tr -d ' "')"
-[[ -n "$LINE" ]] || { echo "Нет $HOST в списке MACHINES в deploy-windows.sh"; exit 1; }
+LIST="$(grep -v '^[[:space:]]*#' "$HERE/machines.local" 2>/dev/null | tr -d '\r' | sed '/^[[:space:]]*$/d')"
+[[ -n "$LIST" ]] || { echo "Нет deploy/machines.local — впиши туда компьютеры: ip|логин|пароль"; exit 1; }
+HOST="${1:-$(printf '%s\n' "$LIST" | head -1 | cut -d'|' -f1)}"
+LINE="$(printf '%s\n' "$LIST" | grep "^$HOST|" | head -1)"
+[[ -n "$LINE" ]] || { echo "Нет $HOST в deploy/machines.local"; exit 1; }
 IFS='|' read -r _ USER PASS <<<"$LINE"
 ok() { echo "  ✓ $*"; }; bad() { echo "  ✗ $*"; }; info() { echo "  · $*"; }
 urlenc() { local LC_ALL=C s="$1" out="" c i; for ((i=0;i<${#s};i++)); do c="${s:i:1}"; case "$c" in [a-zA-Z0-9._~-]) out+="$c";; *) out+="$(printf '%%%02X' "'$c")";; esac; done; printf '%s' "$out"; }
