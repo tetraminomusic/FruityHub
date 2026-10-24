@@ -572,7 +572,9 @@ func TagRenders(cfg *Config, p *Project, all bool) ([]string, error) {
 }
 
 // MetaWatcher раз в несколько секунд смотрит, не появился ли в проектах новый рендер, и подписывает его.
+// Чтобы не нагружать компьютер, полный разбор проекта идёт, только если в папке появился (или изменился) аудиофайл.
 func (s *Server) MetaWatcher(every time.Duration) {
+	seen := map[string]time.Time{}
 	for {
 		time.Sleep(every)
 		if s.cfg.Meta.Off {
@@ -582,13 +584,53 @@ func (s *Server) MetaWatcher(every time.Duration) {
 			if !dirExists(lp.Path) {
 				continue
 			}
+			newest := newestRender(lp.Path, s.cfg.Meta.Extensions())
+			if last, ok := seen[lp.Path]; ok && !newest.After(last) {
+				continue
+			}
 			p := &Project{Dir: lp.Path, Cfg: s.cfg}
 			done, _ := TagRenders(s.cfg, p, false)
 			for _, rel := range done {
 				LogActivity(lp.Path, "ok", "Метаданные записаны в рендер "+rel)
 			}
+			if time.Since(newest) > 5*time.Second { // файл ещё пишется — проверим на следующем круге
+				seen[lp.Path] = newestRender(lp.Path, s.cfg.Meta.Extensions())
+			}
 		}
 	}
+}
+
+// newestRender — самое свежее время изменения аудио (нужных расширений) в папке проекта и папках на 2 уровня вниз,
+// кроме Audio/, Backup/ и служебных. Дёшево: без разбора .flp.
+func newestRender(dir string, exts []string) time.Time {
+	want := map[string]bool{}
+	for _, e := range exts {
+		want["."+strings.ToLower(strings.TrimPrefix(e, "."))] = true
+	}
+	var best time.Time
+	var walk func(d string, depth int)
+	walk = func(d string, depth int) {
+		ents, err := os.ReadDir(d)
+		if err != nil {
+			return
+		}
+		for _, e := range ents {
+			n := e.Name()
+			if e.IsDir() {
+				if depth < 2 && !strings.HasPrefix(n, ".") && !(depth == 0 && (strings.EqualFold(n, "Audio") || strings.EqualFold(n, "Backup") || strings.EqualFold(n, metaDir))) {
+					walk(filepath.Join(d, n), depth+1)
+				}
+				continue
+			}
+			if want[strings.ToLower(filepath.Ext(n))] {
+				if fi, err := e.Info(); err == nil && fi.ModTime().After(best) {
+					best = fi.ModTime()
+				}
+			}
+		}
+	}
+	walk(dir, 0)
+	return best
 }
 
 // ---------- README.md проекта для GitHub ----------
