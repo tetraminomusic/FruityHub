@@ -56,9 +56,10 @@ type Config struct {
 	ToastSec         *int           `json:"toastSec,omitempty"`         // сколько секунд держать уведомления (0 — пока не закроют)
 	NoErrorReports   bool           `json:"noErrorReports,omitempty"`   // не отправлять свои ошибки в журнал сервера
 	SortMode         string         `json:"sortMode,omitempty"`         // порядок списка проектов: manual, name, name-desc, modified, modified-asc
-	Lang             string         `json:"lang,omitempty"`             // язык интерфейса: "" — русский, "en" — английский
-	LitePlugins      []string       `json:"litePlugins,omitempty"`      // плагины, у которых не тянуть библиотеку пресетов при передаче
-	Meta             MetaSettings   `json:"meta"`                       // метаданные рендеров и README проектов
+	Lang             string         `json:"lang,omitempty"`
+	LiteUI           bool           `json:"liteUi,omitempty"`      // лёгкий режим окна: без фона и размытия, без видеокарты (меньше памяти)             // язык интерфейса: "" — русский, "en" — английский
+	LitePlugins      []string       `json:"litePlugins,omitempty"` // плагины, у которых не тянуть библиотеку пресетов при передаче
+	Meta             MetaSettings   `json:"meta"`                  // метаданные рендеров и README проектов
 
 	hub *Hub
 }

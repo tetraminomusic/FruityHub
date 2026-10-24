@@ -10,6 +10,7 @@ type Options struct {
 	Height   int
 	DataPath string          // WebView2 profile folder (Windows)
 	Quit     <-chan struct{} // close the window when this fires
+	Lite     bool            // лёгкий режим: без видеокарты и лишних служб WebView2 (меньше памяти на слабых компьютерах)
 }
 
 // focus brings the existing window to the front (set by Run).

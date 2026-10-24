@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -263,4 +265,26 @@ func TestCloneCancel(t *testing.T) {
 
 func contextWithCancel() (context.Context, context.CancelFunc) {
 	return context.WithCancel(context.Background())
+}
+
+func TestShrinkBackground(t *testing.T) {
+	dir := t.TempDir()
+	img := image.NewRGBA(image.Rect(0, 0, 4000, 1000))
+	for i := range img.Pix {
+		img.Pix[i] = uint8(i)
+	}
+	src := filepath.Join(dir, "big.png")
+	f, _ := os.Create(src)
+	png.Encode(f, img)
+	f.Close()
+	dst := filepath.Join(dir, "bg.jpg")
+	if err := shrinkImage(src, dst, 2560); err != nil {
+		t.Fatal(err)
+	}
+	g, _ := os.Open(dst)
+	defer g.Close()
+	c, _, err := image.DecodeConfig(g)
+	if err != nil || c.Width != 2560 || c.Height != 640 {
+		t.Fatalf("%v %dx%d", err, c.Width, c.Height)
+	}
 }

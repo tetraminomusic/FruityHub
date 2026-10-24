@@ -3,6 +3,9 @@ package app
 import (
 	"errors"
 	"fmt"
+	"image"
+	"image/jpeg"
+	_ "image/png"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -50,7 +53,58 @@ func SetBackground(src string) error {
 		return errors.New("картинка больше 40 МБ — возьми поменьше")
 	}
 	ResetBackground()
+	// большая фотография (6000×4000) в памяти окна занимает ~100 МБ — уменьшаем до размера экрана
+	if ext == ".jpg" || ext == ".jpeg" || ext == ".png" {
+		if err := shrinkImage(src, filepath.Join(ConfigDir(), "background.jpg"), 2560); err == nil {
+			return nil
+		}
+	}
 	return copyFile(src, filepath.Join(ConfigDir(), "background"+ext))
+}
+
+// shrinkImage сохраняет картинку в JPEG не шире maxW (по большей стороне). Маленькую — просто перекодирует.
+func shrinkImage(src, dst string, maxW int) error {
+	f, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	img, _, err := image.Decode(f)
+	f.Close()
+	if err != nil {
+		return err
+	}
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= maxW && h <= maxW && strings.EqualFold(filepath.Ext(src), ".jpg") {
+		return copyFile(src, dst)
+	}
+	k := float64(maxW) / float64(max(w, h))
+	if k > 1 {
+		k = 1
+	}
+	nw, nh := max(1, int(float64(w)*k)), max(1, int(float64(h)*k))
+	out := image.NewRGBA(image.Rect(0, 0, nw, nh))
+	// усреднение по квадрату исходных пикселей — без «лесенок»
+	for y := 0; y < nh; y++ {
+		y0, y1 := b.Min.Y+y*h/nh, b.Min.Y+max((y+1)*h/nh, y*h/nh+1)
+		for x := 0; x < nw; x++ {
+			x0, x1 := b.Min.X+x*w/nw, b.Min.X+max((x+1)*w/nw, x*w/nw+1)
+			var r, g, bl, n uint64
+			for yy := y0; yy < y1; yy++ {
+				for xx := x0; xx < x1; xx++ {
+					cr, cg, cb, _ := img.At(xx, yy).RGBA()
+					r, g, bl, n = r+uint64(cr), g+uint64(cg), bl+uint64(cb), n+1
+				}
+			}
+			out.Pix[(y*nw+x)*4], out.Pix[(y*nw+x)*4+1], out.Pix[(y*nw+x)*4+2], out.Pix[(y*nw+x)*4+3] = uint8(r/n>>8), uint8(g/n>>8), uint8(bl/n>>8), 255
+		}
+	}
+	o, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer o.Close()
+	return jpeg.Encode(o, out, &jpeg.Options{Quality: 88})
 }
 
 func ResetBackground() {

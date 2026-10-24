@@ -76,7 +76,7 @@ func main() {
 	if !browserMode {
 		srv.Windowed = true
 		err := ui.Run(ui.Options{URL: url, Title: app.AppName, Width: 1240, Height: 820,
-			DataPath: filepath.Join(app.ConfigDir(), "webview"), Quit: srv.Quit()})
+			DataPath: filepath.Join(app.ConfigDir(), "webview"), Quit: srv.Quit(), Lite: srv.LiteUI()})
 		if err == nil {
 			return // window closed → exit
 		}

@@ -97,6 +97,9 @@ func NewServer(index []byte) *Server {
 
 func (s *Server) Quit() <-chan struct{} { return s.quit }
 
+// LiteUI — включён лёгкий режим окна (Настройки → Вид).
+func (s *Server) LiteUI() bool { return s.cfg.LiteUI }
+
 // Stop closes the app (safe to call many times).
 func (s *Server) Stop() { s.quitOnce.Do(func() { close(s.quit) }) }
 
@@ -123,6 +126,9 @@ func (s *Server) Handler(port int) http.Handler {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		page := bytes.Replace(s.index, []byte("__FLSYNC_TOKEN__"), []byte(s.token), 1)
+		if s.cfg.LiteUI { // лёгкий режим — сразу, чтобы фон даже не начал грузиться
+			page = bytes.Replace(page, []byte("<body>"), []byte(`<body class="lite">`), 1)
+		}
 		// версия в адресе картинок: после обновления окно не держит старый фон из кэша
 		w.Write(bytes.ReplaceAll(page, []byte("__V__"), []byte(s.assetStamp())))
 	})
@@ -483,6 +489,7 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 			LAN             *bool         `json:"lan"`
 			ToastSec        *int          `json:"toastSec"`
 			LFS             []string      `json:"lfsExtensions"`
+			LiteUI          *bool         `json:"liteUi"`
 			Lang            *string       `json:"lang"`
 			Meta            *MetaSettings `json:"meta"`
 			Lite            *struct {
@@ -543,6 +550,9 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 			}
 			s.cfg.LFSExtensions = l
 			SetGlobalLFS(l)
+		}
+		if req.LiteUI != nil {
+			s.cfg.LiteUI = *req.LiteUI
 		}
 		if req.Lang != nil {
 			s.cfg.Lang = *req.Lang
