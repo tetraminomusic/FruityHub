@@ -23,6 +23,17 @@ body.lite{--panel:#17181d;--panel2:#262830;--blur:none}
 body.lite::before{background:#0d0e11!important}body.lite::after{background:radial-gradient(90% 70% at 80% 0%,#2a1f10 0%,#111216 60%)!important}
 body.lite *{-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
 body.lite .task,body.lite .menu,body.lite .modal{background:#1c1d23}
+body.lite .modal-bg{background:rgba(0,0,0,.62)}
+body.lite *:not(.spin):not(.bar i){transition:none!important;animation:none!important}
+/* высокое качество: плавное появление окон, уведомлений и задач */
+body:not(.lite) .modal{animation:popin .18s cubic-bezier(.2,.8,.3,1)}
+body:not(.lite) .modal-bg{animation:fadein .15s ease-out}
+body:not(.lite) .task{animation:slidein .22s cubic-bezier(.2,.8,.3,1)}
+body:not(.lite) .toast{animation:fadein .2s ease-out}
+body:not(.lite) .pitem,body:not(.lite) .tab,body:not(.lite) .prow{transition:background .15s,color .15s,border-color .15s}
+@keyframes popin{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+@keyframes slidein{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:none}}
 body.nobg::before,body.nobg::after{background:radial-gradient(90% 70% at 80% 0%,#3a2a12 0%,#141518 55%);filter:none}
 main>h1,main>.muted,main>.row{text-shadow:0 1px 3px rgba(0,0,0,.85),0 0 14px rgba(0,0,0,.6)}
 input,textarea,.selectable,.mono,td{user-select:text;-webkit-user-select:text}
@@ -463,7 +474,7 @@ function openGuide(first){
 }
 // новое в версиях (самое свежее сверху)
 const CHANGES=[
-  ['0.9.3',['Лёгкий режим для слабых компьютеров (Настройки → Вид → Память): без фона и размытия, без видеокарты — меньше оперативной памяти','Окно расходует меньше памяти: не запускаются лишние службы движка WebView2, своя большая картинка фона уменьшается до размера экрана, свёрнутое окно ничего не опрашивает','Передачи плагинов быстрее: сжатие zstd вместо deflate (если у друга тоже 0.9.3)', 'Докачка с места обрыва: если связь оборвалась, при повторе приходит только остаток — и через сервер, и по локальной сети', 'Сервер: TCP BBR и большие сетевые буферы — быстрее на дальнем канале (включается при ./deploy/server-up.sh)']],
+  ['0.9.3',['Качество графики (Настройки → Вид): высокое — размытие, прозрачность и плавные анимации; простое — без них и без видеокарты, меньше оперативной памяти','Окно расходует меньше памяти: не запускаются лишние службы движка WebView2, своя большая картинка фона уменьшается до размера экрана, свёрнутое окно ничего не опрашивает','Передачи плагинов быстрее: сжатие zstd вместо deflate (если у друга тоже 0.9.3)', 'Докачка с места обрыва: если связь оборвалась, при повторе приходит только остаток — и через сервер, и по локальной сети', 'Сервер: TCP BBR и большие сетевые буферы — быстрее на дальнем канале (включается при ./deploy/server-up.sh)']],
   ['0.9.2',['Окно «Плагины» (кнопка вверху): все плагины на компьютере с поиском, проверка и полное удаление вместе с данными; люди — «Скачать всё, чего нет»; передачи; настройки обмена плагинами','Скачивание проекта можно отменить — недокачанная папка удалится','Сэмплы, загруженные прямо в плагины (Pigments, Serum и т. п.), находятся и в сжатом состоянии плагина, уезжают с проектом и ложатся туда, где их ищет плагин','Если друг заранее разрешил скачивать у него плагины — лишнего окна с вопросом нет','«Без библиотеки пресетов» — галочка у плагина: при передаче придёт только сам плагин и то, без чего он не запустится','Метаданные трека: название, артист, альбом, год, жанр и обложка во вкладке «Настройки» проекта — сами записываются в каждый новый рендер (WAV, MP3, FLAC)','README.md проекта для GitHub с обложкой, названием и списком плагинов собирается сам','Английский язык интерфейса: Настройки → Вид → Язык','Настройки: новые вкладки «Сеть» (прокси, проверка связи с сервером и GitHub, скорость) и «Метаданные»; Git LFS — общий список в «GitHub»','При переименовании проекта можно сменить и артиста','Предупреждения в проекте закрываются крестиком','Кнопки потемнее; без легенды цветов и сортировки в списке проектов (порядок — Настройки → Вид)']],
   ['0.9.1',['Аудио проекта — с компьютера участника: при скачивании проекта и «Получить» недостающие wav сначала просятся у тех, кто в сети, остальное — с GitHub','В одной сети (дома, в студии) плагины и аудио идут напрямую по локальной сети, мимо сервера','Прогресс скачивания проекта: шаги, файлы, мегабайты и скорость','Один проект нельзя скачать дважды одновременно; если папка уже есть — кнопка «Удалить папку и скачать заново»','Удаление плагина у себя — в карточке плагина','В «Плагинах» проекта — передачи только этого проекта','Название и артист пишутся в FL латиницей (FL не понимает кириллицу)','Настройки → Вид: сколько держать уведомления, убрать кнопку «?»; на экране не больше трёх уведомлений','Перетащил папку — на весь экран видно, что она добавляется','Проверка скорости связи с сервером (Настройки → Система)']],
   ['0.9.0',['Настройки по вкладкам: Профиль, GitHub, Плагины, Обновления, Вид, Система','Цвета в списке проектов: актуально, есть твои изменения, на GitHub новое, занят другом; артист под названием','Поле «Артист» (Author в Project info) в настройках проекта','Запуск в выбранной версии FL Studio: правый клик по «Запустить проект» или ▾','«Открыть репозиторий на GitHub» в настройках проекта; при удалении репозитория — убрать проект из списка и/или удалить папку','Галочка «запрашивать недостающие плагины» при скачивании проекта','Подсказки про GitHub-токен с прямыми ссылками, знакомство с программой и этот блок «Что нового»','Понятное предупреждение, если у участников разные версии плагина (из-за этого слетают пресеты) или плагин в другом формате','Тёмные тонкие полосы прокрутки вместо серых в Windows']],
@@ -1533,9 +1544,9 @@ async function openSettings(tab){
     <label>Порядок</label>
     <select id="sortm" style="width:auto">${SORTS.map(([k,t])=>`<option value="${k}" ${sortMode()===k?'selected':''}>${t}</option>`).join('')}</select>
     <div class="muted small">Цвет точки у проекта: зелёный — актуально, синий — есть твои изменения, жёлтый — на GitHub новое, красный — занят другом, пустой — без GitHub. Подсказка — при наведении на точку.</div>
-    <h3>Память</h3>
-    <label class="switch"><input type="checkbox" id="litex" ${c.liteUi?'checked':''}> Лёгкий режим — для слабых компьютеров</label>
-    <div class="muted small">Без фоновой картинки и размытия, окно рисуется без видеокарты: FruityHub занимает заметно меньше оперативной памяти. Полностью включится после перезапуска FruityHub.</div>
+    <h3>Качество графики</h3>
+    <div id="gfx">${[['high','Высокое','Размытие, прозрачные панели, фоновая картинка и плавные анимации. Для мощных компьютеров.'],['lite','Простое','Без размытия, прозрачности и анимаций, окно рисуется без видеокарты — меньше оперативной памяти и нагрузки. Для слабых компьютеров.']].map(([k,t1,d])=>`<label class="radio ${(c.liteUi?'lite':'high')===k?'on':''}"><input type="radio" name="gfx" value="${k}" ${(c.liteUi?'lite':'high')===k?'checked':''}><span><b>${t1}</b><div class="muted small">${d}</div></span></label>`).join('')}</div>
+    <div class="muted small">Меняется сразу; память видеокарты освободится после перезапуска FruityHub.</div>
     <h3>Фон</h3>
     <div class="row"><button class="sm" id="bgpick">Выбрать картинку…</button><button class="sm ghost" id="bgreset" ${st.customBg?'':'disabled'}>Вернуть стандартный</button></div>
     <label>Затемнение фона</label><input type="range" id="bgdim" min="0" max="90" step="1" value="${c.bgDim||50}" style="padding:0">
@@ -1581,8 +1592,8 @@ async function openSettings(tab){
   m.querySelector('#helpb').onchange=async e=>{ try{ await api('/api/settings',{hideHelp:!e.target.checked}); S.state.config.hideHelp=!e.target.checked; $('#helpBtn').style.display=e.target.checked?'':'none' }catch(er){ fail(er) } };
   m.querySelector('#undis').onclick=()=>{ try{ localStorage.removeItem('dismissed') }catch(e){} renderMain(); toast('Предупреждения снова видны') };
   m.querySelector('#sortm').onchange=e=>setSort(e.target.value);
-  m.querySelector('#litex').onchange=async e=>{ const on=e.target.checked; try{ await api('/api/settings',{liteUi:on}); S.state.config.liteUi=on; document.body.classList.toggle('lite',on); if(!on&&!BG.src) BG.src='/assets/bg?v=__V__';
-    toast(on?'Лёгкий режим включён — перезапусти FruityHub, чтобы освободить ещё и память видеокарты':'Лёгкий режим выключен — перезапусти FruityHub',7000) }catch(er){ fail(er) } };
+  m.querySelectorAll('input[name=gfx]').forEach(i=>i.onchange=async()=>{ const on=i.value==='lite'; m.querySelectorAll('#gfx .radio').forEach(l=>l.classList.toggle('on',l.querySelector('input').checked)); try{ await api('/api/settings',{liteUi:on}); S.state.config.liteUi=on; document.body.classList.toggle('lite',on); if(!on&&!BG.src) BG.src='/assets/bg?v=__V__';
+    toast(on?'Простая графика включена — перезапусти FruityHub, чтобы освободить ещё и память видеокарты':'Высокое качество графики включено — перезапусти FruityHub, чтобы окно снова рисовалось видеокартой',7000) }catch(er){ fail(er) } });
   m.querySelector('#lang').onchange=async e=>{ try{ await api('/api/settings',{lang:e.target.value}); S.state.config.lang=e.target.value; m.close(); applyLang(true) }catch(er){ fail(er) } };
   const rt2=m.querySelector('#rt2'); if(rt2) rt2.onclick=()=>{ m.close(); changeTokenDialog() };
   const rb=m.querySelector('#regb'); if(rb) rb.onclick=()=>{ m.close(); openRegister(true) };
