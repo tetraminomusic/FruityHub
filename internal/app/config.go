@@ -18,6 +18,8 @@ type LocalProject struct {
 	Group           string   `json:"group,omitempty"`
 	KeepFLPs        []string `json:"keepFlps,omitempty"` // extra .flp the user said are just versions
 	Name            string   `json:"name,omitempty"`     // своё название проекта — только на этом компьютере
+	MainFLP         string   `json:"mainFlp,omitempty"`  // имя главного .flp и репозиторий — по ним проект найдётся, если папку перенесут
+	Remote          string   `json:"remote,omitempty"`
 }
 
 // Group is a folder in the project list (local only).
@@ -57,9 +59,10 @@ type Config struct {
 	NoErrorReports   bool           `json:"noErrorReports,omitempty"`   // не отправлять свои ошибки в журнал сервера
 	SortMode         string         `json:"sortMode,omitempty"`         // порядок списка проектов: manual, name, name-desc, modified, modified-asc
 	Lang             string         `json:"lang,omitempty"`
-	LiteUI           bool           `json:"liteUi,omitempty"`      // лёгкий режим окна: без фона и размытия, без видеокарты (меньше памяти)             // язык интерфейса: "" — русский, "en" — английский
-	LitePlugins      []string       `json:"litePlugins,omitempty"` // плагины, у которых не тянуть библиотеку пресетов при передаче
-	Meta             MetaSettings   `json:"meta"`                  // метаданные рендеров и README проектов
+	ProjectRoots     []string       `json:"projectRoots,omitempty"` // папки, где лежат проекты FL (Настройки → Проекты)
+	LiteUI           bool           `json:"liteUi,omitempty"`       // лёгкий режим окна: без фона и размытия, без видеокарты (меньше памяти)             // язык интерфейса: "" — русский, "en" — английский
+	LitePlugins      []string       `json:"litePlugins,omitempty"`  // плагины, у которых не тянуть библиотеку пресетов при передаче
+	Meta             MetaSettings   `json:"meta"`                   // метаданные рендеров и README проектов
 
 	hub *Hub
 }

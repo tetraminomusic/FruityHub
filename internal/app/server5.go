@@ -84,7 +84,7 @@ func (s *Server) routes5(api func(string, func(r *http.Request) (any, error))) {
 		}
 		res := map[string]any{"name": lp.DisplayName()}
 		p := &Project{Dir: lp.Path, Cfg: s.cfg}
-		m := LoadTrackMeta(lp.Path)
+		m := rawTrackMeta(lp.Path)
 		if b["flTitle"] == true { // то же название — в Project info .flp и в метаданные трека
 			if _, err := p.SetFLTitle(lp.DisplayName()); err != nil {
 				res["flError"] = err.Error()
@@ -97,10 +97,8 @@ func (s *Server) routes5(api func(string, func(r *http.Request) (any, error))) {
 			}
 			m.Artist = strings.TrimSpace(a)
 		}
-		if b["flTitle"] == true || b["artist"] != nil {
-			if exists(metaPath(lp.Path)) {
-				SaveTrackMeta(lp.Path, m)
-			}
+		if b["artist"] != nil || b["flTitle"] == true && exists(metaPath(lp.Path)) {
+			SaveTrackMeta(lp.Path, m) // как ввели — кириллицей (в .flp — латиницей)
 		}
 		return res, nil
 	})
@@ -147,6 +145,9 @@ func (s *Server) routes5(api func(string, func(r *http.Request) (any, error))) {
 				return nil, err
 			}
 			changed = changed || c
+			m := rawTrackMeta(p.Dir) // артист как ввели — для списка проектов и рендеров
+			m.Artist = strings.TrimSpace(a)
+			SaveTrackMeta(p.Dir, m)
 		}
 		_, okT := b["title"].(string)
 		_, okA := b["artist"].(string)

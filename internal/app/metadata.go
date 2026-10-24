@@ -63,6 +63,13 @@ func LoadTrackMeta(dir string) TrackMeta {
 	return m
 }
 
+// rawTrackMeta — только то, что записано в metadata.json (без подстановки из .flp).
+func rawTrackMeta(dir string) TrackMeta {
+	var m TrackMeta
+	readJSON(metaPath(dir), &m)
+	return m
+}
+
 func SaveTrackMeta(dir string, m TrackMeta) error {
 	os.MkdirAll(filepath.Join(dir, metaDir), 0o755)
 	return writeJSON(metaPath(dir), m)

@@ -79,7 +79,7 @@ func (p *Project) FLPs() []string {
 	var r []string
 	p.walk(func(rel, abs string, _ fs.FileInfo) {
 		l := strings.ToLower(rel)
-		if strings.HasSuffix(l, ".flp") && !strings.Contains(l, "autosave") && !strings.Contains(l, "overwritten") {
+		if strings.HasSuffix(l, ".flp") && !strings.Contains(l, "autosave") && !strings.Contains(l, "overwritten") && !strings.HasPrefix(l, ".flsync/") {
 			r = append(r, rel)
 		}
 	})
@@ -681,10 +681,17 @@ func isGenerated(path string) bool {
 		strings.HasPrefix(path, ".flsync/machines/") || path == ".gitignore" || path == ".gitattributes"
 }
 
+// conflictDir — куда кладутся копии .flp после конфликта (чтобы не мешались рядом с проектом).
+const conflictDir = ".flsync/conflicts/"
+
 func conflictName(path, who string) string {
 	ext := filepath.Ext(path)
 	base := strings.TrimSuffix(path, ext)
-	return fmt.Sprintf("%s (конфликт — %s %s)%s", base, who, nowStamp(), ext)
+	name := fmt.Sprintf("%s (конфликт — %s %s)%s", base, who, nowStamp(), ext)
+	if strings.EqualFold(ext, ".flp") {
+		return conflictDir + name
+	}
+	return name
 }
 
 // resolveConflicts never loses work: the server version keeps the original
@@ -710,6 +717,7 @@ func (p *Project) resolveConflicts() ([]string, error) {
 				return copies, err
 			}
 			cp := conflictName(path, p.Cfg.MachineID())
+			os.MkdirAll(filepath.Dir(filepath.Join(p.Dir, filepath.FromSlash(cp))), 0o755)
 			if err := copyFile(abs, filepath.Join(p.Dir, filepath.FromSlash(cp))); err != nil {
 				return copies, err
 			}
@@ -817,6 +825,7 @@ func (p *Project) fetchMerge() (conflicts []string, err error) {
 
 // conflictOrig — исходное имя файла по имени копии «X (конфликт — кто время).flp».
 func conflictOrig(cp string) (string, bool) {
+	cp = strings.TrimPrefix(filepath.ToSlash(cp), conflictDir)
 	ext := filepath.Ext(cp)
 	base := strings.TrimSuffix(cp, ext)
 	i := strings.LastIndex(base, " (конфликт — ")

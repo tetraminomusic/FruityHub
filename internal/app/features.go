@@ -572,8 +572,11 @@ func projectMeta(dir string) (int64, string) {
 			best = fi.ModTime()
 		}
 	}
-	artist := ""
-	if bestPath != "" {
+	// артист как его ввели (кириллицей) — из метаданных трека; в .flp он латиницей, FL кириллицу не понимает
+	var m TrackMeta
+	readJSON(metaPath(dir), &m)
+	artist := strings.TrimSpace(m.Artist)
+	if artist == "" && bestPath != "" {
 		if info, err := parseFLPCached(bestPath); err == nil {
 			artist = info.Artist
 		}
