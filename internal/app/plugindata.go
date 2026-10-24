@@ -355,7 +355,7 @@ func zipData(zw *zip.Writer, data []PluginData) error {
 				continue
 			}
 			h.Name = name
-			h.Method = zipMethod(info.Name(), info.Size())
+			h.Method = zipMethodFor(zw, info.Name(), info.Size())
 			fh, err := os.Open(path)
 			if err != nil {
 				continue

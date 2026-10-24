@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/klauspost/compress/zstd"
 	"io"
 	"os"
 	"path/filepath"
@@ -381,10 +382,33 @@ func zipMethod(name string, size int64) uint16 {
 	return zip.Deflate
 }
 
-func fastZip(zw *zip.Writer) {
+// zstdWriters — архивы, которые пакуются в zstd (получатель новой версии его понимает).
+var zstdWriters sync.Map
+
+// zipMethodFor — как сжать файл в этом архиве: zstd (быстрее и плотнее), deflate или без сжатия.
+func zipMethodFor(zw *zip.Writer, name string, size int64) uint16 {
+	m := zipMethod(name, size)
+	if _, ok := zstdWriters.Load(zw); ok && m == zip.Deflate {
+		return zstd.ZipMethodWinZip
+	}
+	return m
+}
+
+// fastZip — быстрое сжатие; withZstd — zstd вместо deflate (в 3–5 раз быстрее при том же размере или меньше).
+func fastZip(zw *zip.Writer, withZstd bool) {
 	zw.RegisterCompressor(zip.Deflate, func(w io.Writer) (io.WriteCloser, error) {
 		return flate.NewWriter(w, flate.BestSpeed)
 	})
+	if withZstd {
+		zw.RegisterCompressor(zstd.ZipMethodWinZip, zstd.ZipCompressor(zstd.WithEncoderLevel(zstd.SpeedDefault)))
+		zstdWriters.Store(zw, true)
+	}
+}
+
+func doneZip(zw *zip.Writer) { zstdWriters.Delete(zw) }
+
+func init() { // полученные архивы в zstd читаются так же, как обычные
+	zip.RegisterDecompressor(zstd.ZipMethodWinZip, zstd.ZipDecompressor())
 }
 
 // presetExts — файлы пресетов и банков (их не тянем у плагинов «без пресетов»).

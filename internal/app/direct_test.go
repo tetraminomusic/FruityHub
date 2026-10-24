@@ -107,3 +107,52 @@ func TestSpeedTest(t *testing.T) {
 		t.Fatalf("%v\n%s", err, txt)
 	}
 }
+
+// Докачка: у получателя уже есть начало того же архива — через сервер и напрямую приходит только остаток.
+func TestPluginResume(t *testing.T) {
+	for _, lan := range []bool{false, true} {
+		t.Run(map[bool]string{false: "через сервер", true: "по локальной сети"}[lan], func(t *testing.T) {
+			if lan {
+				testLAN = []string{"127.0.0.1"}
+				t.Cleanup(func() { testLAN = nil })
+			} else {
+				directOff.Store(true)
+				t.Cleanup(func() { directOff.Store(false) })
+			}
+			cfgA, cfgB, root := directHub(t)
+			rs, _ := cfgB.Hub().RequestPlugins("sender", []ReqItem{{Plugin: "Pro-Q 4", Format: "VST3"}})
+			cfgA.Hub().Approve(rs[0].ID, "plugin", "Pro-Q 4.vst3", "", "VST3")
+			data := bytes.Repeat([]byte("0123456789abcdef"), 64<<10) // 1 МБ
+			src := filepath.Join(root, "send.zip")
+			os.WriteFile(src, data, 0o644)
+			markPacked(src)
+			dst := filepath.Join(root, "got.zip")
+			// «прошлая попытка» оборвалась на 300 КБ; начало помечено — если сервер/отправитель пришлют с нуля, оно затрётся
+			head := bytes.Repeat([]byte{'X'}, 300<<10)
+			if lan { // по локальной сети файл сверяется по sha256 — начало должно быть настоящим
+				head = data[:300<<10]
+			}
+			os.WriteFile(dst+".part", head, 0o644)
+			savePartID(dst, packedID(src))
+			ja, jb := &Job{}, &Job{}
+			var wg sync.WaitGroup
+			var sendErr error
+			wg.Add(1)
+			go func() { defer wg.Done(); sendErr = cfgA.Hub().StreamSend(ja, rs[0].ID, src) }()
+			time.Sleep(300 * time.Millisecond)
+			r, _ := cfgB.Hub().Request(rs[0].ID)
+			err := cfgB.Hub().StreamRecv(jb, r, dst)
+			wg.Wait()
+			if err != nil || sendErr != nil {
+				t.Fatal(err, sendErr)
+			}
+			b, _ := os.ReadFile(dst)
+			if len(b) != len(data) || !bytes.Equal(b[:300<<10], head) || !bytes.Equal(b[300<<10:], data[300<<10:]) {
+				t.Fatalf("ждали докачку остатка: %d байт", len(b))
+			}
+			if !strings.Contains(steps(ja), "Докачиваю") {
+				t.Fatalf("отправитель не докачивал:\n%s", steps(ja))
+			}
+		})
+	}
+}

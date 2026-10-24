@@ -177,6 +177,33 @@ install -d -o uzbek -g uzbek -m 700 "$DATA"
 systemctl stop uzbek-server 2>/dev/null || true
 install -m 755 "$BIN" /usr/local/bin/uzbek-server
 
+# сеть: BBR вместо CUBIC (потеря пакета на дальнем канале не роняет скорость в разы), очередь fq,
+# большие буферы (окно TCP не упирается в задержку до сервера), без «остывания» соединения в паузах.
+# Действует на весь сервер (и на VPN на нём, если он там есть) — им это тоже на пользу.
+if [[ "${UZBEK_NO_TUNE:-}" != 1 ]]; then
+  modprobe tcp_bbr 2>/dev/null || true
+  mkdir -p /etc/sysctl.d /etc/modules-load.d
+  cat > /etc/sysctl.d/90-fruityhub-net.conf <<'SYSCTL'
+# FruityHub: быстрые передачи на дальних каналах (UZBEK_NO_TUNE=1 — не трогать)
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+net.core.rmem_max = 67108864
+net.core.wmem_max = 67108864
+net.ipv4.tcp_rmem = 4096 131072 67108864
+net.ipv4.tcp_wmem = 4096 65536 67108864
+net.ipv4.tcp_notsent_lowat = 131072
+net.ipv4.tcp_slow_start_after_idle = 0
+net.ipv4.tcp_mtu_probing = 1
+SYSCTL
+  echo tcp_bbr > /etc/modules-load.d/fruityhub-bbr.conf 2>/dev/null || true
+  sysctl -q -p /etc/sysctl.d/90-fruityhub-net.conf 2>/dev/null || true
+  if [[ "$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)" == bbr ]]; then
+    echo "→ Сеть: BBR + fq + большие буферы включены"
+  else
+    echo "⚠ BBR не включился (старое ядро или контейнер без доступа к sysctl) — остальное работает как раньше"
+  fi
+fi
+
 # переезд: восстановить данные из бэкапа (архив папки данных или .json из админки)
 if [[ -n "${RESTORE:-}" ]]; then
   if [[ -f restore.tar.gz ]]; then

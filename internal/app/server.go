@@ -90,6 +90,7 @@ func NewServer(index []byte) *Server {
 	rand.Read(b)
 	cfg := LoadConfig()
 	directOff.Store(cfg.NoLAN)
+	go cleanStaleTransfers()
 	return &Server{cfg: cfg, token: hex.EncodeToString(b), index: index, jobs: map[string]*Job{},
 		lastPing: time.Now(), quit: make(chan struct{}), notes: map[string]*ProjectNotes{}}
 }

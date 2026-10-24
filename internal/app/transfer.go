@@ -223,10 +223,21 @@ func SendApproved(cfg *Config, job *Job, r *PluginRequest) error {
 		it = outboxItem{Kind: "plugin", File: ip.Path}
 	}
 	path := it.File
+	sent := false
 	if it.Kind == "plugin" {
+		// архив хранится до конца передачи: если связь оборвётся, повтор отдаст тот же файл с места обрыва
+		tmp := sendZipPath(r.ID, r.Reinstall)
+		defer func() {
+			if sent {
+				dropSendZip(r.ID)
+			}
+		}()
+		if packedID(tmp) != "" {
+			job.Logf("Архив %s уже собран — продолжаю передачу", r.Plugin)
+			path = tmp
+			goto send
+		}
 		job.Logf("Упаковываю %s…", r.Plugin)
-		tmp := filepath.Join(os.TempDir(), "uzbek-plugin-"+r.ID+".zip")
-		defer os.Remove(tmp)
 		var extra map[string][]byte
 		var data, skipped []PluginData
 		if r.FromOS == OSName() { // FL's entries and data folders only make sense on the same system
@@ -256,14 +267,23 @@ func SendApproved(cfg *Config, job *Job, r *PluginRequest) error {
 		if len(data) > 0 && r.FromOnline {
 			negotiateDeps(cfg.Hub(), job, r, it.File, filepath.ToSlash(sub), data)
 		}
-		if err := zipPlugin(it.File, tmp, extra, data, skipped); err != nil {
+		if err := zipPlugin(it.File, tmp, extra, data, skipped, hasCap(r.FromCaps, "zstd")); err != nil {
+			os.Remove(tmp)
+			return err
+		}
+		if err := markPacked(tmp); err != nil {
 			return err
 		}
 		path = tmp
 	}
+send:
 	job.Logf("Жду, пока %s примет…", r.FromNick)
 	if err := cfg.Hub().StreamSend(job, r.ID, path); err != nil {
-		if errors.Is(err, errCancelled) || errors.Is(err, errNotOnline) {
+		if errors.Is(err, errCancelled) {
+			sent = true // отменили — архив больше не нужен
+			return err
+		}
+		if errors.Is(err, errNotOnline) {
 			return err
 		}
 		// ошибка могла случиться уже после того, как всё дошло (например, у получателя при установке) —
@@ -276,6 +296,7 @@ func SendApproved(cfg *Config, job *Job, r *PluginRequest) error {
 		}
 	}
 	outboxDelete(r.ID)
+	sent = true
 	job.Logf("✓ Файлы переданы %s — жду, пока он установит…", r.FromNick)
 	waitReceiverResult(cfg, job, r)
 	LogActivity("", "ok", fmt.Sprintf("%s передан %s", r.Plugin, r.FromNick))
@@ -724,18 +745,20 @@ func outboxDelete(id string) {
 // ---------- zip with symlinks and permissions (macOS bundles need both) ----------
 
 func zipPath(src, dst string, extra map[string][]byte) error {
-	return zipPlugin(src, dst, extra, nil, nil)
+	return zipPlugin(src, dst, extra, nil, nil, false)
 }
 
 // zipPlugin упаковывает плагин, его записи в базе FL и папки данных.
-func zipPlugin(src, dst string, extra map[string][]byte, data, skipped []PluginData) error {
+// withZstd — получатель понимает zstd: сжимаем им (быстрее и плотнее deflate).
+func zipPlugin(src, dst string, extra map[string][]byte, data, skipped []PluginData, withZstd bool) error {
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
 	defer out.Close()
 	zw := zip.NewWriter(out)
-	fastZip(zw)
+	fastZip(zw, withZstd)
+	defer doneZip(zw)
 	base := filepath.Dir(strings.TrimRight(src, `/\`))
 	err = filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -756,7 +779,7 @@ func zipPlugin(src, dst string, extra map[string][]byte, data, skipped []PluginD
 			_, err = zw.CreateHeader(h)
 			return err
 		}
-		h.Method = zipMethod(info.Name(), info.Size())
+		h.Method = zipMethodFor(zw, info.Name(), info.Size())
 		w, err := zw.CreateHeader(h)
 		if err != nil {
 			return err

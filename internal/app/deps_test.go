@@ -131,7 +131,7 @@ func TestPluginDepsFromBinary(t *testing.T) {
 
 	// в архиве: папки и отдельный файл библиотеки
 	zf := filepath.Join(root, "p.zip")
-	if err := zipPlugin(plug, zf, nil, take, skip); err != nil {
+	if err := zipPlugin(plug, zf, nil, take, skip, false); err != nil {
 		t.Fatal(err)
 	}
 	zr, _ := zip.OpenReader(zf)
@@ -175,7 +175,7 @@ func TestSideLibInstall(t *testing.T) {
 	writeF(t, filepath.Join(root, "send", "plugins", "synthcore.dll"), "core")
 	data := []PluginData{{Root: sideRoot, Rel: "synthcore.dll", Size: 4, abs: filepath.Join(root, "send", "plugins", "synthcore.dll")}}
 	zf := filepath.Join(root, "p.zip")
-	if err := zipPlugin(src, zf, nil, data, nil); err != nil {
+	if err := zipPlugin(src, zf, nil, data, nil, false); err != nil {
 		t.Fatal(err)
 	}
 	recv := filepath.Join(root, "recv")
@@ -294,7 +294,7 @@ func TestDepsDedupe(t *testing.T) {
 	}
 	names := func(data []PluginData) []string {
 		zf := filepath.Join(root, "z.zip")
-		if err := zipPlugin(plug0(t, homeA), zf, nil, data, nil); err != nil {
+		if err := zipPlugin(plug0(t, homeA), zf, nil, data, nil, false); err != nil {
 			t.Fatal(err)
 		}
 		zr, _ := zip.OpenReader(zf)
@@ -467,7 +467,7 @@ func TestReinstallOverwritesData(t *testing.T) {
 	writeF(t, filepath.Join(send, ".local", "share", "Roland Cloud", "TR-909", "kit.bin"), "NEW")
 	data, _ := findPluginData("TR-909", "Roland", plug)
 	zf := filepath.Join(root, "p.zip")
-	if err := zipPlugin(plug, zf, nil, data, nil); err != nil {
+	if err := zipPlugin(plug, zf, nil, data, nil, false); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", recv)

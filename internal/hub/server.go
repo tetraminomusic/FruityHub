@@ -35,6 +35,8 @@ type Server struct {
 	fetches map[string]*fetchReq
 	directs map[string]*directInfo
 	caps    map[string]time.Time // кто из приложений умеет отдавать аудио проектов (id пользователя → когда сказал)
+	capsMu  sync.Mutex
+	capsOf  map[string]string // что умеет приложение пользователя: «fetch,zstd,resume»
 	log     *serverLog
 	started time.Time
 }
@@ -225,10 +227,14 @@ type ReqView struct {
 	ToOS       string `json:"toOs"`
 	ToOnline   bool   `json:"toOnline"`
 	OfferSeq   int    `json:"offerSeq,omitempty"` // отправитель ждёт ответа: какие файлы зависимостей уже есть
+	FromCaps   string `json:"fromCaps,omitempty"` // что умеет приложение того, кто просит (zstd, resume…)
 }
 
 func (s *Server) reqView(r *PluginReq) ReqView {
 	v := ReqView{PluginReq: *r, OfferSeq: s.offerSeq(r.ID)}
+	s.capsMu.Lock()
+	v.FromCaps = s.capsOf[r.From]
+	s.capsMu.Unlock()
 	if u := s.st.db.Users[r.From]; u != nil {
 		v.FromNick, v.FromOnline = u.Nick, online(u)
 	}
@@ -714,6 +720,14 @@ func (s *Server) declineInvite(w http.ResponseWriter, r *http.Request, me *User)
 }
 
 func (s *Server) inbox(w http.ResponseWriter, r *http.Request, me *User) (any, error) {
+	if c := r.URL.Query().Get("caps"); c != "" {
+		s.capsMu.Lock()
+		if s.capsOf == nil {
+			s.capsOf = map[string]string{}
+		}
+		s.capsOf[me.ID] = c
+		s.capsMu.Unlock()
+	}
 	if strings.Contains(r.URL.Query().Get("caps"), "fetch") {
 		s.fetchMu.Lock()
 		if s.caps == nil {
@@ -974,6 +988,9 @@ func (s *Server) doneRequest(w http.ResponseWriter, r *http.Request, me *User) (
 type recvSide struct {
 	w    http.ResponseWriter
 	done chan error
+	// докачка: у получателя уже есть начало файла haveFile (первые haveBytes байт)
+	haveFile  string
+	haveBytes int64
 }
 
 type relay struct {
@@ -1054,11 +1071,32 @@ func (s *Server) streamSend(w http.ResponseWriter, r *http.Request, me *User) (a
 		s.setStatus(id, "streaming", "approved")
 		return nil, nil
 	}
+	// докачка с места обрыва: у получателя уже есть начало этого же файла — отправитель шлёт только остаток
+	fileID := r.Header.Get("X-File-Id")
+	from, _ := strconv.ParseInt(r.Header.Get("X-Offset"), 10, 64)
+	var want int64
+	if fileID != "" && rs.haveFile == fileID && rs.haveBytes > 0 && rs.haveBytes < size {
+		want = rs.haveBytes
+	}
+	if fileID != "" && from != want {
+		select { // получатель ждёт дальше, отправитель сейчас придёт с нужного места
+		case rl.recv <- rs:
+		default:
+		}
+		return map[string]any{"resume": want}, &apiErr{416, strconv.FormatInt(want, 10)}
+	}
 	rs.w.Header().Set("Content-Type", "application/octet-stream")
+	if fileID != "" {
+		rs.w.Header().Set("X-File-Id", fileID)
+		rs.w.Header().Set("X-Offset", strconv.FormatInt(from, 10))
+	}
 	if size > 0 {
-		rs.w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+		rs.w.Header().Set("Content-Length", strconv.FormatInt(size-from, 10))
 	}
 	rs.w.WriteHeader(200)
+	if from > 0 {
+		s.Logf("info", "server", "передача %s — докачка с %.1f МБ", label, float64(from)/1e6)
+	}
 	// если одна из сторон пропала посреди передачи (сеть, сон ноутбука) — не висим вечно: 90 секунд без данных — обрыв
 	dr := &deadlineReader{r: stopReader{r.Body, rl.stop}, rd: http.NewResponseController(w), wr: http.NewResponseController(rs.w), d: 90 * time.Second}
 	t0 := time.Now()
@@ -1069,8 +1107,8 @@ func (s *Server) streamSend(w http.ResponseWriter, r *http.Request, me *User) (a
 	} else {
 		s.Logf("info", "server", "передача %s: %.1f МБ за %.0f с (%.1f МБ/с)", label, float64(n)/1e6, el, float64(n)/1e6/max(el, 0.001))
 	}
-	if cerr == nil && size > 0 && n != size {
-		cerr = fmt.Errorf("передано %d из %d байт", n, size)
+	if cerr == nil && size > 0 && n != size-from {
+		cerr = fmt.Errorf("передано %d из %d байт", from+n, size)
 	}
 	rs.done <- cerr
 	if cerr != nil {
@@ -1129,7 +1167,8 @@ func (s *Server) streamRecv(w http.ResponseWriter, r *http.Request, me *User) (a
 		return nil, err
 	}
 	rl := s.relayFor(q.ID)
-	me2 := &recvSide{w: w, done: make(chan error, 1)}
+	me2 := &recvSide{w: w, done: make(chan error, 1), haveFile: r.Header.Get("X-Have-File")}
+	me2.haveBytes, _ = strconv.ParseInt(r.Header.Get("X-Have-Bytes"), 10, 64)
 	select {
 	case rl.recv <- me2:
 	default:

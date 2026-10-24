@@ -7,9 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 )
@@ -76,19 +76,25 @@ func (h *Hub) StreamSend(job *Job, id, path string) error {
 	info := directInfo{}
 	var o *directOffer
 	if sha, err := fileSha256(path); err == nil {
-		o, _ = startDirect(st.Size(), func() bool {
+		o, _ = startDirectFrom(st.Size(), packedID(path), func() bool {
 			if !choose("direct") {
 				return false
 			}
 			cancelRelay() // через сервер уже не нужно
 			return true
-		}, func(w io.Writer) error {
+		}, func(w io.Writer, off int64) error {
 			f, err := os.Open(path)
 			if err != nil {
 				return err
 			}
 			defer f.Close()
-			_, err = io.CopyBuffer(w, &progressReader{r: f, total: st.Size(), job: job, verb: "Передаю по локальной сети"}, make([]byte, 1<<20))
+			if off > 0 {
+				if _, err := f.Seek(off, io.SeekStart); err != nil {
+					return err
+				}
+				job.Logf("Докачиваю по локальной сети с %s", fmtBytes(off))
+			}
+			_, err = io.CopyBuffer(w, &progressReader{r: f, total: st.Size(), done: off, job: job, verb: "Передаю по локальной сети"}, make([]byte, 1<<20))
 			return err
 		})
 		if o != nil {
@@ -154,7 +160,9 @@ func (h *Hub) StreamRecv(job *Job, r *PluginRequest, dst string) error {
 }
 
 func directRecvFile(job *Job, d directInfo, dst string) error {
-	resp, err := directGet(job.Ctx(), d.Addrs, d.Token)
+	hdr := http.Header{}
+	resumeHeaders(hdr.Set, dst)
+	resp, err := directGetH(job.Ctx(), d.Addrs, d.Token, hdr)
 	if err != nil {
 		return err
 	}
@@ -162,31 +170,12 @@ func directRecvFile(job *Job, d directInfo, dst string) error {
 	ctx, touch, stop, stalled := stallGuard(job.Ctx(), stallAfter)
 	defer stop()
 	go func() { <-ctx.Done(); resp.Body.Close() }()
-	os.MkdirAll(filepath.Dir(dst), 0o755)
-	tmp := dst + ".part"
-	f, err := os.Create(tmp)
-	if err != nil {
-		return err
-	}
-	hs := sha256.New()
 	t0 := time.Now()
-	n, err := io.CopyBuffer(io.MultiWriter(f, hs), &progressReader{r: resp.Body, total: d.Size, job: job, verb: "Получаю по локальной сети", touch: touch}, make([]byte, 1<<20))
-	f.Close()
-	if err != nil && stalled() {
-		err = errStalled
-	}
-	if err == nil && d.Size > 0 && n != d.Size {
-		err = fmt.Errorf("получено %d из %d байт", n, d.Size)
-	}
-	if err == nil && d.Sha != "" && hex.EncodeToString(hs.Sum(nil)) != d.Sha {
-		err = errors.New("файл пришёл повреждённым")
-	}
-	if err != nil {
-		os.Remove(tmp)
+	if err := receiveInto(job, resp.Body, resp.Header.Get("X-File-Id"), resp.Header.Get("X-Offset"), resp.ContentLength, dst, d.Sha, "Получаю по локальной сети", touch, stalled); err != nil {
 		return err
 	}
+	n := d.Size
 	el := time.Since(t0).Seconds()
 	job.Logf("Получено напрямую по локальной сети: %.1f МБ (%.1f МБ/с)", float64(n)/1e6, float64(n)/1e6/max(el, 0.001))
-	os.Remove(dst)
-	return os.Rename(tmp, dst)
+	return nil
 }

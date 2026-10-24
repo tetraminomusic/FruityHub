@@ -44,7 +44,7 @@ func TestPluginDataTransfer(t *testing.T) {
 	}
 	zipFile := filepath.Join(root, "p.zip")
 	skipped := []PluginData{{Root: "DOCS", Rel: "Xfer/Serum Library", Size: 5 << 30, Note: "больше 2 ГБ"}}
-	if err := zipPlugin(plug, zipFile, nil, data, skipped); err != nil {
+	if err := zipPlugin(plug, zipFile, nil, data, skipped, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -139,7 +139,7 @@ func TestPluginKeepsVendorSubfolder(t *testing.T) {
 		t.Fatalf("корень %q, подпапка %q", r, sub)
 	}
 	zipFile := filepath.Join(root, "p.zip")
-	if err := zipPlugin(plug, zipFile, map[string][]byte{subdirKey: []byte(sub)}, nil, nil); err != nil {
+	if err := zipPlugin(plug, zipFile, map[string][]byte{subdirKey: []byte(sub)}, nil, nil, true); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", recv)
@@ -173,7 +173,7 @@ func TestPluginMovesFromWrongFolder(t *testing.T) {
 	plug := filepath.Join(send, ".vst3", "Roland Cloud", "D-50.vst3")
 	writeF(t, filepath.Join(plug, "Contents", "x86_64-linux", "D-50.so"), "new")
 	zipFile := filepath.Join(root, "p.zip")
-	if err := zipPlugin(plug, zipFile, map[string][]byte{subdirKey: []byte("Roland Cloud")}, nil, nil); err != nil {
+	if err := zipPlugin(plug, zipFile, map[string][]byte{subdirKey: []byte("Roland Cloud")}, nil, nil, true); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", recv)

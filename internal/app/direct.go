@@ -68,6 +68,11 @@ type directOffer struct {
 
 // startDirect открывает порт. body пишет данные (size байт) в w.
 func startDirect(size int64, accept func() bool, body func(w io.Writer) error) (*directOffer, error) {
+	return startDirectFrom(size, "", accept, func(w io.Writer, _ int64) error { return body(w) })
+}
+
+// startDirectFrom — то же с докачкой: если у получателя уже есть начало файла fileID, body пишет с байта off.
+func startDirectFrom(size int64, fileID string, accept func() bool, body func(w io.Writer, off int64) error) (*directOffer, error) {
 	ips := lanAddrs()
 	if len(ips) == 0 || directOff.Load() {
 		return nil, errors.New("нет локальной сети")
@@ -97,10 +102,18 @@ func startDirect(size int64, accept func() bool, body func(w io.Writer) error) (
 		o.taken = true
 		o.mu.Unlock()
 		close(o.conn)
+		var off int64
+		if have, _ := strconv.ParseInt(r.Header.Get("X-Have-Bytes"), 10, 64); fileID != "" && r.Header.Get("X-Have-File") == fileID && have > 0 && have < size {
+			off = have
+		}
 		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+		if fileID != "" {
+			w.Header().Set("X-File-Id", fileID)
+			w.Header().Set("X-Offset", strconv.FormatInt(off, 10))
+		}
+		w.Header().Set("Content-Length", strconv.FormatInt(size-off, 10))
 		w.WriteHeader(200)
-		o.done <- body(w)
+		o.done <- body(w, off)
 	})
 	o.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go o.srv.Serve(ln)
@@ -139,6 +152,11 @@ func (o *directOffer) close() {
 
 // directGet пробует подключиться по всем адресам сразу; первый ответивший — источник.
 func directGet(ctx context.Context, addrs []string, token string) (*http.Response, error) {
+	return directGetH(ctx, addrs, token, nil)
+}
+
+// directGetH — то же с заголовками запроса (докачка: что уже есть у получателя).
+func directGetH(ctx context.Context, addrs []string, token string, hdr http.Header) (*http.Response, error) {
 	if len(addrs) == 0 || token == "" || directOff.Load() {
 		return nil, errors.New("нет адресов")
 	}
@@ -158,6 +176,9 @@ func directGet(ctx context.Context, addrs []string, token string) (*http.Respons
 	for _, a := range addrs {
 		go func(a string) {
 			req, _ := http.NewRequestWithContext(cctx, "GET", "http://"+a+"/fh/"+token, nil)
+			for k, v := range hdr {
+				req.Header[k] = v
+			}
 			r, err := cl.Do(req)
 			if err == nil && r.StatusCode != 200 {
 				r.Body.Close()

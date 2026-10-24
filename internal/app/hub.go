@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -108,6 +109,7 @@ type PluginRequest struct {
 	Reinstall  bool   `json:"reinstall,omitempty"`
 	Partial    bool   `json:"partial,omitempty"`
 	Project    string `json:"project,omitempty"`
+	FromCaps   string `json:"fromCaps,omitempty"` // что умеет приложение того, кто просит: zstd, resume
 }
 
 // Statuses
@@ -475,7 +477,7 @@ func (h *Hub) DeclineInvite(id string) error {
 
 func (h *Hub) Inbox() (*Inbox, error) {
 	var in Inbox
-	if err := h.do("GET", "/api/inbox?caps=fetch", nil, &in); err != nil {
+	if err := h.do("GET", "/api/inbox?caps="+appCaps, nil, &in); err != nil {
 		return nil, err
 	}
 	h.mu.Lock()
@@ -701,24 +703,49 @@ func (h *Hub) relaySend(job *Job, id, path string) error {
 // relaySendCtx: first — вызывается перед тем, как пойдут данные (получатель подключился к серверу);
 // false — данные уже идут по локальной сети, через сервер не отправляем.
 func (h *Hub) relaySendCtx(parent context.Context, job *Job, id, path string, first func() bool) error {
+	fileID := packedID(path) // архив помечен — получатель может докачать с места обрыва
+	var off int64
+	for try := 0; ; try++ {
+		next, err := h.relaySendFrom(parent, job, id, path, fileID, off, first)
+		if next < 0 || try >= 2 {
+			return err
+		}
+		off = next // сервер: у получателя уже есть начало — шлём остаток
+		if off > 0 {
+			job.Logf("Докачиваю с места обрыва: у %s уже есть %s", "получателя", fmtBytes(off))
+		}
+	}
+}
+
+// relaySendFrom отдаёт файл с байта off. next >= 0 — сервер просит начать с другого места (докачка).
+func (h *Hub) relaySendFrom(parent context.Context, job *Job, id, path, fileID string, off int64, first func() bool) (next int64, err error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return err
+		return -1, err
 	}
 	defer f.Close()
 	st, _ := f.Stat()
+	if off > 0 {
+		if _, err := f.Seek(off, io.SeekStart); err != nil {
+			return -1, err
+		}
+	}
 	ctx, touch, stop, stalled := stallGuard(parent, stallAfter)
 	defer stop()
-	var body io.Reader = &progressReader{r: f, total: st.Size(), job: job, verb: "Передаю", touch: touch}
+	var body io.Reader = &progressReader{r: f, total: st.Size(), done: off, job: job, verb: "Передаю", touch: touch}
 	if first != nil {
 		body = &firstReader{r: body, first: first}
 	}
 	req, err := http.NewRequestWithContext(ctx, "PUT", h.cfg.ServerURL()+"/api/plugin-requests/"+url.PathEscape(id)+"/stream", body)
 	if err != nil {
-		return err
+		return -1, err
 	}
-	req.ContentLength = st.Size()
+	req.ContentLength = st.Size() - off
 	req.Header.Set("X-Size", fmt.Sprint(st.Size()))
+	if fileID != "" {
+		req.Header.Set("X-File-Id", fileID)
+		req.Header.Set("X-Offset", fmt.Sprint(off))
+	}
 	req.Header.Set("Authorization", "Bearer "+h.cfg.DeviceToken)
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set("Expect", "100-continue") // данные пойдут, только когда получатель подключится
@@ -726,21 +753,31 @@ func (h *Hub) relaySendCtx(parent context.Context, job *Job, id, path string, fi
 	resp, err := streamClient().Do(req)
 	if err != nil {
 		if stalled() {
-			return errStalled
+			return -1, errStalled
 		}
 		if parent.Err() != nil {
-			return errCancelled
+			return -1, errCancelled
 		}
-		return fmt.Errorf("передача прервалась: %v", err)
+		return -1, fmt.Errorf("передача прервалась: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == 408 {
-		return errNotOnline
+		return -1, errNotOnline
 	}
 	if resp.StatusCode == 410 {
-		return errCancelled
+		return -1, errCancelled
 	}
-	return readHubResp(resp, nil)
+	if resp.StatusCode == 416 && fileID != "" {
+		var e struct {
+			Error string `json:"error"`
+		}
+		b, _ := io.ReadAll(resp.Body)
+		json.Unmarshal(b, &e)
+		if n, perr := strconv.ParseInt(strings.TrimSpace(e.Error), 10, 64); perr == nil && n >= 0 && n < st.Size() {
+			return n, fmt.Errorf("сервер просит начать с %d", n)
+		}
+	}
+	return -1, readHubResp(resp, nil)
 }
 
 // relayRecv takes the file while the owner's app is sending it (through the server).
@@ -749,6 +786,7 @@ func (h *Hub) relayRecv(job *Job, r *PluginRequest, dst string) error {
 	defer stop()
 	req, _ := http.NewRequestWithContext(ctx, "GET", h.cfg.ServerURL()+"/api/plugin-requests/"+url.PathEscape(r.ID)+"/stream", nil)
 	req.Header.Set("Authorization", "Bearer "+h.cfg.DeviceToken)
+	resumeHeaders(req.Header.Set, dst) // есть начало файла с прошлой попытки — пусть пришлют только остаток
 	resp, err := streamClient().Do(req)
 	if err != nil {
 		if job.Ctx().Err() != nil {
@@ -767,27 +805,63 @@ func (h *Hub) relayRecv(job *Job, r *PluginRequest, dst string) error {
 	if resp.StatusCode >= 300 {
 		return readHubResp(resp, nil)
 	}
+	return receiveInto(job, resp.Body, resp.Header.Get("X-File-Id"), resp.Header.Get("X-Offset"), resp.ContentLength, dst, "", "Получаю", touch, stalled)
+}
+
+// receiveInto пишет поток в dst.part (с места off, если это докачка того же архива), сверяет размер
+// и sha256 (если известен) и переименовывает в dst. Оборвалось — начало файла остаётся для докачки.
+func receiveInto(job *Job, body io.Reader, fileID, offHdr string, contentLen int64, dst, sha, verb string, touch func(), stalled func() bool) error {
 	os.MkdirAll(filepath.Dir(dst), 0o755)
 	tmp := dst + ".part"
-	f, err := os.Create(tmp)
+	off, _ := strconv.ParseInt(offHdr, 10, 64)
+	haveID, have := partInfo(dst)
+	var f *os.File
+	var err error
+	if off > 0 {
+		if fileID == "" || fileID != haveID || off != have {
+			dropPart(dst)
+			return fmt.Errorf("докачка не сошлась (у меня %d байт, прислали с %d) — начну заново", have, off)
+		}
+		f, err = os.OpenFile(tmp, os.O_WRONLY|os.O_APPEND, 0o644)
+	} else {
+		f, err = os.Create(tmp)
+	}
 	if err != nil {
 		return err
 	}
-	n, err := io.CopyBuffer(f, &progressReader{r: resp.Body, total: resp.ContentLength, job: job, verb: "Получаю", touch: touch}, make([]byte, 1<<20))
-	if err != nil && stalled() {
+	savePartID(dst, fileID)
+	total := int64(-1)
+	if contentLen >= 0 {
+		total = off + contentLen
+	}
+	n, err := io.CopyBuffer(f, &progressReader{r: body, total: total, done: off, job: job, verb: verb, touch: touch}, make([]byte, 1<<20))
+	if err != nil && stalled != nil && stalled() {
 		err = errStalled
 	}
 	f.Close()
-	if err == nil && resp.ContentLength > 0 && n != resp.ContentLength {
-		err = fmt.Errorf("получено %d из %d байт", n, resp.ContentLength)
+	if err == nil && contentLen > 0 && n != contentLen {
+		err = fmt.Errorf("получено %d из %d байт", off+n, off+contentLen)
+	}
+	if err == nil && sha != "" {
+		if got, e := fileSha256(tmp); e != nil || got != sha {
+			dropPart(dst)
+			return errors.New("файл пришёл повреждённым")
+		}
 	}
 	if err != nil {
-		os.Remove(tmp)
+		if fileID == "" {
+			dropPart(dst) // без id докачка невозможна
+		}
 		if job.Ctx().Err() != nil {
+			dropPart(dst)
 			return errCancelled
+		}
+		if off+n > 0 && fileID != "" {
+			job.Logf("Связь оборвалась на %s — при повторе докачаю остаток", fmtBytes(off+n))
 		}
 		return fmt.Errorf("передача прервалась: %v", err)
 	}
+	os.Remove(dst + ".part.id")
 	os.Remove(dst)
 	return os.Rename(tmp, dst)
 }

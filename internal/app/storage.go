@@ -152,11 +152,12 @@ type progressReader struct {
 	last  time.Time
 	start time.Time
 	touch func() // для сторожа зависаний (stallGuard)
+	base  int64  // сколько было до начала (докачка) — для скорости
 }
 
 func (p *progressReader) Read(b []byte) (int, error) {
 	if p.start.IsZero() {
-		p.start = time.Now()
+		p.start, p.base = time.Now(), p.done
 	}
 	n, err := p.r.Read(b)
 	if p.touch != nil {
@@ -167,7 +168,7 @@ func (p *progressReader) Read(b []byte) (int, error) {
 		p.last = time.Now()
 		speed := ""
 		if el := time.Since(p.start).Seconds(); el > 1 {
-			speed = fmt.Sprintf(" · %.1f МБ/с", float64(p.done)/1e6/el)
+			speed = fmt.Sprintf(" · %.1f МБ/с", float64(p.done-p.base)/1e6/el)
 		}
 		if p.total > 0 {
 			p.job.SetProgress(fmt.Sprintf("%s · %.1f из %.1f МБ%s", p.verb, float64(p.done)/1e6, float64(p.total)/1e6, speed), int(p.done*100/p.total))
