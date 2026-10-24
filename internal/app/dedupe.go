@@ -199,6 +199,8 @@ func answerOffer(cfg *Config, r *PluginRequest) error {
 	if r.Reinstall { // переустановка начисто: пусть придёт всё
 		off.Items = nil
 	}
+	lite := cfg.IsLite(r.Plugin) // «без пресетов»: библиотеку пресетов не тянем
+	skippedPresets := 0
 	claims.Lock()
 	// прошлый ответ этой передачи (её повторили) — освобождаем закреплённое за ней
 	for p, o := range claims.owner {
@@ -242,6 +244,11 @@ func answerOffer(cfg *Config, r *PluginRequest) error {
 				p = filepath.Join(root, filepath.FromSlash(f))
 			}
 			key := strings.ToLower(filepath.Clean(p))
+			if lite && it.Root != sideRoot && isPresetPath(it.Rel+"/"+f) {
+				have[i] = append(have[i], j)
+				skippedPresets++
+				continue
+			}
 			if exists(p) {
 				have[i] = append(have[i], j)
 				continue
@@ -268,7 +275,7 @@ func answerOffer(cfg *Config, r *PluginRequest) error {
 	for _, l := range have {
 		n += len(l)
 	}
-	DevLog("info", 0, false, "зависимости %s: уже есть или придут с другой передачей — %d файлов", r.Plugin, n)
+	DevLog("info", 0, false, "зависимости %s: уже есть или придут с другой передачей — %d файлов (пресеты не берём: %d)", r.Plugin, n, skippedPresets)
 	return nil
 }
 
@@ -378,4 +385,25 @@ func fastZip(zw *zip.Writer) {
 	zw.RegisterCompressor(zip.Deflate, func(w io.Writer) (io.WriteCloser, error) {
 		return flate.NewWriter(w, flate.BestSpeed)
 	})
+}
+
+// presetExts — файлы пресетов и банков (их не тянем у плагинов «без пресетов»).
+var presetExts = map[string]bool{".fxp": true, ".fxb": true, ".vstpreset": true, ".aupreset": true, ".nmsv": true, ".h2p": true,
+	".fst": true, ".preset": true, ".pgtx": true, ".nksf": true, ".nki": true, ".nkm": true, ".bank": true, ".xpf": true,
+	".ksd": true, ".spf": true, ".sbf": true, ".patch": true, ".syx": true, ".adv": true, ".adg": true, ".tal": true, ".pigments": true, ".labx": true}
+
+// isPresetPath — путь внутри данных плагина похож на библиотеку пресетов: расширение пресета
+// или папка Presets / Patches / Banks / Soundbanks / Factory Library.
+func isPresetPath(rel string) bool {
+	rel = strings.ToLower(filepath.ToSlash(rel))
+	if presetExts[filepath.Ext(rel)] {
+		return true
+	}
+	for _, seg := range strings.Split(rel, "/") {
+		switch seg {
+		case "presets", "preset", "patches", "banks", "soundbanks", "soundbank", "user presets", "factory presets", "factory library", "sound banks", "librarys", "library presets":
+			return true
+		}
+	}
+	return false
 }

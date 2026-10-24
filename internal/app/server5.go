@@ -83,10 +83,23 @@ func (s *Server) routes5(api func(string, func(r *http.Request) (any, error))) {
 			return nil, err
 		}
 		res := map[string]any{"name": lp.DisplayName()}
-		if b["flTitle"] == true { // то же название — в Project info .flp
-			p := &Project{Dir: lp.Path, Cfg: s.cfg}
+		p := &Project{Dir: lp.Path, Cfg: s.cfg}
+		m := LoadTrackMeta(lp.Path)
+		if b["flTitle"] == true { // то же название — в Project info .flp и в метаданные трека
 			if _, err := p.SetFLTitle(lp.DisplayName()); err != nil {
 				res["flError"] = err.Error()
+			}
+			m.Title = lp.DisplayName()
+		}
+		if a, ok := b["artist"].(string); ok { // артист — в .flp и в метаданные трека
+			if _, err := p.SetFLArtist(a); err != nil {
+				res["flError"] = err.Error()
+			}
+			m.Artist = strings.TrimSpace(a)
+		}
+		if b["flTitle"] == true || b["artist"] != nil {
+			if exists(metaPath(lp.Path)) {
+				SaveTrackMeta(lp.Path, m)
 			}
 		}
 		return res, nil

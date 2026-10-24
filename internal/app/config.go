@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // LocalProject is a project folder registered in this app instance.
@@ -49,11 +50,15 @@ type Config struct {
 	SeenVersion      string         `json:"seenVersion,omitempty"`      // версия, для которой уже показали «Что нового»
 	GuideSeen        bool           `json:"guideSeen,omitempty"`        // показали знакомство с программой
 	HideHelp         bool           `json:"hideHelp,omitempty"`         // убрать кнопку «?» из шапки
+	LFSExtensions    []string       `json:"lfsExtensions,omitempty"`    // какие файлы уходят в Git LFS у новых проектов (пусто — стандартный список)
 	NoPeerFetch      bool           `json:"noPeerFetch,omitempty"`      // не брать/не отдавать аудио проектов напрямую между участниками
 	NoLAN            bool           `json:"noLan,omitempty"`            // не передавать напрямую по локальной сети (только через сервер)
 	ToastSec         *int           `json:"toastSec,omitempty"`         // сколько секунд держать уведомления (0 — пока не закроют)
 	NoErrorReports   bool           `json:"noErrorReports,omitempty"`   // не отправлять свои ошибки в журнал сервера
 	SortMode         string         `json:"sortMode,omitempty"`         // порядок списка проектов: manual, name, name-desc, modified, modified-asc
+	Lang             string         `json:"lang,omitempty"`             // язык интерфейса: "" — русский, "en" — английский
+	LitePlugins      []string       `json:"litePlugins,omitempty"`      // плагины, у которых не тянуть библиотеку пресетов при передаче
+	Meta             MetaSettings   `json:"meta"`                       // метаданные рендеров и README проектов
 
 	hub *Hub
 }
@@ -104,7 +109,51 @@ func LoadConfig() *Config {
 		json.Unmarshal(b, c)
 	}
 	SetUserProxy(c.Proxy)
+	if len(c.LFSExtensions) > 0 {
+		SetGlobalLFS(c.LFSExtensions)
+	}
 	return c
+}
+
+// MetaSettings — Настройки → Метаданные.
+type MetaSettings struct {
+	Off      bool     `json:"off,omitempty"`      // не записывать метаданные в рендеры
+	Exts     []string `json:"exts,omitempty"`     // в какие файлы (пусто — wav, mp3, flac)
+	NoCover  bool     `json:"noCover,omitempty"`  // не вшивать обложку
+	NoReadme bool     `json:"noReadme,omitempty"` // не делать README.md проекта для GitHub
+	All      bool     `json:"all,omitempty"`      // и в старые рендеры, а не только в новые
+}
+
+func (m MetaSettings) Extensions() []string {
+	if len(m.Exts) == 0 {
+		return []string{"wav", "mp3", "flac"}
+	}
+	return m.Exts
+}
+
+// IsLite — у этого плагина не тянуть библиотеку пресетов.
+func (c *Config) IsLite(plugin string) bool {
+	k := normName(plugin)
+	for _, n := range c.LitePlugins {
+		if normName(n) == k {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Config) SetLite(plugin string, on bool) {
+	k := normName(plugin)
+	var out []string
+	for _, n := range c.LitePlugins {
+		if normName(n) != k {
+			out = append(out, n)
+		}
+	}
+	if on {
+		out = append(out, plugin)
+	}
+	c.LitePlugins = out
 }
 
 func (c *Config) Save() error {
@@ -177,13 +226,26 @@ type SharedSettings struct {
 	LFSExtensions  []string `json:"lfsExtensions"`
 }
 
+// globalLFS — список расширений для LFS из настроек этого компьютера (Настройки → GitHub); его получают новые проекты.
+var globalLFS atomic.Pointer[[]string]
+
+func SetGlobalLFS(l []string) { globalLFS.Store(&l) }
+
+func DefaultLFSExtensions() []string {
+	return []string{"wav", "mp3", "flac", "ogg", "aif", "aiff", "m4a", "wv", "rx2", "rex", "sf2",
+		"opus", "zip", "mp4", "mov", "dwp", "nmsv", "fxp", "fxb", "vstpreset"}
+}
+
 func DefaultShared() SharedSettings {
+	ext := DefaultLFSExtensions()
+	if g := globalLFS.Load(); g != nil && len(*g) > 0 {
+		ext = append([]string(nil), *g...)
+	}
 	return SharedSettings{
 		IgnoreUnused:   true,
 		CollectSamples: true,
 		OrganizeAudio:  true,
-		LFSExtensions: []string{"wav", "mp3", "flac", "ogg", "aif", "aiff", "m4a", "wv", "rx2", "rex", "sf2",
-			"opus", "zip", "mp4", "mov", "dwp", "nmsv", "fxp", "fxb", "vstpreset"},
+		LFSExtensions:  ext,
 	}
 }
 

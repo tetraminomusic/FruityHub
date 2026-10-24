@@ -149,6 +149,21 @@ func (s *Server) Handler(port int) http.Handler {
 		}
 		http.NotFound(w, r)
 	})
+	// словарь английского интерфейса
+	mux.HandleFunc("/i18n/en.js", func(w http.ResponseWriter, r *http.Request) {
+		if s.Assets == nil {
+			http.NotFound(w, r)
+			return
+		}
+		b, err := fs.ReadFile(s.Assets, "i18n_en.js")
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Write(b)
+	})
 	mux.HandleFunc("/hello", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "uzbek") })
 	mux.HandleFunc("/focus", func(w http.ResponseWriter, r *http.Request) {
 		if OnFocus != nil {
@@ -208,6 +223,7 @@ func (s *Server) Handler(port int) http.Handler {
 	s.routes3(api)
 	s.routes4(api)
 	s.routes5(api)
+	s.routes6(api)
 	// DNS-rebinding protection: only accept our own host names
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := r.Host
@@ -269,8 +285,12 @@ func (s *Server) startJobOpt(title, project string, lock bool, fn func(j *Job) (
 			s.jobsMu.Unlock()
 		}()
 		res, err := fn(j)
+		if err != nil && j.Stopped() {
+			err = errStopped
+		}
 		j.mu.Lock()
 		j.Res = res
+		j.Cancelled = errors.Is(err, errStopped)
 		if err != nil {
 			j.Err = err.Error()
 			var fe *FixError
@@ -294,7 +314,7 @@ func (s *Server) startJobOpt(title, project string, lock bool, fn func(j *Job) (
 		}
 		j.mu.Unlock()
 		DevLog("job", time.Since(time.Unix(j.Started, 0)).Milliseconds(), err != nil, "■ %s — %s", title, map[bool]string{true: "ошибка: " + fmt.Sprint(err), false: "готово"}[err != nil])
-		if err != nil && !errors.Is(err, errCancelled) {
+		if err != nil && !errors.Is(err, errCancelled) && !errors.Is(err, errStopped) {
 			j.mu.Lock()
 			det := j.Details
 			j.mu.Unlock()
@@ -444,23 +464,30 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 		return map[string]any{"config": cfg, "registered": s.cfg.Hub().Registered(), "projects": list, "windowed": s.Windowed,
 			"tools": CheckTools(), "os": OSName(), "me": s.cfg.MachineID(), "userId": s.cfg.UserID, "version": Version, "configDir": ConfigDir(),
 			"groups": s.cfg.Groups, "server": s.cfg.ServerURL(), "serverDefault": DefaultServer, "sharing": sharing, "hasToken": s.cfg.Token != "", "githubLogin": s.cfg.GitHubLogin, "serverCodeBuiltIn": DefaultServerCode != "", "proxy": s.cfg.Proxy, "proxyHint": SystemProxyHint(),
-			"hasAdminKey": hasAdmin, "customBg": customBackground() != "", "platform": Platform()}, nil
+			"hasAdminKey": hasAdmin, "customBg": customBackground() != "", "platform": Platform(), "defaultLfs": DefaultLFSExtensions()}, nil
 	})
 	api("/api/settings", func(r *http.Request) (any, error) {
 		var req struct {
-			Token           *string  `json:"token"`
-			ExtraPluginDirs []string `json:"extraPluginDirs"`
-			Proxy           *string  `json:"proxy"`
-			SortMode        *string  `json:"sortMode"`
-			AutoUpdate      *bool    `json:"autoUpdate"`
-			ErrorReports    *bool    `json:"errorReports"`
-			AutoFetch       *bool    `json:"autoFetchPlugins"`
-			SeenVersion     *string  `json:"seenVersion"`
-			GuideSeen       *bool    `json:"guideSeen"`
-			HideHelp        *bool    `json:"hideHelp"`
-			PeerFetch       *bool    `json:"peerFetch"`
-			LAN             *bool    `json:"lan"`
-			ToastSec        *int     `json:"toastSec"`
+			Token           *string       `json:"token"`
+			ExtraPluginDirs []string      `json:"extraPluginDirs"`
+			Proxy           *string       `json:"proxy"`
+			SortMode        *string       `json:"sortMode"`
+			AutoUpdate      *bool         `json:"autoUpdate"`
+			ErrorReports    *bool         `json:"errorReports"`
+			AutoFetch       *bool         `json:"autoFetchPlugins"`
+			SeenVersion     *string       `json:"seenVersion"`
+			GuideSeen       *bool         `json:"guideSeen"`
+			HideHelp        *bool         `json:"hideHelp"`
+			PeerFetch       *bool         `json:"peerFetch"`
+			LAN             *bool         `json:"lan"`
+			ToastSec        *int          `json:"toastSec"`
+			LFS             []string      `json:"lfsExtensions"`
+			Lang            *string       `json:"lang"`
+			Meta            *MetaSettings `json:"meta"`
+			Lite            *struct {
+				Plugin string `json:"plugin"`
+				On     bool   `json:"on"`
+			} `json:"lite"`
 		}
 		if err := decode(r, &req); err != nil {
 			return nil, err
@@ -502,6 +529,28 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 		}
 		if req.GuideSeen != nil {
 			s.cfg.GuideSeen = *req.GuideSeen
+		}
+		if req.LFS != nil {
+			var l []string
+			for _, e := range req.LFS {
+				if e = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(e), ".")); e != "" {
+					l = append(l, e)
+				}
+			}
+			if len(l) == 0 {
+				l = DefaultLFSExtensions()
+			}
+			s.cfg.LFSExtensions = l
+			SetGlobalLFS(l)
+		}
+		if req.Lang != nil {
+			s.cfg.Lang = *req.Lang
+		}
+		if req.Meta != nil {
+			s.cfg.Meta = *req.Meta
+		}
+		if req.Lite != nil && strings.TrimSpace(req.Lite.Plugin) != "" {
+			s.cfg.SetLite(req.Lite.Plugin, req.Lite.On)
 		}
 		if req.Proxy != nil {
 			s.cfg.Proxy = strings.TrimSpace(*req.Proxy)
@@ -833,9 +882,30 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 		}
 		j.mu.Lock()
 		defer j.mu.Unlock()
-		cp := Job{ID: j.ID, Title: j.Title, Project: j.Project, Done: j.Done, Err: j.Err, Details: j.Details, Res: j.Res,
-			Steps: append([]string{}, j.Steps...), Progress: j.Progress, Started: j.Started}
+		cp := Job{ID: j.ID, Title: j.Title, Project: j.Project, Done: j.Done, Err: j.Err, Details: j.Details, Res: j.Res, Fix: j.Fix,
+			Steps: append([]string{}, j.Steps...), Progress: j.Progress, Started: j.Started, Cancellable: j.Cancellable && !j.Done, Cancelled: j.Cancelled}
 		return &cp, nil
+	})
+	// «Отменить» у задачи (скачивание проекта)
+	api("/api/job/cancel", func(r *http.Request) (any, error) {
+		s.jobsMu.Lock()
+		var b struct {
+			ID string `json:"id"`
+		}
+		decode(r, &b)
+		j := s.jobs[b.ID]
+		s.jobsMu.Unlock()
+		if j == nil {
+			return nil, errors.New("задача не найдена")
+		}
+		j.mu.Lock()
+		ok := j.Cancellable && !j.Done
+		j.mu.Unlock()
+		if !ok {
+			return nil, errors.New("эту задачу уже нельзя отменить")
+		}
+		j.Cancel()
+		return "ok", nil
 	})
 }
 

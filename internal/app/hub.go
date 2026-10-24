@@ -553,6 +553,9 @@ func (h *Hub) DeclineRequest(id, reason string) error {
 
 var errCancelled = errors.New("передача отменена")
 
+// errStopped — задачу (скачивание проекта) отменили кнопкой «Отменить».
+var errStopped = errors.New("отменено")
+
 // ----- замки проектов -----
 
 var errNoHubLocks = errors.New("сервер не умеет замки проектов")

@@ -590,6 +590,43 @@ func (s *Server) routes4(api func(string, func(*http.Request) (any, error))) {
 	jobAPI("/api/plugin/retry-data", "Кладу данные плагина", false, func(req map[string]any, j *Job) (any, error) {
 		return "ok", RetryPendingData(j, str(req, "id"))
 	})
+	// все плагины, найденные на этом компьютере (для менеджера плагинов); force=1 — пересканировать
+	api("/api/plugins/installed", func(r *http.Request) (any, error) {
+		type row struct {
+			Name      string `json:"name"`
+			Format    string `json:"format"`
+			Version   string `json:"version,omitempty"`
+			Vendor    string `json:"vendor,omitempty"`
+			Copies    int    `json:"copies"`
+			Uninstall bool   `json:"uninstall"` // есть файл плагина, который можно убрать (встроенные плагины FL — нет)
+		}
+		idx := map[string]*row{}
+		var out []*row
+		for _, p := range ScanInstalled(s.cfg, r.URL.Query().Get("force") == "1") {
+			k := normName(p.Name) + "|" + p.Format
+			x := idx[k]
+			if x == nil {
+				x = &row{Name: p.Name, Format: p.Format, Version: p.Version, Vendor: p.Vendor}
+				idx[k] = x
+				out = append(out, x)
+			}
+			if x.Version == "" {
+				x.Version = p.Version
+			}
+			if x.Vendor == "" {
+				x.Vendor = p.Vendor
+			}
+			if pluginExts[strings.ToLower(filepath.Ext(strings.TrimRight(p.Path, `/\`)))] != "" {
+				x.Copies++
+				x.Uninstall = true
+			}
+		}
+		sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
+		if out == nil {
+			out = []*row{}
+		}
+		return out, nil
+	})
 	api("/api/plugin/uninstall-plan", func(r *http.Request) (any, error) {
 		b := body(r)
 		return uninstallPlan(s.cfg, str(b, "name"), str(b, "format"))

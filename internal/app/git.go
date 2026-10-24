@@ -30,13 +30,16 @@ type Job struct {
 	Progress *Progress `json:"progress,omitempty"`
 	Res      any       `json:"result,omitempty"`
 	Fix      *JobFix   `json:"fix,omitempty"` // что можно сделать с ошибкой одной кнопкой
-	Started  int64     `json:"started"`
-	raw      []string
-	lfsTotal int64 // скачивание аудио: сколько всего (для понятного прогресса)
-	lfsFiles int
-	mu       sync.Mutex
-	ctx      context.Context
-	cancel   context.CancelFunc
+	// Cancellable — у задачи есть кнопка «Отменить» (скачивание проекта); Cancelled — её нажали
+	Cancellable bool  `json:"cancellable,omitempty"`
+	Cancelled   bool  `json:"cancelled,omitempty"`
+	Started     int64 `json:"started"`
+	raw         []string
+	lfsTotal    int64 // скачивание аудио: сколько всего (для понятного прогресса)
+	lfsFiles    int
+	mu          sync.Mutex
+	ctx         context.Context
+	cancel      context.CancelFunc
 }
 
 // JobFix — ошибка, которую можно исправить кнопкой: exists — папка уже есть (удалить и скачать заново).
@@ -62,12 +65,25 @@ func (j *Job) Ctx() context.Context {
 	return j.ctx
 }
 
-// Cancel прерывает задачу (то, что умеет прерываться, — сетевые передачи).
+// Cancel прерывает задачу (то, что умеет прерываться, — сетевые передачи и команды git).
 func (j *Job) Cancel() {
 	if j != nil && j.cancel != nil {
 		j.cancel()
 	}
 }
+
+// SetCancellable показывает у задачи кнопку «Отменить».
+func (j *Job) SetCancellable(v bool) {
+	if j == nil {
+		return
+	}
+	j.mu.Lock()
+	j.Cancellable = v
+	j.mu.Unlock()
+}
+
+// Stopped — задачу отменили кнопкой.
+func (j *Job) Stopped() bool { return j != nil && j.ctx != nil && j.ctx.Err() != nil }
 
 type Progress struct {
 	Label string `json:"label"`
@@ -386,7 +402,7 @@ func (g *Git) run(stdin io.Reader, echo bool, args ...string) (string, error) {
 			return "", &GitError{Args: args, Msg: "git не установлен и не получилось поставить его автоматически: " + err.Error(), Err: err}
 		}
 	}
-	cmd := exec.Command(gitBinary(), full...)
+	cmd := exec.CommandContext(g.Job.Ctx(), gitBinary(), full...)
 	cmd.Dir = g.Dir
 	cmd.Env = append(gitEnvToken(g.Cfg, tok), g.Env...)
 	cmd.Stdin = stdin
@@ -409,7 +425,7 @@ func (g *Git) run(stdin io.Reader, echo bool, args ...string) (string, error) {
 		time.Sleep(time.Duration(try*try) * 400 * time.Millisecond)
 		out.Reset()
 		errb.Reset()
-		cmd = exec.Command(gitBinary(), full...)
+		cmd = exec.CommandContext(g.Job.Ctx(), gitBinary(), full...)
 		cmd.Dir = g.Dir
 		cmd.Env = append(gitEnvToken(g.Cfg, tok), g.Env...)
 		cmd.Stdin = stdin
@@ -429,6 +445,9 @@ func (g *Git) run(stdin io.Reader, echo bool, args ...string) (string, error) {
 		DevLog("git", time.Since(started).Milliseconds(), true, "[%s] git %s → %v: %s", where, strings.Join(args, " "), err, firstLine(errb.String()))
 	} else if DevVerbose.Load() || !readOnlyGit(args) {
 		DevLog("git", time.Since(started).Milliseconds(), false, "[%s] git %s", where, strings.Join(args, " "))
+	}
+	if err != nil && g.Job.Stopped() {
+		return "", errStopped
 	}
 	if err != nil {
 		msg := strings.TrimSpace(errb.String())

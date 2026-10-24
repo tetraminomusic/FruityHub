@@ -16,9 +16,13 @@ package flp
 
 import (
 	"bytes"
+	"compress/gzip"
+	"compress/zlib"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -238,9 +242,27 @@ var AudioExts = []string{".wav", ".mp3", ".flac", ".ogg", ".aif", ".aiff", ".m4a
 var audioRe = regexp.MustCompile(`(?i)[^\x00-\x1f"*<>|?]{1,400}\.(wav|mp3|flac|ogg|aif|aiff|m4a|wv|rx2|sf2|rex|opus)`)
 
 // embeddedPaths looks for audio file paths stored inside plugin blobs
-// (Slicex, DirectWave, Fruity Slicer, FPC...). Heuristic but cheap.
+// (Slicex, DirectWave, Fruity Slicer, FPC, and VST/AU states — Pigments, Serum, Kontakt…).
+// Many third-party plugins keep their state compressed (zlib/gzip) or base64-encoded:
+// such streams are unpacked and searched too. Heuristic but cheap.
 func embeddedPaths(d []byte) []string {
+	seen := map[string]bool{}
 	var out []string
+	add := func(l []string) {
+		for _, p := range l {
+			if !seen[p] {
+				seen[p] = true
+				out = append(out, p)
+			}
+		}
+	}
+	scanBlob(d, 0, add)
+	return out
+}
+
+const maxUnpacked = 32 << 20
+
+func scanBlob(d []byte, depth int, add func([]string)) {
 	// UTF-16LE: drop zero high bytes when the blob looks like UTF-16
 	if bytes.Count(d, []byte{0}) > len(d)/4 {
 		var a []byte
@@ -251,11 +273,62 @@ func embeddedPaths(d []byte) []string {
 				a = append(a, 0)
 			}
 		}
-		out = append(out, findPaths(a)...)
+		add(findPaths(a))
 	}
-	out = append(out, findPaths(d)...)
+	add(findPaths(d))
+	if depth >= 2 {
+		return
+	}
+	for _, u := range unpackStreams(d) {
+		scanBlob(u, depth+1, add)
+	}
+}
+
+// unpackStreams finds zlib / gzip / base64 streams inside a blob and returns them unpacked.
+func unpackStreams(d []byte) [][]byte {
+	var out [][]byte
+	total := 0
+	keep := func(b []byte) {
+		if len(b) > 0 && total+len(b) <= maxUnpacked {
+			total += len(b)
+			out = append(out, b)
+		}
+	}
+	read := func(r io.Reader) []byte {
+		b, _ := io.ReadAll(io.LimitReader(r, maxUnpacked))
+		return b
+	}
+	tries := 0
+	for i := 0; i+2 < len(d) && tries < 64; i++ {
+		switch {
+		case d[i] == 0x1f && d[i+1] == 0x8b && d[i+2] == 8: // gzip
+			tries++
+			if zr, err := gzip.NewReader(bytes.NewReader(d[i:])); err == nil {
+				if b := read(zr); len(b) > 16 {
+					keep(b)
+				}
+			}
+		case d[i] == 0x78 && (d[i+1] == 0x01 || d[i+1] == 0x5e || d[i+1] == 0x9c || d[i+1] == 0xda) && (uint16(d[i])<<8|uint16(d[i+1]))%31 == 0: // zlib
+			tries++
+			if zr, err := zlib.NewReader(bytes.NewReader(d[i:])); err == nil {
+				if b := read(zr); len(b) > 16 {
+					keep(b)
+				}
+			}
+		}
+	}
+	// base64 (длинные куски из букв, цифр, +/=) — некоторые плагины хранят так состояние в XML
+	for _, m := range b64Re.FindAll(d, 32) {
+		if b, err := base64.StdEncoding.DecodeString(string(bytes.TrimRight(m, "=")) + pad(len(bytes.TrimRight(m, "=")))); err == nil && len(b) > 32 {
+			keep(b)
+		}
+	}
 	return out
 }
+
+var b64Re = regexp.MustCompile(`[A-Za-z0-9+/]{256,}={0,2}`)
+
+func pad(n int) string { return strings.Repeat("=", (4-n%4)%4) }
 
 func findPaths(b []byte) []string {
 	var out []string
@@ -560,3 +633,6 @@ func (f *File) Build() uint32 {
 	}
 	return 0
 }
+
+// EmbeddedPathsForTest — для тестов приложения.
+func EmbeddedPathsForTest(d []byte) []string { return embeddedPaths(d) }

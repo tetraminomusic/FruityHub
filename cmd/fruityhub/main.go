@@ -70,6 +70,7 @@ func main() {
 	go http.Serve(l, srv.Handler(port))
 	go srv.Poller(poll)
 	go srv.HubLoop(8 * time.Second)
+	go srv.MetaWatcher(6 * time.Second)
 	app.OnFocus = ui.Focus
 
 	if !browserMode {

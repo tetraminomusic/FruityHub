@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -240,6 +241,8 @@ func (p *Project) Analyze() *Analysis {
 			r.Status = "factory"
 		case filepath.IsAbs(path) && exists(path):
 			r.Status, r.Local = "external", path
+		case r.Embedded && findSampleByName(r.Name) != "": // плагин хранит только имя — сэмпл лежит в его библиотеке
+			r.Status, r.Local = "external", findSampleByName(r.Name)
 		default:
 			r.Status = "missing"
 		}
@@ -286,9 +289,16 @@ func (p *Project) writeAttributes(s SharedSettings) error {
 	var b strings.Builder
 	b.WriteString("# Программа Узбека: большие бинарные файлы → Git LFS, проекты .flp не мерджатся\n")
 	b.WriteString(ciPattern("flp") + " binary\n")
-	for _, e := range s.LFSExtensions {
-		e = strings.TrimPrefix(strings.TrimSpace(e), ".")
-		if e != "" {
+	// список проекта + общий список из Настроек → GitHub (новое расширение там сразу действует во всех проектах)
+	exts := append([]string{}, s.LFSExtensions...)
+	if g := globalLFS.Load(); g != nil {
+		exts = append(exts, *g...)
+	}
+	seenExt := map[string]bool{}
+	for _, e := range exts {
+		e = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(e), "."))
+		if e != "" && !seenExt[e] {
+			seenExt[e] = true
 			b.WriteString(ciPattern(e) + " filter=lfs diff=lfs merge=lfs -text\n")
 		}
 	}
@@ -542,6 +552,9 @@ func (p *Project) Prepare() (*Analysis, error) {
 	if err := p.WriteManifest(a); err != nil {
 		return a, err
 	}
+	if p.Cfg == nil || !p.Cfg.Meta.NoReadme {
+		p.WriteReadme(a)
+	}
 	return a, nil
 }
 
@@ -606,12 +619,24 @@ func CloneNamed(cfg *Config, job *Job, url, parent, name string) (string, error)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return "", err
 	}
+	// «Отменить»: недокачанная папка проекта удаляется целиком (её создало это скачивание)
+	job.SetCancellable(true)
+	defer job.SetCancellable(false)
+	defer func() {
+		if job.Stopped() {
+			os.RemoveAll(dir)
+			job.Logf("Скачивание отменено — недокачанная папка удалена")
+		}
+	}()
 	g := &Git{Dir: parent, Cfg: cfg, Job: job, URL: url, Env: []string{"GIT_LFS_SKIP_SMUDGE=1"}}
 	job.Logf("Шаг 1 из 2: скачиваю проект (.flp и история)…")
 	job.SetProgress("Скачивание проекта · подключаюсь к GitHub", -1)
 	_, err := g.Run("clone", "--progress", url, dir)
 	if err != nil {
 		return "", err
+	}
+	if job.Stopped() {
+		return "", errStopped
 	}
 	g.Dir, g.Env = dir, nil
 	if _, err := g.Run("lfs", "install", "--local", "--skip-repo"); err != nil {
@@ -633,12 +658,19 @@ func CloneNamed(cfg *Config, job *Job, url, parent, name string) (string, error)
 		_, err := g.Run("lfs", "pull")
 		job.setLFS(0, 0)
 		if err != nil {
+			if job.Stopped() {
+				return "", errStopped
+			}
 			return dir, err
 		}
+	}
+	if job.Stopped() {
+		return "", errStopped
 	}
 	if n, _ := p.Relink(); n > 0 {
 		job.Logf("Пути к сэмплам направлены в папку проекта: %d", n)
 	}
+	p.placePluginSamples()
 	return dir, nil
 }
 
@@ -666,7 +698,7 @@ func (p *Project) resolveConflicts() ([]string, error) {
 		hasTheirs := strings.Contains(stages, " 3\t")
 		abs := filepath.Join(p.Dir, filepath.FromSlash(path))
 		switch {
-		case isGenerated(path):
+		case isGenerated(path) || path == "README.md" && p.readmeIsGenerated(): // README от FruityHub соберётся заново
 			if hasTheirs {
 				g.Run("checkout", "--theirs", "--", path)
 				g.Run("add", "--", path)
@@ -700,6 +732,17 @@ func (p *Project) resolveConflicts() ([]string, error) {
 	}
 	_, err := g.Run("commit", "--no-edit", "--no-verify")
 	return copies, err
+}
+
+// readmeIsGenerated — README.md в конфликте собран FruityHub (у обеих сторон), а не написан руками.
+func (p *Project) readmeIsGenerated() bool {
+	g := p.git()
+	for _, st := range []string{":2:README.md", ":3:README.md"} {
+		if b, err := g.runBytes("show", st); err == nil && !bytes.Contains(b, []byte(readmeMark)) {
+			return false
+		}
+	}
+	return true
 }
 
 // commitAll stages everything and commits if there are changes.
@@ -896,6 +939,7 @@ func (p *Project) Receive() (*SyncResult, error) {
 			return res, err
 		}
 	}
+	p.placePluginSamples()
 	p.Job.Logf("✓ Получено")
 	return res, nil
 }
