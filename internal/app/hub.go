@@ -50,13 +50,14 @@ type HubLock struct {
 }
 
 type HubUser struct {
-	ID       string `json:"id"`
-	Nick     string `json:"nick"`
-	GitHub   string `json:"github"`
-	OS       string `json:"os"`
-	LastSeen int64  `json:"lastSeen"`
-	Online   bool   `json:"online"`
-	Sharing  string `json:"sharing"`
+	ID       string   `json:"id"`
+	Nick     string   `json:"nick"`
+	GitHub   string   `json:"github"`
+	OS       string   `json:"os"`
+	LastSeen int64    `json:"lastSeen"`
+	Online   bool     `json:"online"`
+	Sharing  string   `json:"sharing"`
+	OldNicks []string `json:"oldNicks,omitempty"`
 }
 
 type HubInvite struct {

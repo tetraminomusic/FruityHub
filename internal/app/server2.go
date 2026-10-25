@@ -150,6 +150,17 @@ func (s *Server) routes2(api func(string, func(*http.Request) (any, error))) {
 			s.mu.Unlock()
 		}
 		cs, st := p.Comments()
+		// сменил ник — старые комментарии, задачи и статус показываются под новым
+		name := s.nickResolver()
+		for i := range cs {
+			cs[i].Author = name(cs[i].AuthorID, cs[i].Author)
+			if cs[i].DoneBy != "" {
+				cs[i].DoneBy = name(cs[i].DoneByID, cs[i].DoneBy)
+			}
+		}
+		if st != nil {
+			st.By = name(st.ByID, st.By)
+		}
 		return map[string]any{"comments": cs, "status": st, "me": s.cfg.MachineID()}, nil
 	})
 	api("/api/project/seen", func(r *http.Request) (any, error) {

@@ -490,6 +490,7 @@ function openGuide(first){
 }
 // новое в версиях (самое свежее сверху)
 const CHANGES=[
+  ['0.9.7',['Перед отправкой FruityHub проверяет, не пропали ли сэмплы (в том числе загруженные в синты, которые FL удаляет как «неиспользуемые»), и возвращает их из прошлой версии проекта или из Корзины', '«Вернуть пропавшие…» во вкладке «Сэмплы»; файлы с галочкой «Отправлять» защищены от удаления', 'Сменил ник — твои старые комментарии, задачи и статус показываются под новым']],
   ['0.9.6',['Длительность трека считается сама: по красному выделению в плейлисте, а без него — до конца последнего клипа; общее время папки в списке тоже', 'Проекты FL Studio 2026 читаются правильно (темп, название, артист)']],
   ['0.9.5',['Окно «Проводника» для выбора папки и картинки на Windows вместо старого «Обзора папок»; второе такое окно поверх не открывается', 'Сколько места занимает проект — под его названием', 'Неиспользуемое аудио можно убрать только у себя: на GitHub и у друзей остаётся, место освобождается целиком; «Вернуть все»', 'Подсказка про цвета вернулась вниз списка проектов', 'Темп, тональность и длительность трека — в «Трек» (темп сам берётся из .flp) и видны в шапке проекта; у папки в списке — общая длительность треков']],
   ['0.9.4',['Папку проекта перенесли или переименовали — FruityHub находит её сам (по .flp и репозиторию) или даёт указать новое место', 'Папки с проектами (Настройки → Проекты): в них проекты находятся после переезда, там же видно и добавляются проекты, которых ещё нет в списке', 'Сортировка проектов вернулась — над списком «Мои проекты»', 'Текст в обсуждении и задачах больше не пропадает, когда переключаешься в другое окно', 'Копии .flp после конфликта лежат в .flsync/conflicts, а не рядом с проектом; «Открыть мою» — открыть копию в FL Studio', 'Артист в списке проектов — как ввёл, кириллицей (в FL — латиницей)']],
@@ -1160,10 +1161,10 @@ function renderTab(){
       <div class="muted small">Ищутся в каналах, аудиоклипах и внутри плагинов (Slicex, DirectWave, FPC…). Совпадение по имени файла.</div>
       ${a.samples.length?`<table><tr><th>Файл</th><th>Статус</th><th>Где лежит</th></tr>${a.samples.map(s=>`<tr><td>${esc(s.name)}${s.embedded?' <span class="tag" title="найден внутри данных плагина">в плагине</span>':''}</td><td><span class="tag ${st[s.status][1]}">${st[s.status][0]}</span></td><td class="mono muted ellip" title="${esc(s.original)}">${esc(s.local||s.original)}</td></tr>`).join('')}</table>`:'<p class="muted">Сэмплов нет.</p>'}
       <div class="row" style="margin-top:10px"><button onclick="runJob('/api/project/prepare',{path:S.sel},{title:'Собрать сэмплы в папку проекта'})">Собрать внешние сэмплы сейчас</button>
-      <button onclick="runJob('/api/project/relink',{path:S.sel})">Направить пути в .flp на папку проекта</button></div>
+      <button onclick="runJob('/api/project/relink',{path:S.sel})">Направить пути в .flp на папку проекта</button><button onclick="lostDialog()" title="Вернуть сэмплы, которые пропали с диска (например, FL удалила сэмплы синтов как «неиспользуемые»)">Вернуть пропавшие…</button></div>
       ${S.hidden===undefined||S.hidden===null?(loadHidden(),''):S.hidden.length?`<div class="okbox small" style="margin-top:10px">Убрано только с этого компьютера (на GitHub и у друзей есть): ${S.hidden.length} — ${S.hidden.slice(0,4).map(esc).join(', ')}${S.hidden.length>4?'…':''} <button class="sm" style="margin-left:6px" onclick="restoreHidden(S.hidden)">Вернуть все</button></div>`:''}
       <h3>Аудио в папке, которое проект не использует (${unused.length})</h3>
-      <div class="muted small">Старые дубли, неудачные записи, рендеры. По умолчанию такие файлы не отправляются; «Отправлять» — отправить всё равно. Ненужное можно выделить и удалить в корзину.</div>
+      <div class="muted small">Старые дубли, неудачные записи, рендеры. По умолчанию такие файлы не отправляются; «Отправлять» — отправить всё равно (и защитить от удаления — отметь так сэмплы, которые загружены прямо в синты). Ненужное можно выделить и удалить в корзину.</div>
       ${unused.length?`<div class="row" style="margin-top:8px"><label class="switch small" style="margin:0"><input type="checkbox" onchange="selAllUnused(this.checked)"> выделить всё</label><span class="spacer"></span>
         <button class="sm danger" ${Object.values(S.trashSel).some(Boolean)?'':'disabled'} onclick="trashSelected()">В корзину (${Object.values(S.trashSel).filter(Boolean).length})</button></div>
         <table><tr><th></th><th>Отправлять</th><th>Файл</th><th style="text-align:right">Размер</th></tr>${unused.map(f=>`<tr><td><input type="checkbox" style="width:auto" ${S.trashSel[f.rel]?'checked':''} onchange="S.trashSel[decodeURIComponent('${enc(f.rel)}')]=this.checked;renderMain()"></td>
@@ -1476,21 +1477,47 @@ async function takeLock(force){
   await runJob('/api/project/lock',{path:S.sel, force:!!force},{title:'Беру проект в работу'});
 }
 async function unlock(){ await runJob('/api/project/unlock',{path:S.sel},{title:'Освобождаю проект'}) }
-function sendDialog(){
+async function sendDialog(){
   const p=S.proj, mine=p.lock&&p.lock.user===p.me;
-  const a=S.analysis?.analysis, missing=(a?.samples||[]).filter(s=>s.status==='missing');
+  const a=S.analysis?.analysis;
   const flps=(p.changes||[]).filter(c=>c.isFlp);
+  // перед отправкой: не пропали ли сэмплы (FL могла удалить сэмплы синтов как «неиспользуемые»)
+  let lost=[]; try{ lost=(await api('/api/project/precheck?path='+enc(S.sel))).lost||[] }catch(e){}
+  const back=lost.filter(f=>f.from), synth=lost.filter(f=>f.plugin).length;
+  const missing=(a?.samples||[]).filter(s=>s.status==='missing'&&!lost.some(l=>l.name.toLowerCase()===s.name.toLowerCase()));
   const m=modal(`<h2>Отправить изменения</h2>
     <div class="muted small">Перед отправкой: внешние сэмплы скопируются в Audio/, обновится PLUGINS.txt. <b>Сохрани проект в FL (Ctrl/⌘+S)</b>.</div>
     ${p.lock&&!mine?`<div class="badbox small">Проект сейчас у ${esc(p.lock.user)}. Отправка может создать конфликт.</div>`:''}
+    ${lost.length?`<div class="badbox small"><b>Пропали файлы, которые нужны проекту: ${lost.length}</b>${synth?` (из них сэмплы внутри плагинов: ${synth})`:''}. Если отправить так — у друга их тоже не будет.
+      <div style="margin-top:4px">${lost.slice(0,6).map(f=>esc(f.name)).join(', ')}${lost.length>6?'…':''}</div>
+      ${back.length?`<div class="row" style="margin-top:8px"><button class="sm primary" id="lback">Вернуть (${back.length}) и отправить</button><button class="sm ghost" id="lsee">Подробнее…</button></div>`:'<div class="muted" style="margin-top:4px">Вернуть их неоткуда — ни в прошлых версиях проекта, ни в Корзине их нет.</div>'}</div>`:''}
     ${missing.length?`<div class="warnbox small">Не найдено сэмплов: ${missing.length} — у друга их тоже не будет.</div>`:''}
     <label>Что сделал</label><textarea id="msg" placeholder="Напр.: «добавил бас и переделал дроп»"></textarea>
     <label class="switch"><input type="checkbox" id="rel" ${mine?'checked':''}> Освободить проект (друг сможет взять его в работу)</label>
     <div class="muted small">${flps.length?'Проекты: '+flps.map(f=>esc(f.path)).join(', '):''}</div>
-    <div class="row" style="justify-content:flex-end;margin-top:12px"><button id="cancel">Отмена</button><button class="primary" id="go">⤒ Отправить</button></div>`);
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button id="cancel">Отмена</button><button class="${lost.length?'':'primary'}" id="go">⤒ Отправить${lost.length?' так':''}</button></div>`);
   m.querySelector('#msg').focus();
   m.querySelector('#cancel').onclick=()=>m.close();
-  m.querySelector('#go').onclick=async()=>{const msg=m.querySelector('#msg').value, rel=m.querySelector('#rel').checked; m.close(); await runJob('/api/project/send',{path:S.sel,message:msg,release:rel},{title:'Отправка'})};
+  const send=async()=>{ const msg=m.querySelector('#msg').value, rel=m.querySelector('#rel').checked; m.close(); await runJob('/api/project/send',{path:S.sel,message:msg,release:rel},{title:'Отправка'}) };
+  m.querySelector('#go').onclick=send;
+  const lb=m.querySelector('#lback'); if(lb) lb.onclick=async()=>{ lb.disabled=true; lb.textContent='Возвращаю…'; if(await restoreLost(back)) send(); else lb.disabled=false };
+  const ls=m.querySelector('#lsee'); if(ls) ls.onclick=()=>lostDialog(lost);
+}
+// вернуть пропавшие файлы: из прошлой версии проекта или из Корзины
+async function restoreLost(files){
+  try{ const r=await api('/api/project/restore-lost',{path:S.sel,files}); toast(`Возвращено файлов: ${r.n}`,5000); S.analysis=null; loadProject(S.sel); return true }catch(e){ fail(e); return false }
+}
+async function lostDialog(list){
+  if(!list){ try{ list=(await api('/api/project/precheck?path='+enc(S.sel))).lost||[] }catch(e){ return fail(e) } }
+  const FROM={git:'из прошлой версии проекта',trash:'из Корзины'};
+  const m=modal(`<div class="row" style="justify-content:space-between"><h2 style="margin:0">Пропавшие файлы</h2><button class="ghost sm" id="x">✕</button></div>
+    <div class="muted small">Файлы, которые нужны проекту, а на диске их нет. Чаще всего это сэмплы, загруженные прямо в синт: FL Studio не знает, что синт ими пользуется, и при «удалить неиспользуемое» удаляет их.</div>
+    ${list.length?`<div style="max-height:46vh;overflow:auto;margin-top:8px"><table>${list.map((f,i)=>`<tr><td style="width:24px">${f.from?`<input type="checkbox" style="width:auto" data-i="${i}" checked>`:''}</td><td><b>${esc(f.name)}</b>${f.plugin?' <span class="tag">в плагине</span>':''}<div class="muted small mono">${esc(f.rel)}</div></td>
+      <td class="small">${f.kind==='deleted'?'пропал из папки':'проект ссылается, файла нет'}</td><td class="small">${f.from?`<span style="color:var(--ok)">${FROM[f.from]}</span>`:'<span class="muted">вернуть неоткуда</span>'}</td></tr>`).join('')}</table></div>
+      <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="primary" id="ok">Вернуть выбранные</button></div>`:'<div class="okbox" style="margin-top:10px">Всё на месте.</div>'}`);
+  m.querySelector('.modal').style.width='min(820px,94vw)';
+  m.querySelector('#x').onclick=()=>m.close();
+  const ok=m.querySelector('#ok'); if(ok) ok.onclick=async()=>{ const files=[...m.querySelectorAll('input[data-i]')].filter(b=>b.checked).map(b=>list[+b.dataset.i]); if(!files.length) return; m.close(); restoreLost(files) };
 }
 async function restore(hash, f){ await runJob('/api/project/restore',{path:S.sel,hash,file:decodeURIComponent(f)},{title:'Достаю старую версию'}) }
 function selAllUnused(v){ S.trashSel={}; if(v) for(const f of (S.analysis?.analysis?.audio||[]).filter(x=>!x.used)) S.trashSel[f.rel]=true; renderMain() }

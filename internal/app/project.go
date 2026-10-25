@@ -1001,6 +1001,7 @@ func (p *Project) Send(msg string, release bool) (*SyncResult, error) {
 		err = p.push()
 		if err == nil {
 			res.Pushed = true
+			os.Remove(intentionalPath(p.Dir)) // удалённое нарочно уже в отправленной версии
 			p.Job.Logf("✓ Отправлено")
 			if release && hubLock { // освобождаем только после отправки — чтобы друг взял уже новую версию
 				if l := p.ReadLock(); l != nil && l.User == p.Cfg.MachineID() {

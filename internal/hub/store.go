@@ -29,6 +29,7 @@ type User struct {
 	LastSeen   int64     `json:"lastSeen"`
 	Sharing    string    `json:"sharing"` // off | ask | members | all
 	Inventory  []InvItem `json:"inventory,omitempty"`
+	OldNicks   []string  `json:"oldNicks,omitempty"` // прежние ники: старые комментарии и статусы показываются под новым
 	InvUpdated int64     `json:"invUpdated,omitempty"`
 }
 

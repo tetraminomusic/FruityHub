@@ -152,13 +152,14 @@ func decode(r *http.Request, v any) error {
 // ---------- public views ----------
 
 type UserView struct {
-	ID       string `json:"id"`
-	Nick     string `json:"nick"`
-	GitHub   string `json:"github"`
-	OS       string `json:"os"`
-	LastSeen int64  `json:"lastSeen"`
-	Online   bool   `json:"online"`
-	Sharing  string `json:"sharing"`
+	ID       string   `json:"id"`
+	Nick     string   `json:"nick"`
+	GitHub   string   `json:"github"`
+	OS       string   `json:"os"`
+	LastSeen int64    `json:"lastSeen"`
+	Online   bool     `json:"online"`
+	Sharing  string   `json:"sharing"`
+	OldNicks []string `json:"oldNicks,omitempty"`
 }
 
 func online(u *User) bool { return u != nil && now()-u.LastSeen < 60 }
@@ -171,7 +172,7 @@ func view(u *User) UserView {
 	if sh == "" {
 		sh = "ask"
 	}
-	return UserView{ID: u.ID, Nick: u.Nick, GitHub: u.GitHub, OS: u.OS, LastSeen: u.LastSeen, Online: online(u), Sharing: sh}
+	return UserView{ID: u.ID, Nick: u.Nick, GitHub: u.GitHub, OS: u.OS, LastSeen: u.LastSeen, Online: online(u), Sharing: sh, OldNicks: u.OldNicks}
 }
 
 type ProjectView struct {
@@ -411,6 +412,9 @@ func (s *Server) updateMe(w http.ResponseWriter, r *http.Request, me *User) (any
 		}
 		if o := s.st.userByNick(n); o != nil && o.ID != me.ID {
 			return nil, bad(fmt.Sprintf("ник «%s» уже занят", n))
+		}
+		if n != me.Nick {
+			me.OldNicks = appendUnique(me.OldNicks, me.Nick)
 		}
 		me.Nick = n
 	}
@@ -1220,4 +1224,13 @@ func (s *Server) Janitor() {
 		s.dailyBackup()
 		time.Sleep(time.Hour)
 	}
+}
+
+func appendUnique(l []string, x string) []string {
+	for _, v := range l {
+		if v == x {
+			return l
+		}
+	}
+	return append(l, x)
 }

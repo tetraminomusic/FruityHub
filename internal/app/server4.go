@@ -296,7 +296,12 @@ func (s *Server) routes4(api func(string, func(*http.Request) (any, error))) {
 		if err := decode(r, &req); err != nil {
 			return nil, err
 		}
+		old := s.cfg.MachineID()
 		u, err := h().UpdateMe(req.Nick, req.Sharing, req.Token)
+		if err == nil && req.Nick != nil && s.cfg.MachineID() != old {
+			s.cfg.OldNicks = append(s.cfg.OldNicks, old)
+			s.cfg.Save()
+		}
 		if err == nil && req.Sharing != nil {
 			s.busyReq.Range(func(k, v any) bool { // re-check waiting requests with the new rule
 				if v == "human" {

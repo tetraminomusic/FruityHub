@@ -204,20 +204,23 @@ func safeID(s string) string {
 // ---------- comments & status ----------
 
 type Comment struct {
-	ID      string `json:"id"`
-	Author  string `json:"author"`
-	Time    int64  `json:"time"`
-	Updated int64  `json:"updated"`
-	Kind    string `json:"kind"` // note | todo
-	Text    string `json:"text"`
-	Done    bool   `json:"done,omitempty"`
-	DoneBy  string `json:"doneBy,omitempty"`
+	ID       string `json:"id"`
+	Author   string `json:"author"`
+	AuthorID string `json:"authorId,omitempty"` // id на сервере FruityHub: ник можно сменить, id — нет
+	DoneByID string `json:"doneById,omitempty"`
+	Time     int64  `json:"time"`
+	Updated  int64  `json:"updated"`
+	Kind     string `json:"kind"` // note | todo
+	Text     string `json:"text"`
+	Done     bool   `json:"done,omitempty"`
+	DoneBy   string `json:"doneBy,omitempty"`
 }
 
 type Status struct {
 	Stage string `json:"stage"`
 	Text  string `json:"text"`
 	By    string `json:"by"`
+	ByID  string `json:"byId,omitempty"`
 	Time  int64  `json:"time"`
 }
 
@@ -253,7 +256,7 @@ func (p *Project) AddComment(kind, text string) (*Comment, error) {
 		kind = "note"
 	}
 	now := time.Now().Unix()
-	c := &Comment{ID: newID(p.Cfg.MachineID()), Author: p.Cfg.MachineID(), Time: now, Updated: now, Kind: kind, Text: text}
+	c := &Comment{ID: newID(p.Cfg.MachineID()), Author: p.Cfg.MachineID(), AuthorID: p.Cfg.UserID, Time: now, Updated: now, Kind: kind, Text: text}
 	short := text
 	if r := []rune(short); len(r) > 50 {
 		short = string(r[:50]) + "…"
@@ -273,16 +276,16 @@ func (p *Project) UpdateComment(id string, done *bool, del bool) error {
 	json.Unmarshal(b, &c)
 	me := p.Cfg.MachineID()
 	if del {
-		if c.Author != me {
+		if !p.Cfg.isMe(c.AuthorID, c.Author) {
 			return errors.New("удалять можно только свои комментарии")
 		}
 		return g.MetaWrite(map[string][]byte{path: nil}, "комментарий удалён")
 	}
 	if done != nil {
 		c.Done = *done
-		c.DoneBy = ""
+		c.DoneBy, c.DoneByID = "", ""
 		if c.Done {
-			c.DoneBy = me
+			c.DoneBy, c.DoneByID = me, p.Cfg.UserID
 		}
 	}
 	c.Updated = time.Now().Unix()
@@ -294,7 +297,7 @@ func (p *Project) UpdateComment(id string, done *bool, del bool) error {
 }
 
 func (p *Project) SetStatus(stage, text string) error {
-	st := Status{Stage: strings.TrimSpace(stage), Text: strings.TrimSpace(text), By: p.Cfg.MachineID(), Time: time.Now().Unix()}
+	st := Status{Stage: strings.TrimSpace(stage), Text: strings.TrimSpace(text), By: p.Cfg.MachineID(), ByID: p.Cfg.UserID, Time: time.Now().Unix()}
 	return p.git().MetaWrite(map[string][]byte{"status.json": mustJSON(st)}, "статус: "+st.Stage)
 }
 
@@ -307,4 +310,60 @@ func translit(r rune) string {
 		return s
 	}
 	return ""
+}
+
+// isMe — это написал я (по id на сервере, по нынешнему или прежнему нику).
+func (c *Config) isMe(id, nick string) bool {
+	if id != "" && c.UserID != "" {
+		return id == c.UserID
+	}
+	if nick == c.MachineID() {
+		return true
+	}
+	for _, o := range c.OldNicks {
+		if o == nick {
+			return true
+		}
+	}
+	return false
+}
+
+var usersCache struct {
+	sync.Mutex
+	list []HubUser
+	at   time.Time
+}
+
+// nickResolver — ник, под которым человека видно сейчас: по id на сервере или по прежнему нику.
+func (s *Server) nickResolver() func(id, nick string) string {
+	byID, byOld := map[string]string{}, map[string]string{}
+	usersCache.Lock()
+	if time.Since(usersCache.at) > 30*time.Second {
+		if us, err := s.cfg.Hub().Users(); err == nil {
+			usersCache.list, usersCache.at = us, time.Now()
+		}
+	}
+	us := usersCache.list
+	usersCache.Unlock()
+	if len(us) > 0 {
+		for _, u := range us {
+			byID[u.ID] = u.Nick
+			for _, o := range u.OldNicks {
+				byOld[o] = u.Nick
+			}
+		}
+	}
+	me := s.cfg.MachineID()
+	for _, o := range s.cfg.OldNicks {
+		byOld[o] = me
+	}
+	return func(id, nick string) string {
+		if n := byID[id]; id != "" && n != "" {
+			return n
+		}
+		if n := byOld[nick]; n != "" {
+			return n
+		}
+		return nick
+	}
 }

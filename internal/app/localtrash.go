@@ -35,6 +35,9 @@ func (p *Project) TrashLocal(rels []string) (int, int64, error) {
 		if !ok {
 			return n, freed, fmt.Errorf("«%s» используется в проекте или не найден — не удаляю", rel)
 		}
+		if f.Included {
+			return n, freed, fmt.Errorf("«%s» отмечен «всегда отправлять» (например, сэмпл синта) — не удаляю", rel)
+		}
 		abs := filepath.Join(p.Dir, filepath.FromSlash(rel))
 		if !isInside(p.Dir, abs) {
 			return n, freed, errors.New("файл вне проекта")

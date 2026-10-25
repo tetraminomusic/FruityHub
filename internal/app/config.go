@@ -59,6 +59,7 @@ type Config struct {
 	NoErrorReports   bool           `json:"noErrorReports,omitempty"`   // не отправлять свои ошибки в журнал сервера
 	SortMode         string         `json:"sortMode,omitempty"`         // порядок списка проектов: manual, name, name-desc, modified, modified-asc
 	Lang             string         `json:"lang,omitempty"`
+	OldNicks         []string       `json:"oldNicks,omitempty"`     // мои прежние ники (мои старые комментарии — мои)
 	ProjectRoots     []string       `json:"projectRoots,omitempty"` // папки, где лежат проекты FL (Настройки → Проекты)
 	LiteUI           bool           `json:"liteUi,omitempty"`       // лёгкий режим окна: без фона и размытия, без видеокарты (меньше памяти)             // язык интерфейса: "" — русский, "en" — английский
 	LitePlugins      []string       `json:"litePlugins,omitempty"`  // плагины, у которых не тянуть библиотеку пресетов при передаче

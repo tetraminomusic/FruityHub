@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"flsync/internal/flp"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
@@ -138,6 +139,35 @@ func (s *Server) routes6(api func(string, func(r *http.Request) (any, error))) {
 			return nil, err
 		}
 		return projectSize(p.Dir, r.URL.Query().Get("fresh") == "1"), nil
+	})
+	// перед отправкой: не пропали ли сэмплы (в том числе сэмплы синтов, которые FL могла удалить как «неиспользуемые»)
+	api("/api/project/precheck", func(r *http.Request) (any, error) {
+		p, err := s.project(r.URL.Query().Get("path"), nil)
+		if err != nil {
+			return nil, err
+		}
+		return p.CheckLost(), nil
+	})
+	api("/api/project/restore-lost", func(r *http.Request) (any, error) {
+		var req struct {
+			Path  string     `json:"path"`
+			Files []LostFile `json:"files"`
+		}
+		if err := decode(r, &req); err != nil {
+			return nil, err
+		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		j := &Job{}
+		p, err := s.project(req.Path, j)
+		if err != nil {
+			return nil, err
+		}
+		n, err := p.RestoreLost(req.Files)
+		if n > 0 {
+			LogActivity(p.Dir, "ok", fmt.Sprintf("Возвращено пропавших файлов: %d", n))
+		}
+		return map[string]any{"n": n, "steps": j.Steps}, err
 	})
 	// README.md проекта — собрать сейчас
 	api("/api/project/readme", func(r *http.Request) (any, error) {

@@ -234,9 +234,25 @@ func (p *Project) TrashUnused(rels []string) (int, error) {
 		}
 	}
 	n := 0
+	inc := map[string]bool{}
+	for _, f := range a.Audio {
+		if f.Included {
+			inc[f.Rel] = true
+		}
+	}
+	tracked := p.git().Tracked()
+	var gone []string
+	defer func() {
+		if len(gone) > 0 {
+			markIntentional(p.Dir, gone) // удалено нарочно — перед отправкой не спрашиваем «куда пропало»
+		}
+	}()
 	for _, rel := range rels {
 		if !unused[rel] {
 			return n, fmt.Errorf("«%s» используется в проекте или не найден — не удаляю", rel)
+		}
+		if inc[rel] {
+			return n, fmt.Errorf("«%s» отмечен «всегда отправлять» (например, сэмпл синта) — не удаляю", rel)
 		}
 		abs := filepath.Join(p.Dir, filepath.FromSlash(rel))
 		if !isInside(p.Dir, abs) {
@@ -244,6 +260,9 @@ func (p *Project) TrashUnused(rels []string) (int, error) {
 		}
 		if err := moveToTrash(abs); err != nil {
 			return n, fmt.Errorf("не получилось удалить %s: %w", rel, err)
+		}
+		if tracked[rel] {
+			gone = append(gone, rel)
 		}
 		n++
 	}
