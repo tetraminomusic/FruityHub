@@ -45,6 +45,9 @@ type TrackMeta struct {
 	Length  string `json:"length,omitempty"` // длительность трека «м:сс»
 	// FLPTempo — темп, прочитанный из .flp (подсказка, в файл не пишется)
 	FLPTempo string `json:"flpTempo,omitempty"`
+	// FLPLength — длительность из .flp «м:сс» (по красному выделению в плейлисте или до конца последнего клипа)
+	FLPLength   string `json:"flpLength,omitempty"`
+	FLPLengthBy string `json:"flpLengthBy,omitempty"`
 }
 
 func (m TrackMeta) empty() bool { return m == TrackMeta{} }
@@ -55,7 +58,7 @@ func metaPath(dir string) string { return filepath.Join(dir, metaDir, "metadata.
 func LoadTrackMeta(dir string) TrackMeta {
 	var m TrackMeta
 	readJSON(metaPath(dir), &m)
-	m.FLPTempo = ""
+	m.FLPTempo, m.FLPLength, m.FLPLengthBy = "", "", ""
 	if f := mainFLP(dir); f != "" {
 		if info, err := parseFLPCached(f); err == nil {
 			if m.Title == "" {
@@ -66,6 +69,9 @@ func LoadTrackMeta(dir string) TrackMeta {
 			}
 			if info.Tempo > 0 {
 				m.FLPTempo = strconv.FormatFloat(math.Round(info.Tempo*100)/100, 'f', -1, 64)
+			}
+			if info.Length > 0 {
+				m.FLPLength, m.FLPLengthBy = fmtLength(int(math.Round(info.Length))), info.LengthBy
 			}
 		}
 	}
@@ -88,7 +94,7 @@ func rawTrackMeta(dir string) TrackMeta {
 }
 
 func SaveTrackMeta(dir string, m TrackMeta) error {
-	m.FLPTempo = ""
+	m.FLPTempo, m.FLPLength, m.FLPLengthBy = "", "", ""
 	os.MkdirAll(filepath.Join(dir, metaDir), 0o755)
 	return writeJSON(metaPath(dir), m)
 }
@@ -708,7 +714,9 @@ func (p *Project) WriteReadme(a *Analysis) bool {
 		add("Темп", b+" BPM")
 	}
 	add("Тональность", m.Key)
-	add("Длительность", m.Length)
+	if l := m.LengthText(); l != "" {
+		add("Длительность", l)
+	}
 	if f := mainFLP(p.Dir); f != "" {
 		if info, err := parseFLPCached(f); err == nil && info.FLVersion != "" {
 			add("FL Studio", info.FLVersion)
@@ -761,9 +769,24 @@ func mdEsc(s string) string {
 	return r.Replace(strings.TrimSpace(s))
 }
 
+// LengthText — длительность: введённая руками или посчитанная по .flp.
+func (m TrackMeta) LengthText() string {
+	if t := strings.TrimSpace(m.Length); t != "" {
+		return t
+	}
+	return m.FLPLength
+}
+
+func fmtLength(sec int) string {
+	if sec >= 3600 {
+		return fmt.Sprintf("%d:%02d:%02d", sec/3600, sec%3600/60, sec%60)
+	}
+	return fmt.Sprintf("%d:%02d", sec/60, sec%60)
+}
+
 // LengthSec — длительность «м:сс» (или «ч:мм:сс», или просто секунды) в секундах; 0 — не указана.
 func (m TrackMeta) LengthSec() int {
-	t := strings.TrimSpace(m.Length)
+	t := strings.TrimSpace(m.LengthText())
 	if t == "" {
 		return 0
 	}
@@ -776,4 +799,26 @@ func (m TrackMeta) LengthSec() int {
 		sec = sec*60 + n
 	}
 	return sec
+}
+
+// trackLengthSec — длительность для списка проектов: своя из «Трек» или по самому свежему .flp в корне (из кэша).
+func trackLengthSec(dir string) int {
+	m := rawTrackMeta(dir)
+	if n := m.LengthSec(); n > 0 {
+		return n
+	}
+	var best string
+	var bt time.Time
+	for _, n := range topFLPs(dir) {
+		if st, err := os.Stat(filepath.Join(dir, n)); err == nil && st.ModTime().After(bt) {
+			best, bt = filepath.Join(dir, n), st.ModTime()
+		}
+	}
+	if best == "" {
+		return 0
+	}
+	if info, err := parseFLPCached(best); err == nil {
+		return int(math.Round(info.Length))
+	}
+	return 0
 }

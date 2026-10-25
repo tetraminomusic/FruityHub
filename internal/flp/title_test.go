@@ -91,3 +91,52 @@ func TestTempo(t *testing.T) {
 		t.Fatal(old.Tempo())
 	}
 }
+
+// FL 2026: событие 172 занимает 1 байт; длительность — по выделению в плейлисте или до конца последнего клипа.
+func TestFL26AndLength(t *testing.T) {
+	var body bytes.Buffer
+	ver := []byte("26.1.3.5336\x00")
+	body.WriteByte(199)
+	body.WriteByte(byte(len(ver)))
+	body.Write(ver)
+	body.Write([]byte{172, 1})                // FL 2026: 1 байт
+	body.Write([]byte{156, 0x78, 0xe6, 0, 0}) // темп 59
+	clip := func(pos, ln uint32) []byte {
+		r := make([]byte, 88)
+		binary.LittleEndian.PutUint32(r, pos)
+		binary.LittleEndian.PutUint16(r[4:], 20480)
+		binary.LittleEndian.PutUint32(r[8:], ln)
+		return r
+	}
+	pl := append(clip(0, 384), clip(7296, 384)...)
+	body.WriteByte(233)
+	writeVarint(&body, len(pl))
+	body.Write(pl)
+	mk := func(sel bool) []byte {
+		b := append([]byte{}, body.Bytes()...)
+		if sel {
+			b = append(b, 217, 8, 0, 0, 0, 0, 0, 6, 0, 0) // выделение 0..1536 тиков = 4 такта
+		}
+		var out bytes.Buffer
+		out.WriteString("FLhd")
+		binary.Write(&out, binary.LittleEndian, uint32(6))
+		binary.Write(&out, binary.LittleEndian, int16(0))
+		binary.Write(&out, binary.LittleEndian, uint16(1))
+		binary.Write(&out, binary.LittleEndian, uint16(96))
+		out.WriteString("FLdt")
+		binary.Write(&out, binary.LittleEndian, uint32(len(b)))
+		out.Write(b)
+		return out.Bytes()
+	}
+	f, err := Parse(mk(false))
+	if err != nil || f.Tempo() != 59 {
+		t.Fatalf("%v темп %v", err, f.Tempo())
+	}
+	if s, by := f.LengthSeconds(); by != "playlist" || int(s*100) != 8135 { // 7680 тиков = 80 долей при 59 BPM
+		t.Fatalf("до конца клипа: %v %v", s, by)
+	}
+	g, _ := Parse(mk(true))
+	if s, by := g.LengthSeconds(); by != "selection" || int(s*100) != 1627 {
+		t.Fatalf("по выделению: %v %v", s, by)
+	}
+}

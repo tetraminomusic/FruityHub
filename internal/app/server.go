@@ -472,7 +472,7 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 			ps.Lock = pr.ReadLock()
 			ps.IsRepo = pr.git().IsRepo()
 			ps.Modified, ps.Artist = projectMeta(p.Path)
-			ps.Length = rawTrackMeta(p.Path).LengthSec()
+			ps.Length = trackLengthSec(p.Path)
 			list = append(list, ps)
 		}
 		sharing := s.cfg.Sharing

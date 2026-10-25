@@ -30,7 +30,7 @@ var (
 	flpSaveTimer  *time.Timer
 )
 
-func flpCachePath() string { return filepath.Join(ConfigDir(), "cache", "flp-index-v3.json") }
+func flpCachePath() string { return filepath.Join(ConfigDir(), "cache", "flp-index-v4.json") }
 
 func loadFLPCache() {
 	if flpCache != nil {

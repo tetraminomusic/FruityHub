@@ -76,8 +76,10 @@ type Info struct {
 	FLVersion string   `json:"flVersion"`
 	Title     string   `json:"title,omitempty"`
 	Artist    string   `json:"artist,omitempty"`
-	Tempo     float64  `json:"tempo,omitempty"` // темп в начале проекта (BPM); автоматизация темпа не учитывается
-	Samples   []string `json:"samples"`         // explicit channel / audio clip paths
+	Tempo     float64  `json:"tempo,omitempty"`    // темп в начале проекта (BPM); автоматизация темпа не учитывается
+	Length    float64  `json:"length,omitempty"`   // длительность, секунды: по выделению в плейлисте или до конца последнего клипа
+	LengthBy  string   `json:"lengthBy,omitempty"` // selection | playlist
+	Samples   []string `json:"samples"`            // explicit channel / audio clip paths
 	Embedded  []string `json:"embedded"`
 	Plugins   []Plugin `json:"plugins"`
 }
@@ -136,6 +138,7 @@ func Parse(b []byte) (*File, error) {
 	if dsz := int(binary.LittleEndian.Uint32(b[18:22])); 22+dsz <= len(b) {
 		end = 22 + dsz
 	}
+	major := 0 // версия FL из события 199 — у FL 2026 событие 172 занимает 1 байт, а не 4
 	for pos < end {
 		id := b[pos]
 		pos++
@@ -145,6 +148,8 @@ func Parse(b []byte) (*File, error) {
 			n = 1
 		case id < 128:
 			n = 2
+		case id == 172 && major >= 26:
+			n = 1
 		case id < 192:
 			n = 4
 		default:
@@ -158,6 +163,10 @@ func Parse(b []byte) (*File, error) {
 			return nil, fmt.Errorf("событие %d выходит за конец файла", id)
 		}
 		f.Events = append(f.Events, Event{ID: id, Data: b[pos : pos+n]})
+		if id == evFLVersion && major == 0 {
+			v := strings.TrimRight(string(b[pos:pos+n]), "\x00")
+			major, _ = strconv.Atoi(strings.SplitN(v, ".", 2)[0])
+		}
 		pos += n
 	}
 	// Text encoding: UTF-16LE since FL 11.5.
@@ -390,6 +399,7 @@ func parseWrapper(d []byte) (name, vendor, path string) {
 // Info extracts samples, plugins and version.
 func (f *File) Info() Info {
 	info := Info{FLVersion: f.Version(), Title: f.Title(), Artist: f.Artist(), Tempo: f.Tempo()}
+	info.Length, info.LengthBy = f.LengthSeconds()
 	seenS := map[string]bool{}
 	seenE := map[string]bool{}
 	where := "channel"
@@ -664,3 +674,82 @@ func (f *File) Build() uint32 {
 
 // EmbeddedPathsForTest — для тестов приложения.
 func EmbeddedPathsForTest(d []byte) []string { return embeddedPaths(d) }
+
+// ---------- длительность трека ----------
+
+const evTimeSelection = 192 + 25 // 217 DATA: выделение времени в плейлисте (красная полоса): начало и конец, тики
+const evPlaylist = 208 + 25      // 233 DATA: клипы плейлиста
+
+// Selection — выделение времени в плейлисте (красная полоса сверху), в тиках. ok=false — выделения нет.
+func (f *File) Selection() (start, end int, ok bool) {
+	for _, e := range f.Events {
+		if e.ID == evTimeSelection && len(e.Data) >= 8 {
+			s := int(int32(binary.LittleEndian.Uint32(e.Data)))
+			en := int(int32(binary.LittleEndian.Uint32(e.Data[4:])))
+			if en > s && s >= 0 {
+				return s, en, true
+			}
+		}
+	}
+	return 0, 0, false
+}
+
+// PlaylistEnd — где кончается последний клип в плейлисте (тики). Размер записи клипа менялся
+// от версии к версии FL (32, 60, 80, 88 байт) — подбираем тот, при котором записи выглядят разумно.
+func (f *File) PlaylistEnd() int {
+	best := 0
+	for _, e := range f.Events {
+		if e.ID != evPlaylist || len(e.Data) == 0 {
+			continue
+		}
+		d := e.Data
+		for _, stride := range []int{88, 80, 60, 32} {
+			if len(d)%stride != 0 {
+				continue
+			}
+			end, sane := 0, true
+			for i := 0; i+stride <= len(d); i += stride {
+				pos := binary.LittleEndian.Uint32(d[i:])
+				base := binary.LittleEndian.Uint16(d[i+4:])
+				ln := binary.LittleEndian.Uint32(d[i+8:])
+				if base != 20480 || pos > 1<<26 || ln > 1<<26 { // у каждого клипа pattern base = 20480
+					sane = false
+					break
+				}
+				if int(pos+ln) > end {
+					end = int(pos + ln)
+				}
+			}
+			if sane {
+				if end > best {
+					best = end
+				}
+				break
+			}
+		}
+	}
+	return best
+}
+
+// LengthSeconds — длительность трека: по выделению в плейлисте, а если его нет — до конца последнего клипа.
+// from: "selection" или "playlist" ("" — посчитать не вышло). Темп берётся начальный.
+func (f *File) LengthSeconds() (sec float64, from string) {
+	tempo := f.Tempo()
+	if tempo <= 0 {
+		tempo = 140 // FL не пишет темп, если он по умолчанию (140)
+	}
+	ppq := float64(f.PPQ)
+	if ppq <= 0 {
+		return 0, ""
+	}
+	ticks, from := 0, ""
+	if s, e, ok := f.Selection(); ok {
+		ticks, from = e-s, "selection"
+	} else if e := f.PlaylistEnd(); e > 0 {
+		ticks, from = e, "playlist"
+	}
+	if ticks <= 0 {
+		return 0, ""
+	}
+	return float64(ticks) / ppq * 60 / tempo, from
+}
