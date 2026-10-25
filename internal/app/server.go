@@ -380,10 +380,14 @@ type ProjectSummary struct {
 	Extra    []string       `json:"extraFlps"`
 	MainFLP  string         `json:"mainFlp"`
 	Group    string         `json:"group"`
-	Rootless int            `json:"rootAudio"` // audio files lying in the project root
-	OnServer bool           `json:"onServer"`  // the remote is a project of our server
-	FL       FLCompat       `json:"fl"`        // в какой FL сохранён и хватит ли установленной
-	Folder   string         `json:"folder"`    // имя папки (название может быть своим)
+	Rootless int            `json:"rootAudio"`       // audio files lying in the project root
+	OnServer bool           `json:"onServer"`        // the remote is a project of our server
+	FL       FLCompat       `json:"fl"`              // в какой FL сохранён и хватит ли установленной
+	Folder   string         `json:"folder"`          // имя папки (название может быть своим)
+	Tempo    string         `json:"tempo,omitempty"` // темп (свой или из .flp) и тональность — для шапки проекта
+	TempoFLP bool           `json:"tempoFlp,omitempty"`
+	Key      string         `json:"key,omitempty"`
+	Length   int            `json:"length,omitempty"` // длительность трека, секунды (из «Трек»)
 }
 
 func (s *Server) summary(path string) ProjectSummary {
@@ -401,6 +405,11 @@ func (s *Server) summary(path string) ProjectSummary {
 	g := p.git()
 	ps.IsRepo = g.IsRepo()
 	ps.Shared = LoadShared(path)
+	if dirExists(path) {
+		m := LoadTrackMeta(path)
+		ps.Tempo, ps.Key = m.BPM(), m.Key
+		ps.TempoFLP = strings.TrimSpace(m.Tempo) == "" && m.FLPTempo != ""
+	}
 	if ps.IsRepo {
 		ps.Adopted = p.IsAdopted()
 		if !ps.Adopted && exists(filepath.Join(path, ".flsync")) {
@@ -463,6 +472,7 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 			ps.Lock = pr.ReadLock()
 			ps.IsRepo = pr.git().IsRepo()
 			ps.Modified, ps.Artist = projectMeta(p.Path)
+			ps.Length = rawTrackMeta(p.Path).LengthSec()
 			list = append(list, ps)
 		}
 		sharing := s.cfg.Sharing
@@ -595,6 +605,9 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 	})
 	api("/api/pickfolder", func(r *http.Request) (any, error) {
 		p, err := PickFolder()
+		if errors.Is(err, errPickerOpen) {
+			return nil, err
+		}
 		if err != nil && p == "" {
 			return map[string]string{"path": ""}, nil
 		}

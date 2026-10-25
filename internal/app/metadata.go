@@ -10,9 +10,11 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +40,11 @@ type TrackMeta struct {
 	Genre   string `json:"genre,omitempty"`
 	Track   string `json:"track,omitempty"`
 	Comment string `json:"comment,omitempty"`
+	Tempo   string `json:"tempo,omitempty"`  // BPM; пусто — берётся из .flp
+	Key     string `json:"key,omitempty"`    // тональность, напр. «Am», «F# minor»
+	Length  string `json:"length,omitempty"` // длительность трека «м:сс»
+	// FLPTempo — темп, прочитанный из .flp (подсказка, в файл не пишется)
+	FLPTempo string `json:"flpTempo,omitempty"`
 }
 
 func (m TrackMeta) empty() bool { return m == TrackMeta{} }
@@ -48,19 +55,29 @@ func metaPath(dir string) string { return filepath.Join(dir, metaDir, "metadata.
 func LoadTrackMeta(dir string) TrackMeta {
 	var m TrackMeta
 	readJSON(metaPath(dir), &m)
-	if m.Title == "" || m.Artist == "" {
-		if f := mainFLP(dir); f != "" {
-			if info, err := parseFLPCached(f); err == nil {
-				if m.Title == "" {
-					m.Title = info.Title
-				}
-				if m.Artist == "" {
-					m.Artist = info.Artist
-				}
+	m.FLPTempo = ""
+	if f := mainFLP(dir); f != "" {
+		if info, err := parseFLPCached(f); err == nil {
+			if m.Title == "" {
+				m.Title = info.Title
+			}
+			if m.Artist == "" {
+				m.Artist = info.Artist
+			}
+			if info.Tempo > 0 {
+				m.FLPTempo = strconv.FormatFloat(math.Round(info.Tempo*100)/100, 'f', -1, 64)
 			}
 		}
 	}
 	return m
+}
+
+// BPM — темп для тегов и README: введённый руками или из .flp.
+func (m TrackMeta) BPM() string {
+	if t := strings.TrimSpace(m.Tempo); t != "" {
+		return t
+	}
+	return m.FLPTempo
 }
 
 // rawTrackMeta — только то, что записано в metadata.json (без подстановки из .flp).
@@ -71,6 +88,7 @@ func rawTrackMeta(dir string) TrackMeta {
 }
 
 func SaveTrackMeta(dir string, m TrackMeta) error {
+	m.FLPTempo = ""
 	os.MkdirAll(filepath.Join(dir, metaDir), 0o755)
 	return writeJSON(metaPath(dir), m)
 }
@@ -177,6 +195,12 @@ func id3v23(m TrackMeta, cover *coverImg) []byte {
 	text("TYER", m.Year)
 	text("TCON", m.Genre)
 	text("TRCK", m.Track)
+	if b := m.BPM(); b != "" {
+		if f, err := strconv.ParseFloat(strings.Replace(b, ",", ".", 1), 64); err == nil {
+			text("TBPM", strconv.Itoa(int(math.Round(f))))
+		}
+	}
+	text("TKEY", m.Key)
 	if c := strings.TrimSpace(m.Comment); c != "" {
 		var body []byte
 		if needUTF16(c) {
@@ -438,6 +462,8 @@ func tagFLAC(path string, m TrackMeta, cover *coverImg) error {
 		add("DATE", m.Year)
 		add("GENRE", m.Genre)
 		add("TRACKNUMBER", m.Track)
+		add("BPM", m.BPM())
+		add("INITIALKEY", m.Key)
 		add("COMMENT", m.Comment)
 		le(len(cs))
 		for _, c := range cs {
@@ -678,6 +704,11 @@ func (p *Project) WriteReadme(a *Analysis) bool {
 	add("Год", m.Year)
 	add("Жанр", m.Genre)
 	add("Номер трека", m.Track)
+	if b := m.BPM(); b != "" {
+		add("Темп", b+" BPM")
+	}
+	add("Тональность", m.Key)
+	add("Длительность", m.Length)
 	if f := mainFLP(p.Dir); f != "" {
 		if info, err := parseFLPCached(f); err == nil && info.FLVersion != "" {
 			add("FL Studio", info.FLVersion)
@@ -728,4 +759,21 @@ func (p *Project) WriteReadme(a *Analysis) bool {
 func mdEsc(s string) string {
 	r := strings.NewReplacer("|", "\\|", "<", "&lt;", ">", "&gt;", "\n", " ")
 	return r.Replace(strings.TrimSpace(s))
+}
+
+// LengthSec — длительность «м:сс» (или «ч:мм:сс», или просто секунды) в секундах; 0 — не указана.
+func (m TrackMeta) LengthSec() int {
+	t := strings.TrimSpace(m.Length)
+	if t == "" {
+		return 0
+	}
+	sec := 0
+	for _, part := range strings.Split(t, ":") {
+		n, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil || n < 0 {
+			return 0
+		}
+		sec = sec*60 + n
+	}
+	return sec
 }

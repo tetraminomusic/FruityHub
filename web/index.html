@@ -134,6 +134,9 @@ tr:hover td{background:rgba(255,255,255,.035)}
 .mcover img{width:100%;height:100%;object-fit:cover}
 .grid3{display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px}
 @media (max-width:700px){.metagrid{grid-template-columns:1fr}}
+.glen{font-size:11px;color:var(--muted);margin-left:auto;margin-right:6px;font-variant-numeric:tabular-nums}
+.tchip{font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid var(--line2);color:var(--text);background:rgba(255,255,255,.06);cursor:pointer;margin-left:6px;white-space:nowrap}
+body.picking{cursor:progress}
 .okbox{border-left:3px solid var(--ok);background:rgba(16,60,40,.6);padding:8px 12px;border-radius:7px;margin:6px 0}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .switch{display:flex;align-items:center;gap:8px;margin:8px 0;cursor:pointer;color:var(--text);font-size:14px}
@@ -238,6 +241,7 @@ tr.prow{cursor:pointer} tr.prow:hover td{background:rgba(255,255,255,.04)} tr.pr
     <div class="stabs"><div class="stab sel" id="st_my" onclick="sideTab('my')">Мои проекты</div><div class="stab" id="st_av" onclick="sideTab('av')">Доступные<span class="badge" id="avcnt" style="display:none"></span></div></div>
     <div class="sortbar" id="sortbar"></div>
     <div class="list" id="plist"></div>
+    <div class="legend" id="legend"></div>
     <div class="list" id="alist" style="display:none"></div>
     <div class="bottom">
       <div class="row" style="flex-wrap:nowrap;gap:6px"><button style="flex:1" onclick="addProject()">＋ Добавить проект</button><button title="Новая папка в списке" onclick="newGroup()">＋</button></div>
@@ -263,7 +267,17 @@ const fmtTime = t => new Date(t*1000).toLocaleString('ru-RU',{day:'2-digit',mont
 const enc = x => encodeURIComponent(x).replace(/'/g,'%27');
 const color = name => { let h=0; for(const c of name||'') h=(h*31+c.charCodeAt(0))%360; return `hsl(${h} 70% 62%)` };
 
+// окно выбора папки/файла — только одно за раз: пока открыто, повторные нажатия ничего не открывают
+const isPicker=(path,body)=>/\/api\/pick/.test(path)||(body&&body.action==='pick');
 async function api(path, body){
+  if(isPicker(path,body)){
+    if(S.picking){ toast('Окно выбора уже открыто — оно может быть за окном FruityHub'); return {} }
+    S.picking=true; document.body.classList.add('picking');
+    try{ return await apiRaw(path, body) } finally { S.picking=false; document.body.classList.remove('picking') }
+  }
+  return apiRaw(path, body);
+}
+async function apiRaw(path, body){
   const opt = {method: body===undefined?'GET':'POST', headers:{'X-FLSync':TOKEN}};
   if (body!==undefined){opt.body=JSON.stringify(body);opt.headers['Content-Type']='application/json'}
   const r = await fetch(path,opt); const j = await r.json().catch(()=>({error:'bad response'}));
@@ -476,6 +490,7 @@ function openGuide(first){
 }
 // новое в версиях (самое свежее сверху)
 const CHANGES=[
+  ['0.9.5',['Окно «Проводника» для выбора папки и картинки на Windows вместо старого «Обзора папок»; второе такое окно поверх не открывается', 'Сколько места занимает проект — под его названием', 'Неиспользуемое аудио можно убрать только у себя: на GitHub и у друзей остаётся, место освобождается целиком; «Вернуть все»', 'Подсказка про цвета вернулась вниз списка проектов', 'Темп, тональность и длительность трека — в «Трек» (темп сам берётся из .flp) и видны в шапке проекта; у папки в списке — общая длительность треков']],
   ['0.9.4',['Папку проекта перенесли или переименовали — FruityHub находит её сам (по .flp и репозиторию) или даёт указать новое место', 'Папки с проектами (Настройки → Проекты): в них проекты находятся после переезда, там же видно и добавляются проекты, которых ещё нет в списке', 'Сортировка проектов вернулась — над списком «Мои проекты»', 'Текст в обсуждении и задачах больше не пропадает, когда переключаешься в другое окно', 'Копии .flp после конфликта лежат в .flsync/conflicts, а не рядом с проектом; «Открыть мою» — открыть копию в FL Studio', 'Артист в списке проектов — как ввёл, кириллицей (в FL — латиницей)']],
   ['0.9.3',['Качество графики (Настройки → Вид): высокое — размытие, прозрачность и плавные анимации; простое — без них и без видеокарты, меньше оперативной памяти','Окно расходует меньше памяти: не запускаются лишние службы движка WebView2, своя большая картинка фона уменьшается до размера экрана, свёрнутое окно ничего не опрашивает','Передачи плагинов быстрее: сжатие zstd вместо deflate (если у друга тоже 0.9.3)', 'Докачка с места обрыва: если связь оборвалась, при повторе приходит только остаток — и через сервер, и по локальной сети', 'Сервер: TCP BBR и большие сетевые буферы — быстрее на дальнем канале (включается при ./deploy/server-up.sh)']],
   ['0.9.2',['Окно «Плагины» (кнопка вверху): все плагины на компьютере с поиском, проверка и полное удаление вместе с данными; люди — «Скачать всё, чего нет»; передачи; настройки обмена плагинами','Скачивание проекта можно отменить — недокачанная папка удалится','Сэмплы, загруженные прямо в плагины (Pigments, Serum и т. п.), находятся и в сжатом состоянии плагина, уезжают с проектом и ложатся туда, где их ищет плагин','Если друг заранее разрешил скачивать у него плагины — лишнего окна с вопросом нет','«Без библиотеки пресетов» — галочка у плагина: при передаче придёт только сам плагин и то, без чего он не запустится','Метаданные трека: название, артист, альбом, год, жанр и обложка во вкладке «Настройки» проекта — сами записываются в каждый новый рендер (WAV, MP3, FLAC)','README.md проекта для GitHub с обложкой, названием и списком плагинов собирается сам','Английский язык интерфейса: Настройки → Вид → Язык','Настройки: новые вкладки «Сеть» (прокси, проверка связи с сервером и GitHub, скорость) и «Метаданные»; Git LFS — общий список в «GitHub»','При переименовании проекта можно сменить и артиста','Предупреждения в проекте закрываются крестиком','Кнопки потемнее; без легенды цветов и сортировки в списке проектов (порядок — Настройки → Вид)']],
@@ -523,6 +538,7 @@ function projItem(p){
     <span class="dot ${cls}${mine?' mine':''}" title="${esc(tip)}"></span><span class="nn"><span class="n">${esc(p.name)}</span>${p.artist?`<span class="art">${esc(p.artist)}</span>`:''}</span>${badges}${p.exists?'':'<span class="tag bad">нет папки</span>'}
     <span class="more" onclick="event.stopPropagation();projMenu(event,'${enc(p.path)}')">⋯</span></div>`;
 }
+const KEYS=['C','Cm','C#','C#m','D','Dm','D#','D#m','E','Em','F','Fm','F#','F#m','G','Gm','G#','G#m','A','Am','A#','A#m','B','Bm'];
 const SORTS=[['manual','как добавлены'],['name','по названию А–Я'],['name-desc','по названию Я–А'],['modified','по дате изменения — новые сверху'],['modified-asc','по дате изменения — старые сверху']];
 const SORT_SHORT={manual:'как добавлены',name:'А–Я','name-desc':'Я–А',modified:'сначала свежие','modified-asc':'сначала давние'};
 function sortMode(){ return S.state?.config?.sortMode||'manual' }
@@ -557,13 +573,18 @@ function renderSortBar(){
 }
 function sortMenu(ev){ popMenu(ev, SORTS.map(([k,t])=>[(k===sortMode()?'✓ ':'')+t, ()=>setSort(k)])) }
 async function setSort(k){ S.state.config.sortMode=k; renderList(); try{ await api('/api/settings',{sortMode:k}) }catch(e){ fail(e) } }
+// общая длительность треков в папке списка (у кого она указана во вкладке «Трек»)
+function fmtLen(sec){ const h=Math.floor(sec/3600), m=Math.floor(sec%3600/60), s=sec%60; return h?`${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`:`${m}:${String(s).padStart(2,'0')}` }
+function groupLen(list){ const known=list.filter(p=>p.length>0); if(!known.length) return '';
+  const total=known.reduce((a,p)=>a+p.length,0), miss=list.length-known.length;
+  return `<span class="glen" title="Общая длительность треков${miss?` — у ${miss} из ${list.length} она не указана (Настройки проекта → «Трек»)`:''}">${fmtLen(total)}${miss?'+':''}</span>` }
 function renderList(){
   renderSortBar();
   const ps=sortProjects(S.state?.projects||[]), groups=sortGroups(S.state?.groups||[], S.state?.projects||[]);
   const ids=new Set(groups.map(g=>g.id));
   let h=groups.map(g=>{
     const inG=ps.filter(p=>p.group===g.id);
-    return `<div class="ghead" data-group="${g.id}" onclick="toggleGroup('${g.id}',${!g.collapsed})"><span>${g.collapsed?'▸':'▾'}</span><span class="gn">${esc(g.name)}</span><span class="muted">${inG.length}</span><span class="more" onclick="event.stopPropagation();groupMenu(event,'${g.id}')">⋯</span></div>
+    return `<div class="ghead" data-group="${g.id}" onclick="toggleGroup('${g.id}',${!g.collapsed})"><span>${g.collapsed?'▸':'▾'}</span><span class="gn">${esc(g.name)}</span>${groupLen(inG)}<span class="muted">${inG.length}</span><span class="more" onclick="event.stopPropagation();groupMenu(event,'${g.id}')">⋯</span></div>
       ${g.collapsed?'':`<div class="gbody" data-group="${g.id}">${inG.map(projItem).join('')||'<div class="muted small" style="padding:6px 10px">перетащи сюда проект</div>'}</div>`}`}).join('');
   const top=ps.filter(p=>!p.group||!ids.has(p.group));
   h+=`<div data-group="" class="topzone" style="min-height:${groups.length?24:0}px">${top.map(projItem).join('')}</div>`;
@@ -604,14 +625,19 @@ function projMenu(ev,encPath){
   items.push('-', ['Запустить в FL Studio', ()=>{ S.sel===path?launchProject():api('/api/project/launch',{path}).catch(fail) }], ['Переименовать…', ()=>renameProject(path)], ['Открыть в Finder/Проводнике', ()=>api('/api/project/open',{path})], ['✕ Убрать из списка', async()=>{ if(await uiConfirm('Убрать проект из списка? Файлы не удаляются.',{ok:'Убрать'})){ await api('/api/projects/remove',{path}); if(S.sel===path) S.sel=null; refreshAll() } }], ['Удалить файлы проекта…', ()=>trashProject(path)]);
   popMenu(ev, items);
 }
-async function selectProject(e){ S.sel=decodeURIComponent(e); S.analysis=null; S.history=null; S.comments=null; renderList(); scrollSelIntoView(); await loadProject(S.sel); if(S.tab==='talk') loadComments(true) }
+async function selectProject(e){ S.sel=decodeURIComponent(e); S.analysis=null; S.hidden=null; S.history=null; S.comments=null; renderList(); scrollSelIntoView(); await loadProject(S.sel); if(S.tab==='talk') loadComments(true) }
 async function loadProject(path){
   try{ S.proj = await api('/api/project?path='+enc(path)) }catch(e){ S.proj=null }
+  if(S.proj?.exists) loadSize(path);
   renderMain();
   api('/api/project/analysis?path='+enc(path)).then(a=>{ if(S.sel===path){ S.analysis=a; renderMain() } }).catch(()=>{});
   if(S.tab==='history') loadHistory();
   if(S.comments===null) loadComments(false);
 }
+// сколько места занимает проект: всё вместе, аудио и .git (история и вторые копии аудио Git LFS)
+function sizeText(path){ const z=(S.sizes||{})[path]; if(!z) return '';
+  return `Занимает <b style="color:var(--text)">${fmtSize(z.total)}</b>: аудио ${fmtSize(z.audio)}${z.git?` · история и копии аудио (.git) ${fmtSize(z.git)}`:''} · файлов ${z.files}` }
+async function loadSize(path, fresh){ try{ const z=await api('/api/project/size?path='+enc(path)+(fresh?'&fresh=1':'')); S.sizes=S.sizes||{}; S.sizes[path]=z; const el=$('#psize'); if(el&&S.sel===path) el.innerHTML=sizeText(path) }catch(e){} }
 async function loadHistory(){ S.history = await api('/api/project/history?path='+enc(S.sel)).catch(()=>[]); renderMain() }
 async function loadComments(fetch){
   const path=S.sel; if(!path) return;
@@ -655,7 +681,7 @@ async function declineInvite(id){ const inv=(S.invites||[]).find(x=>x.id===id); 
 function sideTab(t){
   S.side=t; $('#st_my').classList.toggle('sel',t==='my'); $('#st_av').classList.toggle('sel',t==='av');
   $('#plist').style.display=t==='my'?'':'none'; $('#alist').style.display=t==='av'?'':'none';
-  $('#sortbar').style.display=t==='my'?'':'none'; // сортировка — только для своих проектов
+  $('#sortbar').style.display=$('#legend').style.display=t==='my'?'':'none'; // сортировка и цвета — только для своих проектов
   if(t==='av') loadAvailable();
 }
 async function loadAvailable(silent){
@@ -945,9 +971,10 @@ function renderMainNow(){
   const sync = p.ahead<0 ? 'на сервере ещё ничего нет' : (p.behind? `<b style="color:var(--accent)">на сервере новое: ${p.behind}</b>`:'с сервером совпадает') + (p.ahead>0?` · не отправлено коммитов: ${p.ahead}`:'');
   const tabs=[['changes','Изменения',visibleChanges.length,''],['talk','Обсуждение',unread||openTodos||null,unread?'hot':''],['samples','Сэмплы',(a?.samples||[]).length,missing.length?'bad':''],['plugins','Плагины',plugins.length,pluginProblems.length?'bad':''],['history','История',null,''],['settings','Настройки',null,'']];
   m.innerHTML=`<div class="card phead">
-    <div class="row"><h1>${esc(p.name)}</h1><button class="ghost sm" title="Переименовать (только на этом компьютере)" onclick="renameProject()">✎</button>${st?.stage?`<span class="stage" title="${esc(st.text||'')}">● ${esc(st.stage)}</span>`:''}<span class="spacer"></span>
+    <div class="row"><h1>${esc(p.name)}</h1><button class="ghost sm" title="Переименовать (только на этом компьютере)" onclick="renameProject()">✎</button>${st?.stage?`<span class="stage" title="${esc(st.text||'')}">● ${esc(st.stage)}</span>`:''}${p.tempo?`<span class="tchip" title="${p.tempoFlp?'Темп из .flp (в начале проекта). Свой — во вкладке «Настройки» → «Трек»':'Темп из «Настройки» → «Трек»'}" onclick="setTab('settings')">${esc(p.tempo)} BPM</span>`:''}${p.key?`<span class="tchip" title="Тональность" onclick="setTab('settings')">${esc(p.key)}</span>`:''}${(S.state.projects||[]).find(x=>x.path===p.path)?.length?`<span class="tchip" title="Длительность трека" onclick="setTab('settings')">${fmtLen((S.state.projects||[]).find(x=>x.path===p.path).length)}</span>`:''}<span class="spacer"></span>
       ${p.onServer?`<button class="ghost" onclick="participantsDialog()">Участники</button>`:''}<button class="ghost" onclick="api('/api/project/open',{path:S.sel})">Открыть папку</button></div>
     <div class="muted small mono ellip" title="${esc(p.path)}">${esc(p.path)}</div>
+    <div class="muted small" id="psize">${sizeText(p.path)}</div>
     <div class="muted small" style="margin-top:4px">${p.remote?('⇅ '+esc(p.remote.replace(/https:\/\/[^@]*@/,'https://'))):'<span style="color:var(--warn)">сервер не указан — открой «Настройки» проекта</span>'} · ${sync}${p.lastSync?' · проверено '+p.lastSync:''}</div>
     ${st?.text?`<div class="muted small" style="margin-top:6px">${esc(st.text)} <span class="muted">— ${esc(st.by)}, ${fmtTime(st.time)}</span></div>`:''}</div>
     <div class="top"><div>${banner}
@@ -1036,6 +1063,7 @@ async function loadMeta(){
   let r; try{ r=await api('/api/project/meta?path='+enc(path)) }catch(e){ return }
   if(S.sel!==path||!$('#metaf')) return;
   S.meta=r;
+  const tt=$('#mtempo'); if(tt){ tt.placeholder=r.meta?.flpTempo||'напр. 140'; const n=$('#tempoNote'); if(n) n.textContent=r.meta?.flpTempo?`В .flp темп в начале проекта — ${r.meta.flpTempo} BPM. Если темп по ходу трека меняется (автоматизация), впиши основной сам.`:'' }
   f.querySelectorAll('[data-m]').forEach(i=>{ if(!i.dataset.dirty) i.value=r.meta?.[i.dataset.m]||''; if(i.placeholder==='загружаю…') i.placeholder=S.proj?.name||'' });
   drawCover();
 }
@@ -1130,6 +1158,7 @@ function renderTab(){
       ${a.samples.length?`<table><tr><th>Файл</th><th>Статус</th><th>Где лежит</th></tr>${a.samples.map(s=>`<tr><td>${esc(s.name)}${s.embedded?' <span class="tag" title="найден внутри данных плагина">в плагине</span>':''}</td><td><span class="tag ${st[s.status][1]}">${st[s.status][0]}</span></td><td class="mono muted ellip" title="${esc(s.original)}">${esc(s.local||s.original)}</td></tr>`).join('')}</table>`:'<p class="muted">Сэмплов нет.</p>'}
       <div class="row" style="margin-top:10px"><button onclick="runJob('/api/project/prepare',{path:S.sel},{title:'Собрать сэмплы в папку проекта'})">Собрать внешние сэмплы сейчас</button>
       <button onclick="runJob('/api/project/relink',{path:S.sel})">Направить пути в .flp на папку проекта</button></div>
+      ${S.hidden===undefined||S.hidden===null?(loadHidden(),''):S.hidden.length?`<div class="okbox small" style="margin-top:10px">Убрано только с этого компьютера (на GitHub и у друзей есть): ${S.hidden.length} — ${S.hidden.slice(0,4).map(esc).join(', ')}${S.hidden.length>4?'…':''} <button class="sm" style="margin-left:6px" onclick="restoreHidden(S.hidden)">Вернуть все</button></div>`:''}
       <h3>Аудио в папке, которое проект не использует (${unused.length})</h3>
       <div class="muted small">Старые дубли, неудачные записи, рендеры. По умолчанию такие файлы не отправляются; «Отправлять» — отправить всё равно. Ненужное можно выделить и удалить в корзину.</div>
       ${unused.length?`<div class="row" style="margin-top:8px"><label class="switch small" style="margin:0"><input type="checkbox" onchange="selAllUnused(this.checked)"> выделить всё</label><span class="spacer"></span>
@@ -1163,7 +1192,10 @@ function renderTab(){
         <div><label>Название</label><input data-m="title" placeholder="загружаю…">
         <label>Артист</label><input data-m="artist">
         <div class="grid3"><div><label>Альбом</label><input data-m="album"></div><div><label>Год</label><input data-m="year" placeholder="${new Date().getFullYear()}"></div><div><label>№ трека</label><input data-m="track"></div></div>
-        <label>Жанр</label><input data-m="genre" placeholder="напр. Phonk">
+        <div class="grid3" style="grid-template-columns:1fr 1fr 1fr"><div><label>Жанр</label><input data-m="genre" placeholder="напр. Phonk"></div><div><label>Темп, BPM</label><input data-m="tempo" inputmode="decimal" id="mtempo"></div><div><label>Тональность</label><input data-m="key" list="keylist" placeholder="напр. Am"></div></div>
+        <div class="grid3"><div><label>Длительность, м:сс</label><input data-m="length" placeholder="напр. 3:12"></div><div></div><div></div></div>
+        <datalist id="keylist">${KEYS.map(k=>`<option value="${k}">`).join('')}</datalist>
+        <div class="muted small" id="tempoNote"></div>
         <label>Комментарий</label><input data-m="comment" placeholder="prod. by …"></div></div>
       <div class="row" style="margin-top:10px"><button class="primary" onclick="saveMeta()">Сохранить</button><button onclick="pickCover()">Обложка…</button><button class="ghost" id="mcrm" onclick="removeCover()" style="display:none">Убрать обложку</button><span class="spacer"></span>
         <button class="ghost sm" onclick="tagRendersNow()" title="Записать название, артиста и обложку во все рендеры в папке проекта">В рендеры сейчас</button><button class="ghost sm" onclick="makeReadme()">Собрать README</button></div>
@@ -1461,10 +1493,21 @@ async function restore(hash, f){ await runJob('/api/project/restore',{path:S.sel
 function selAllUnused(v){ S.trashSel={}; if(v) for(const f of (S.analysis?.analysis?.audio||[]).filter(x=>!x.used)) S.trashSel[f.rel]=true; renderMain() }
 async function trashSelected(){
   const files=Object.entries(S.trashSel).filter(([,v])=>v).map(([k])=>k); if(!files.length) return;
-  const audio=S.analysis?.analysis?.audio||[], onServer=audio.filter(x=>files.includes(x.rel)&&x.tracked).length;
-  if(!await uiConfirm(`Удалить в корзину ${files.length} файл(ов)? Проект их не использует.${onServer?`<div class="warnbox small" style="margin-top:8px">${onServer} из них уже на сервере — после твоей отправки они удалятся и у друга.</div>`:''}`,{ok:'В корзину',danger:true,title:'Удаление неиспользуемого аудио'})) return;
-  try{ const n=await api('/api/project/trash',{path:S.sel,files}); toast(`Удалено в корзину: ${n}`); S.trashSel={}; S.analysis=null; loadProject(S.sel) }catch(e){ fail(e); S.analysis=null; loadProject(S.sel) }
+  const audio=S.analysis?.analysis?.audio||[], sel=audio.filter(x=>files.includes(x.rel)), onServer=sel.filter(x=>x.tracked).length, size=sel.reduce((a,x)=>a+(x.size||0),0);
+  const m=modal(`<h2>Удалить неиспользуемое аудио</h2><div>Выбрано файлов: <b>${files.length}</b> (${fmtSize(size)}). Проект их не использует.</div>
+    ${onServer?`<div style="margin-top:10px"><label class="radio on"><input type="radio" name="tm" value="local" checked><span><b>Только у меня</b><div class="muted small">Файлы уйдут в Корзину и с этого компьютера пропадут совсем (вместе с копией в .git) — освободится место. На GitHub и у друзей они останутся, вернуть можно в любой момент.</div></span></label>
+      <label class="radio"><input type="radio" name="tm" value="all"><span><b>Везде</b><div class="muted small">${onServer} из них уже на GitHub — после твоей отправки они удалятся и у друзей (в истории останутся).</div></span></label></div>`
+      :'<div class="muted small" style="margin-top:6px">Их нет на GitHub — они просто уйдут в Корзину на этом компьютере.</div>'}
+    <div class="row" style="justify-content:flex-end;margin-top:14px"><button id="no">Отмена</button><button class="danger" id="ok">В корзину</button></div>`);
+  m.querySelector('#no').onclick=()=>m.close();
+  m.querySelectorAll('input[name=tm]').forEach(i=>i.onchange=()=>m.querySelectorAll('.radio').forEach(l=>l.classList.toggle('on',l.querySelector('input').checked)));
+  m.querySelector('#ok').onclick=async()=>{ const mode=(m.querySelector('input[name=tm]:checked')||{}).value||'all'; m.close();
+    try{ const r=await api('/api/project/trash',{path:S.sel,files,mode});
+      toast(mode==='local'?`Убрано только у тебя: ${r.n}, освободилось ${fmtSize(r.freed)}`:`Удалено в корзину: ${r}`,5000) }catch(e){ fail(e) }
+    S.trashSel={}; S.analysis=null; S.hidden=null; loadProject(S.sel); loadSize(S.sel,true) };
 }
+async function loadHidden(){ const path=S.sel; S.hidden=[]; try{ const l=await api('/api/project/hidden?path='+enc(path)); if(S.sel===path){ S.hidden=l; if(S.tab==='samples') renderMain() } }catch(e){ S.hidden=[] } }
+async function restoreHidden(files){ const j=await runJob('/api/project/restore-hidden',{path:S.sel,files},{title:'Возвращаю аудио'}); S.hidden=null; S.analysis=null; loadProject(S.sel); loadSize(S.sel,true) }
 async function toggleInclude(f, inc){ await api('/api/project/include',{path:S.sel,file:decodeURIComponent(f),include:inc}); loadProject(S.sel) }
 async function rescan(){ toast('Сканирую…'); await api('/api/rescan',{}); S.analysis=null; loadProject(S.sel) }
 function editLink(n,u,no){

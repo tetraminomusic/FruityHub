@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -87,11 +88,36 @@ func (s *Server) routes3(api func(string, func(*http.Request) (any, error))) {
 		if err != nil {
 			return nil, err
 		}
+		if str(b, "mode") == "local" { // только у себя: на GitHub и у друзей остаётся
+			n, freed, err := p.TrashLocal(strs(b, "files"))
+			if n > 0 {
+				LogActivity(p.Dir, "ok", fmt.Sprintf("Убрано только с этого компьютера неиспользуемых аудио: %d (освободилось %s)", n, fmtBytes(freed)))
+			}
+			return map[string]any{"n": n, "freed": freed}, err
+		}
 		n, err := p.TrashUnused(strs(b, "files"))
 		if n > 0 {
 			LogActivity(p.Dir, "ok", "Удалено в корзину неиспользуемых аудио: "+itoa(n))
 		}
 		return n, err
+	})
+	api("/api/project/hidden", func(r *http.Request) (any, error) {
+		p, err := s.project(r.URL.Query().Get("path"), nil)
+		if err != nil {
+			return nil, err
+		}
+		l := p.HiddenLocal()
+		if l == nil {
+			l = []string{}
+		}
+		return l, nil
+	})
+	jobAPI("/api/project/restore-hidden", "Возвращаю аудио", func(b map[string]any, j *Job) (any, error) {
+		p, err := s.project(str(b, "path"), j)
+		if err != nil {
+			return nil, err
+		}
+		return "ok", p.RestoreLocal(strs(b, "files"))
 	})
 
 	// ----- folders in the project list -----

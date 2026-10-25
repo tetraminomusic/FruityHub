@@ -3,10 +3,13 @@ package app
 import (
 	"encoding/base64"
 	"errors"
+	"flsync/internal/flp"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -81,7 +84,10 @@ func (s *Server) routes6(api func(string, func(r *http.Request) (any, error))) {
 		}
 		src := str(b, "file")
 		if src == "" {
-			src, _ = PickAnyFile()
+			var err error
+			if src, err = PickImageFile(); errors.Is(err, errPickerOpen) {
+				return nil, err
+			}
 		}
 		if src == "" {
 			return map[string]any{"ok": false}, nil
@@ -126,6 +132,13 @@ func (s *Server) routes6(api func(string, func(r *http.Request) (any, error))) {
 		}
 		return l, nil
 	})
+	api("/api/project/size", func(r *http.Request) (any, error) {
+		p, err := s.project(r.URL.Query().Get("path"), nil)
+		if err != nil {
+			return nil, err
+		}
+		return projectSize(p.Dir, r.URL.Query().Get("fresh") == "1"), nil
+	})
 	// README.md проекта — собрать сейчас
 	api("/api/project/readme", func(r *http.Request) (any, error) {
 		p, err := s.project(str(body(r), "path"), nil)
@@ -165,4 +178,45 @@ func (s *Server) routes6(api func(string, func(r *http.Request) (any, error))) {
 		}
 		return res, nil
 	})
+}
+
+// ---------- сколько места занимает проект ----------
+
+type ProjectSize struct {
+	Total int64 `json:"total"` // всё вместе
+	Git   int64 `json:"git"`   // .git: история и вторые копии аудио (Git LFS)
+	Audio int64 `json:"audio"` // аудио в папке проекта
+	Files int   `json:"files"`
+	At    int64 `json:"at"`
+}
+
+var sizeCache sync.Map // путь → ProjectSize
+
+func projectSize(dir string, fresh bool) ProjectSize {
+	if v, ok := sizeCache.Load(dir); ok && !fresh && time.Since(time.Unix(v.(ProjectSize).At, 0)) < 30*time.Second {
+		return v.(ProjectSize)
+	}
+	var ps ProjectSize
+	gitDir := filepath.Join(dir, ".git") + string(filepath.Separator)
+	filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		fi, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		n := fi.Size()
+		ps.Total += n
+		ps.Files++
+		if strings.HasPrefix(path, gitDir) {
+			ps.Git += n
+		} else if flp.IsAudio(path) {
+			ps.Audio += n
+		}
+		return nil
+	})
+	ps.At = time.Now().Unix()
+	sizeCache.Store(dir, ps)
+	return ps
 }

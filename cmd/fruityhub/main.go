@@ -73,6 +73,7 @@ func main() {
 	go srv.MetaWatcher(6 * time.Second)
 	go srv.RelocateWatcher(time.Minute)
 	app.OnFocus = ui.Focus
+	app.PickerOwner = func() uintptr { return ui.Handle() }
 
 	if !browserMode {
 		srv.Windowed = true

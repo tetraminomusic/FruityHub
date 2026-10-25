@@ -15,7 +15,7 @@ func hideWindow(cmd *exec.Cmd) {}
 func OpenURL(u string) error    { return exec.Command("open", u).Start() }
 func OpenFolder(p string) error { return exec.Command("open", p).Start() }
 
-func PickFolder() (string, error) {
+func osPickFolder() (string, error) {
 	out, err := exec.Command("osascript", "-e", `POSIX path of (choose folder with prompt "Папка проекта FL Studio")`).Output()
 	return trimOut(out), err
 }
@@ -53,7 +53,7 @@ func systemVSTDirs() []string { return nil }
 
 func killAUCache() { exec.Command("killall", "-9", "AudioComponentRegistrar").Run() }
 
-func PickAudioFile() (string, error) {
+func osPickAudioFile() (string, error) {
 	out, err := exec.Command("osascript", "-e", `POSIX path of (choose file with prompt "Трек для прослушивания (mp3, flac или wav)" of type {"public.audio"})`).Output()
 	return strings.TrimSpace(string(out)), err
 }
@@ -64,7 +64,7 @@ func moveToTrash(p string) error {
 	return trashInto(filepath.Join(home, ".Trash"), p)
 }
 
-func PickAnyFile() (string, error) {
+func osPickAnyFile() (string, error) {
 	out, err := exec.Command("osascript", "-e", `POSIX path of (choose file with prompt "Файл для отправки (например, установщик плагина)")`).Output()
 	return strings.TrimSpace(string(out)), err
 }
@@ -80,4 +80,9 @@ func moveDirToTrash(p string) error {
 	}
 	home, _ := os.UserHomeDir()
 	return trashInto(filepath.Join(home, ".Trash"), p)
+}
+
+func osPickImageFile() (string, error) {
+	out, err := exec.Command("osascript", "-e", `POSIX path of (choose file with prompt "Выбери картинку" of type {"public.image"})`).Output()
+	return strings.TrimSpace(string(out)), err
 }

@@ -236,7 +236,10 @@ func (s *Server) routes5(api func(string, func(r *http.Request) (any, error))) {
 		b := body(r)
 		switch str(b, "action") {
 		case "pick":
-			p, err := PickAnyFile()
+			p, err := PickImageFile()
+			if errors.Is(err, errPickerOpen) {
+				return nil, err
+			}
 			if err != nil || strings.TrimSpace(p) == "" {
 				return map[string]any{"ok": false}, nil
 			}

@@ -73,3 +73,21 @@ func TestArtist(t *testing.T) {
 		t.Fatalf("порядок: %v", []byte{g.Events[2].ID, g.Events[3].ID, g.Events[4].ID})
 	}
 }
+
+func TestTempo(t *testing.T) {
+	f, _ := Parse(mini())
+	if f.Tempo() != 0 {
+		t.Fatal("темпа нет — 0")
+	}
+	b := make([]byte, 4)
+	binary.LittleEndian.PutUint32(b, 87500)
+	f.Events = append([]Event{{ID: 156, Data: b}}, f.Events...)
+	if f.Tempo() != 87.5 {
+		t.Fatal(f.Tempo())
+	}
+	old, _ := Parse(mini())
+	old.Events = append(old.Events, Event{ID: 66, Data: []byte{140, 0}})
+	if old.Tempo() != 140 {
+		t.Fatal(old.Tempo())
+	}
+}

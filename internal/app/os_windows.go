@@ -22,7 +22,7 @@ func OpenURL(u string) error {
 
 func OpenFolder(p string) error { return exec.Command("explorer", p).Start() }
 
-func PickFolder() (string, error) {
+func osPickFolder() (string, error) {
 	ps := `Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Папка проекта FL Studio'; $f.ShowNewFolderButton = $true; $top = New-Object System.Windows.Forms.Form -Property @{TopMost=$true}; if ($f.ShowDialog($top) -eq 'OK') { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Write-Output $f.SelectedPath }`
 	c := exec.Command("powershell", "-NoProfile", "-STA", "-Command", ps)
 	hideWindow(c)
@@ -98,7 +98,7 @@ func expandWinEnv(s string) string {
 
 func killAUCache() {}
 
-func PickAudioFile() (string, error) {
+func osPickAudioFile() (string, error) {
 	ps := `Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Title = 'Трек для прослушивания'; $f.Filter = 'Аудио (mp3, flac, wav)|*.mp3;*.flac;*.wav'; $top = New-Object System.Windows.Forms.Form -Property @{TopMost=$true}; if ($f.ShowDialog($top) -eq 'OK') { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Write-Output $f.FileName }`
 	c := exec.Command("powershell", "-NoProfile", "-STA", "-Command", ps)
 	hideWindow(c)
@@ -118,7 +118,7 @@ func moveToTrash(p string) error {
 	return nil
 }
 
-func PickAnyFile() (string, error) {
+func osPickAnyFile() (string, error) {
 	ps := `Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Title = 'Файл для отправки (например, установщик плагина)'; $top = New-Object System.Windows.Forms.Form -Property @{TopMost=$true}; if ($f.ShowDialog($top) -eq 'OK') { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Write-Output $f.FileName }`
 	c := exec.Command("powershell", "-NoProfile", "-STA", "-Command", ps)
 	hideWindow(c)
@@ -141,4 +141,12 @@ func moveDirToTrash(p string) error {
 		return fmt.Errorf("%v %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+func osPickImageFile() (string, error) {
+	ps := `Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Title = 'Картинка'; $f.Filter = 'Картинки (jpg, png, webp)|*.jpg;*.jpeg;*.png;*.webp'; $top = New-Object System.Windows.Forms.Form -Property @{TopMost=$true}; if ($f.ShowDialog($top) -eq 'OK') { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Write-Output $f.FileName }`
+	c := exec.Command("powershell", "-NoProfile", "-STA", "-Command", ps)
+	hideWindow(c)
+	out, err := c.Output()
+	return strings.TrimSpace(string(out)), err
 }

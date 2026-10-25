@@ -76,7 +76,8 @@ type Info struct {
 	FLVersion string   `json:"flVersion"`
 	Title     string   `json:"title,omitempty"`
 	Artist    string   `json:"artist,omitempty"`
-	Samples   []string `json:"samples"` // explicit channel / audio clip paths
+	Tempo     float64  `json:"tempo,omitempty"` // темп в начале проекта (BPM); автоматизация темпа не учитывается
+	Samples   []string `json:"samples"`         // explicit channel / audio clip paths
 	Embedded  []string `json:"embedded"`
 	Plugins   []Plugin `json:"plugins"`
 }
@@ -388,7 +389,7 @@ func parseWrapper(d []byte) (name, vendor, path string) {
 
 // Info extracts samples, plugins and version.
 func (f *File) Info() Info {
-	info := Info{FLVersion: f.Version(), Title: f.Title(), Artist: f.Artist()}
+	info := Info{FLVersion: f.Version(), Title: f.Title(), Artist: f.Artist(), Tempo: f.Tempo()}
 	seenS := map[string]bool{}
 	seenE := map[string]bool{}
 	where := "channel"
@@ -573,6 +574,33 @@ const (
 
 // Title — название проекта из окна Project info в FL Studio.
 func (f *File) Title() string { return f.InfoText(evTitle) }
+
+// Tempo — темп проекта (BPM): событие 156 (темп×1000, FL 12+), в старых проектах — 66 (целый темп) и 93 (поправка).
+func (f *File) Tempo() float64 {
+	var old, fine float64
+	for _, e := range f.Events {
+		switch {
+		case e.ID == evTempo && len(e.Data) >= 4:
+			if t := float64(binary.LittleEndian.Uint32(e.Data)) / 1000; t >= 10 && t <= 999 {
+				return t
+			}
+		case e.ID == evTempoOld && len(e.Data) >= 2 && old == 0:
+			old = float64(binary.LittleEndian.Uint16(e.Data))
+		case e.ID == evTempoFine && len(e.Data) >= 2:
+			fine = float64(int16(binary.LittleEndian.Uint16(e.Data))) / 1000
+		}
+	}
+	if old >= 10 && old <= 999 {
+		return old + fine
+	}
+	return 0
+}
+
+const (
+	evTempo     = 128 + 28 // 156 DWORD: темп × 1000
+	evTempoOld  = 64 + 2   // 66 WORD: темп (старые версии FL)
+	evTempoFine = 64 + 29  // 93 WORD: поправка темпа в тысячных (старые версии)
+)
 
 // Artist — артист (поле Author в Project info).
 func (f *File) Artist() string { return f.InfoText(EvArtists) }

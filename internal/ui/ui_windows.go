@@ -49,6 +49,7 @@ func Run(o Options) error {
 	defer w.Destroy()
 	w.SetSize(900, 600, webview2.HintMin)
 	w.Navigate(o.URL)
+	Handle = func() uintptr { return uintptr(w.Window()) }
 	focus = func() {
 		w.Dispatch(func() {
 			h := uintptr(w.Window())

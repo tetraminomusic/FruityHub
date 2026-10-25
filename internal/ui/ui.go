@@ -13,6 +13,9 @@ type Options struct {
 	Lite     bool            // лёгкий режим: без видеокарты и лишних служб WebView2 (меньше памяти на слабых компьютерах)
 }
 
+// Handle — системный номер окна (HWND на Windows), 0 — окна нет.
+var Handle = func() uintptr { return 0 }
+
 // focus brings the existing window to the front (set by Run).
 var focus = func() {}
 
