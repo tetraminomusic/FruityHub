@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -135,4 +136,55 @@ func TestRenameNickComments(t *testing.T) {
 	if !cfg.isMe("", "tetramino") || cfg.isMe("someone-else", "tetramino") {
 		t.Fatal("свой старый комментарий")
 	}
+}
+
+// Сэмпл, на который ссылается проект, пропал и даже удалён из последней версии — Prepare достаёт его из старой.
+func TestMissingFromHistory(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "cfg"))
+	t.Setenv("HOME", root)
+	gh := useFakeGitHub(t, root)
+	hubURL := startHub(t, root, gh)
+	cfg := &Config{Server: hubURL}
+	must(t, func() error { _, err := cfg.Hub().Register("tetramino", "uzbek", "tokA"); return err }())
+	dir := filepath.Join(root, "A", "Beat")
+	os.MkdirAll(filepath.Join(dir, "Audio"), 0o755)
+	os.WriteFile(filepath.Join(dir, "Track.flp"), synthFLP(filepath.Join(dir, "Audio", "pad.wav")), 0o644)
+	pad := bytes.Repeat([]byte{5}, 100<<10)
+	os.WriteFile(filepath.Join(dir, "Audio", "pad.wav"), pad, 0o644)
+	p := &Project{Dir: dir, Cfg: cfg, Job: &Job{}}
+	if _, err := p.CreateOnGitHub("Beat", nil); err != nil {
+		t.Fatal(err, dump(p.Job))
+	}
+	g := p.git()
+	g.Run("rm", "-q", "Audio/pad.wav")
+	g.Run("commit", "-q", "-m", "удалил")
+	if exists(filepath.Join(dir, "Audio", "pad.wav")) {
+		t.Fatal("должен был пропасть")
+	}
+	if _, err := p.Prepare(); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "Audio", "pad.wav")); !bytes.Equal(b, pad) {
+		t.Fatalf("не достал из истории:\n%s", dump(p.Job))
+	}
+}
+
+// Автообновление идёт — «Обновить и перезапустить» не запускает второе скачивание.
+func TestSingleUpdateJob(t *testing.T) {
+	s := &Server{cfg: &Config{}, jobs: map[string]*Job{}}
+	block := make(chan struct{})
+	var calls atomic.Int32
+	fn := func(j *Job) (any, error) { calls.Add(1); <-block; return "ok", nil }
+	a := s.startUpdateJob("авто", fn)
+	b := s.startUpdateJob("кнопка", fn)
+	if a != b || s.updatingJob() != a.ID {
+		t.Fatal("второе обновление не должно начинаться")
+	}
+	close(block)
+	time.Sleep(100 * time.Millisecond)
+	if calls.Load() != 1 {
+		t.Fatalf("скачиваний: %d", calls.Load())
+	}
+	updJob = nil
 }

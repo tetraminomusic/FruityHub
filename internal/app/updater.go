@@ -298,8 +298,11 @@ func (s *Server) maybeAutoUpdate(latest string) {
 	if m, err := s.cfg.Hub().LatestUpdate(); err != nil || m.Files[Platform()].File == "" {
 		return // для этой системы сборки нет
 	}
+	if s.updatingJob() != "" { // уже обновляется (нажали «Обновить и перезапустить»)
+		return
+	}
 	LogActivity("", "info", "Ставлю обновление FruityHub "+latest+" (автоматически)")
-	s.startJobOpt("Обновляю FruityHub до "+latest+" (автоматически)", "", false, func(j *Job) (any, error) {
+	s.startUpdateJob("Обновляю FruityHub до "+latest+" (автоматически)", func(j *Job) (any, error) {
 		v, err := ApplyUpdate(s.cfg, j)
 		if err != nil {
 			return nil, err
@@ -337,4 +340,43 @@ func (s *Server) busyForUpdateExcept(self *Job) string {
 		return true
 	})
 	return busy
+}
+
+// ---------- одно обновление за раз ----------
+// Автообновление и кнопка «Обновить и перезапустить» не должны качать обновление дважды.
+
+var updMu sync.Mutex
+var updJob *Job
+
+// updatingJob — id задачи, которая сейчас обновляет FruityHub ("" — никакая).
+func (s *Server) updatingJob() string {
+	updMu.Lock()
+	defer updMu.Unlock()
+	if updJob == nil {
+		return ""
+	}
+	updJob.mu.Lock()
+	done, failed := updJob.Done, updJob.Err != ""
+	updJob.mu.Unlock()
+	if done && failed { // не вышло — можно пробовать снова
+		updJob = nil
+		return ""
+	}
+	return updJob.ID
+}
+
+// startUpdateJob запускает обновление, если оно ещё не идёт; иначе возвращает уже идущую задачу.
+func (s *Server) startUpdateJob(title string, fn func(j *Job) (any, error)) *Job {
+	updMu.Lock()
+	defer updMu.Unlock()
+	if updJob != nil {
+		updJob.mu.Lock()
+		busy := !updJob.Done || updJob.Err == ""
+		updJob.mu.Unlock()
+		if busy {
+			return updJob
+		}
+	}
+	updJob = s.startJobOpt(title, "", false, fn)
+	return updJob
 }

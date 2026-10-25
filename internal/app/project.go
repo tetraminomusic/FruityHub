@@ -523,6 +523,7 @@ func (p *Project) Prepare() (*Analysis, error) {
 	if err := p.writeAttributes(s); err != nil {
 		return nil, err
 	}
+	p.restoreMissingFromHistory() // сэмпл пропал с диска, но был в прошлой версии — возвращаем, чтобы не уехал «дырой»
 	a := p.Analyze()
 	if s.CollectSamples {
 		if c, err := p.CollectSamples(a); err != nil {
@@ -670,6 +671,7 @@ func CloneNamed(cfg *Config, job *Job, url, parent, name string) (string, error)
 	if n, _ := p.Relink(); n > 0 {
 		job.Logf("Пути к сэмплам направлены в папку проекта: %d", n)
 	}
+	p.restoreMissingFromHistory()
 	p.placePluginSamples()
 	return dir, nil
 }
@@ -948,6 +950,7 @@ func (p *Project) Receive() (*SyncResult, error) {
 			return res, err
 		}
 	}
+	p.restoreMissingFromHistory()
 	p.placePluginSamples()
 	p.Job.Logf("✓ Получено")
 	return res, nil

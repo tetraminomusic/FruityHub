@@ -118,6 +118,7 @@ func (s *Server) routes2(api func(string, func(*http.Request) (any, error))) {
 			out["incoming"] = inc
 		}
 		out["serverError"] = s.hubErr()
+		out["updating"] = s.updatingJob() // идёт обновление — кнопку «Обновить и перезапустить» не показываем
 		out["busy"] = s.busyMap()
 		return out, nil
 	})

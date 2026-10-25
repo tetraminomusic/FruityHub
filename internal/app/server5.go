@@ -305,14 +305,18 @@ func (s *Server) routes5(api func(string, func(r *http.Request) (any, error))) {
 		s.cfg.SkipUpdate = str(body(r), "version")
 		return "ok", s.cfg.Save()
 	})
-	jobAPI("/api/update/apply", "Обновляю FruityHub", func(b map[string]any, j *Job) (any, error) {
-		v, err := ApplyUpdate(s.cfg, j)
-		if err != nil {
-			return nil, err
-		}
-		j.Logf("Перезапускаю FruityHub %s…", v)
-		go func() { time.Sleep(1500 * time.Millisecond); s.Stop() }()
-		return v, nil
+	// «Обновить и перезапустить»: если обновление уже идёт (в том числе автоматическое) — та же задача, второй раз не качаем
+	api("/api/update/apply", func(r *http.Request) (any, error) {
+		j := s.startUpdateJob("Обновляю FruityHub", func(j *Job) (any, error) {
+			v, err := ApplyUpdate(s.cfg, j)
+			if err != nil {
+				return nil, err
+			}
+			j.Logf("Перезапускаю FruityHub %s…", v)
+			go func() { time.Sleep(1500 * time.Millisecond); s.Stop() }()
+			return v, nil
+		})
+		return map[string]string{"id": j.ID, "job": j.ID, "title": j.Title}, nil
 	})
 
 	// ----- режим разработчика -----

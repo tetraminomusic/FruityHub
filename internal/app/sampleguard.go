@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/binary"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -233,4 +234,27 @@ func recycleOrigPath(iFile string) string {
 		return ""
 	}
 	return strings.TrimRight(string(utf16.Decode(u)), "\x00")
+}
+
+// restoreMissingFromHistory — сэмплы, на которые ссылается проект (в том числе изнутри плагинов), но которых
+// нет ни в папке проекта, ни там, где их ждёт .flp, достаются из прошлых версий проекта, если там они были.
+func (p *Project) restoreMissingFromHistory() int {
+	if !p.git().IsRepo() {
+		return 0
+	}
+	var list []LostFile
+	for _, f := range p.CheckLost().Lost {
+		if f.Kind == "missing" && f.From == "git" {
+			list = append(list, f)
+		}
+	}
+	if len(list) == 0 {
+		return 0
+	}
+	n, _ := p.RestoreLost(list)
+	if n > 0 {
+		p.Job.Logf("Сэмплы, которых не было на диске, достал из прошлых версий проекта: %d", n)
+		LogActivity(p.Dir, "ok", fmt.Sprintf("Сэмплы, которых не было на диске, достаны из прошлых версий проекта: %d", n))
+	}
+	return n
 }

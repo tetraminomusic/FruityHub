@@ -490,6 +490,7 @@ function openGuide(first){
 }
 // новое в версиях (самое свежее сверху)
 const CHANGES=[
+  ['0.9.8',['Сэмплы, которых нет на диске (в том числе из плагинов), сами достаются из прошлых версий проекта — при отправке, получении и скачивании', 'Если обновление уже идёт (в том числе автоматическое), кнопка «Обновить и перезапустить» не появляется — обновление не качается дважды']],
   ['0.9.7',['Перед отправкой FruityHub проверяет, не пропали ли сэмплы (в том числе загруженные в синты, которые FL удаляет как «неиспользуемые»), и возвращает их из прошлой версии проекта или из Корзины', '«Вернуть пропавшие…» во вкладке «Сэмплы»; файлы с галочкой «Отправлять» защищены от удаления', 'Сменил ник — твои старые комментарии, задачи и статус показываются под новым']],
   ['0.9.6',['Длительность трека считается сама: по красному выделению в плейлисте, а без него — до конца последнего клипа; общее время папки в списке тоже', 'Проекты FL Studio 2026 читаются правильно (темп, название, артист)']],
   ['0.9.5',['Окно «Проводника» для выбора папки и картинки на Windows вместо старого «Обзора папок»; второе такое окно поверх не открывается', 'Сколько места занимает проект — под его названием', 'Неиспользуемое аудио можно убрать только у себя: на GitHub и у друзей остаётся, место освобождается целиком; «Вернуть все»', 'Подсказка про цвета вернулась вниз списка проектов', 'Темп, тональность и длительность трека — в «Трек» (темп сам берётся из .flp) и видны в шапке проекта; у папки в списке — общая длительность треков']],
@@ -650,7 +651,7 @@ async function loadComments(fetch){
 async function pollNotes(){
   if(document.hidden) return; // окно свёрнуто — не опрашиваем (догоним, когда развернут)
   let r; try{ r = await api('/api/notifications') }catch(e){ return }
-  renderUpdateBar(r.update);
+  S.updating=r.updating||''; renderUpdateBar(r.update);
   S.notes=r.projects||{}; S.invites=r.invites||[]; S.incoming=r.incoming||[]; S.ready=r.ready||[]; S.toSend=r.toSend||[]; S.busy=r.busy||{}; S.serverError=r.serverError||'';
   renderList(); renderInvites(); renderWho();
   for(const q of S.incoming) if(!S.shownReq[q.id] && S.busy[q.id]!=='approving'){ S.shownReq[q.id]=1; askPermission(q) }
@@ -2040,11 +2041,18 @@ function renderUpdateBar(v){
   if(!v || S.upHidden===v){ if(bar) bar.remove(); return }
   if(!bar){ bar=document.createElement('div'); bar.id='upbar'; bar.className='upbar'; document.querySelector('header').after(bar) }
   bar.innerHTML=`<b>Доступно обновление FruityHub ${esc(v)}</b><span class="muted small">у тебя ${esc(S.state?.version||'')}</span><span class="spacer"></span>
-    <button class="sm primary" onclick="applyUpdate()">Обновить и перезапустить</button><button class="sm ghost" onclick="S.upHidden='${esc(v)}';renderUpdateBar()">Позже</button>`;
+    ${S.updating?'<span class="small"><span class="spin" style="display:inline-block;vertical-align:-2px;margin-right:6px"></span>Обновляется — FruityHub перезапустится сам</span>':`<button class="sm primary" onclick="applyUpdate()">Обновить и перезапустить</button><button class="sm ghost" onclick="S.upHidden='${esc(v)}';renderUpdateBar()">Позже</button>`}`;
+  bar.dataset.v=v;
 }
 async function applyUpdate(){
+  if(S.updating) return toast('Обновление уже идёт — FruityHub перезапустится сам');
   if(!await confirmNoTransfers('обновить FruityHub сейчас (он перезапустится)')) return;
-  const j=await runJob('/api/update/apply',{},{title:'Обновляю FruityHub'});
+  if(S.updating) return;
+  S.updating='…'; const bar=$('#upbar'); if(bar) renderUpdateBar(bar.dataset.v);
+  let job; try{ job=await api('/api/update/apply',{}) }catch(e){ S.updating=''; return fail(e) }
+  S.updating=job.id;
+  if(S.followed[job.id]) return; // эту задачу уже показываем (автообновление)
+  const j=await followJob(job.id,'Обновляю FruityHub');
   if(j && !j.error){ document.body.innerHTML='<div class="empty"><div class="box"><div style="font-size:18px">Перезапускаю FruityHub…</div><div class="muted" style="margin-top:6px">Новое окно откроется само через несколько секунд.</div></div></div>' }
 }
 async function checkUpdate(){
