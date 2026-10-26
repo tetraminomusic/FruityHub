@@ -35,4 +35,4 @@ go test ./...
 * `deploy/machines.local` — Windows-компьютеры для `deploy/deploy-windows.sh`: `ip|логин|пароль`.
 
 ## Картинки
-Фон по умолчанию — `web/bg.jpg`, иконка в интерфейсе — `web/icon.png`, иконка приложения — `assets/icon.*`.
+Фон по умолчанию — `web/bg.jpg`, иконка в интерфейсе — `web/icon.png`, иконка приложения — `assets/icon.*` (исходник рисунка — `assets/icon-source.svg`, квадратная плитка — `assets/icon.svg`; из неё сделаны `icon.png`, `icon.ico`, `icon.icns` и `cmd/fruityhub/rsrc_windows_amd64.syso`).

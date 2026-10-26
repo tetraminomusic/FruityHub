@@ -80,26 +80,29 @@ func (s *Server) routes3(api func(string, func(*http.Request) (any, error))) {
 		}
 		return len(moved), nil
 	})
-	api("/api/project/trash", func(r *http.Request) (any, error) {
-		b := body(r)
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		p, err := s.project(str(b, "path"), nil)
+	// удаление неиспользуемого аудио — задачей с плашкой: на больших проектах это заметное время
+	jobAPI("/api/project/trash", "Удаляю аудио", func(b map[string]any, j *Job) (any, error) {
+		p, err := s.project(str(b, "path"), j)
 		if err != nil {
 			return nil, err
 		}
+		files := strs(b, "files")
 		if str(b, "mode") == "local" { // только у себя: на GitHub и у друзей остаётся
-			n, freed, err := p.TrashLocal(strs(b, "files"))
+			j.Logf("Убираю с этого компьютера файлов: %d", len(files))
+			n, freed, err := p.TrashLocal(files)
 			if n > 0 {
 				LogActivity(p.Dir, "ok", fmt.Sprintf("Убрано только с этого компьютера неиспользуемых аудио: %d (освободилось %s)", n, fmtBytes(freed)))
+				j.Logf("✓ Убрано: %d, освободилось %s", n, fmtBytes(freed))
 			}
-			return map[string]any{"n": n, "freed": freed}, err
+			return map[string]any{"n": n, "freed": freed, "mode": "local"}, err
 		}
-		n, err := p.TrashUnused(strs(b, "files"))
+		j.Logf("Удаляю в корзину файлов: %d", len(files))
+		n, err := p.TrashUnused(files)
 		if n > 0 {
 			LogActivity(p.Dir, "ok", "Удалено в корзину неиспользуемых аудио: "+itoa(n))
+			j.Logf("✓ В корзине: %d", n)
 		}
-		return n, err
+		return map[string]any{"n": n, "mode": "all"}, err
 	})
 	api("/api/project/hidden", func(r *http.Request) (any, error) {
 		p, err := s.project(r.URL.Query().Get("path"), nil)

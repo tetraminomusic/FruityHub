@@ -1,13 +1,19 @@
-# FruityHub
+<p align="center">
+  <img src="assets/icon.png" width="140" alt="FruityHub">
+</p>
 
-[![Лицензия: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-![Go 1.22](https://img.shields.io/badge/Go-1.22-00ADD8?logo=go&logoColor=white)
-![Платформы](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue)
-![Версия](https://img.shields.io/badge/version-0.9.1-orange)
-![Git LFS](https://img.shields.io/badge/Git-LFS-F05032?logo=git&logoColor=white)
-![FL Studio](https://img.shields.io/badge/FL%20Studio-compatible-ff8c00)
+<h1 align="center">FruityHub</h1>
 
-Лаунчер, созданный для совместной работы над проектами Fl Studio на базе Git с полным переносом всех зависимостей проекта, будто плагины или аудиосэмплы.
+<p align="center">
+  <a href="LICENSE"><img alt="Лицензия: MIT" src="https://img.shields.io/badge/license-MIT-green.svg"></a>
+  <img alt="Go 1.22" src="https://img.shields.io/badge/Go-1.22-00ADD8?logo=go&logoColor=white">
+  <img alt="Платформы" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue">
+  <img alt="Версия" src="https://img.shields.io/badge/version-0.9.9-orange">
+  <img alt="Git LFS" src="https://img.shields.io/badge/Git-LFS-F05032?logo=git&logoColor=white">
+  <img alt="FL Studio" src="https://img.shields.io/badge/FL%20Studio-compatible-ff8c00">
+</p>
+
+<p align="center">Лаунчер, созданный для совместной работы над проектами Fl Studio на базе Git с полным переносом всех зависимостей проекта, будто плагины или аудиосэмплы.</p>
 
 - [Структура приложения](#структура-приложения)
 - [Особенности проекта](#особенности-проекта-вкратце)
@@ -33,6 +39,8 @@
 * __Проверка наличия или отсутствия плагинов__ для конкретного проекта вплоть до парсинга версии проекта из бинарника плагина.
 
 * __Система пользователей и прав доступа__. Есть система приглашенией в проект, во время которого на стороне GitHub человек добавляется в качестве контрибутора. Владелец добавленного проекта может самостоятельно добавлять или убирать участников. Также каждому пользователю предоставляется возможность настроить доступ к установке с вашего устройка плагинов (начиная от разрешения каждого запроса, заканчивая полным доступом, главное, чтоб было открыто приложение). 
+
+* __История версий__ проекта: любую прошлую версию можно достать копией и сразу открыть в FL Studio или откатить к ней весь проект целиком (.flp и аудио) — текущее состояние остаётся в истории, так что откат всегда можно отменить.
 
 * __Cистема обсуждений и комментариев__ к конкретно каждому проекту, где можно записать текущий этап написания проекта, что можно добавить, что исправить, дабы не выносить это всё в ваши личные чаты.
 

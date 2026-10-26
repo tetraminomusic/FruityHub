@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FruityHub</title>
+<link rel="icon" type="image/png" href="/assets/icon?v=__V__">
 <style>
 :root{
   --bg:#0d0e11; --panel:rgba(16,17,22,.74); --panel2:rgba(40,43,52,.72); --solid:#1a1c21; --line:rgba(255,255,255,.10); --line2:rgba(255,255,255,.16);
@@ -324,7 +325,7 @@ function modal(html, onclose){
   $('#modals').appendChild(bg); return bg;
 }
 function uiAlert(msg, title='Ошибка'){ return new Promise(res=>{ const m=modal(`<h2>${esc(title)}</h2><div class="err">${esc(msg)}</div><div class="row" style="justify-content:flex-end;margin-top:14px"><button class="primary" id="ok">Понятно</button></div>`, res); m.querySelector('#ok').onclick=()=>m.close(); m.querySelector('#ok').focus() }) }
-function uiConfirm(msg, {title='Точно?', ok='Да', danger=false}={}){ return new Promise(res=>{ let v=false; const m=modal(`<h2>${esc(title)}</h2><div>${msg}</div><div class="row" style="justify-content:flex-end;margin-top:14px"><button id="no">Отмена</button><button class="${danger?'danger':'primary'}" id="yes">${esc(ok)}</button></div>`, ()=>res(v)); m.querySelector('#no').onclick=()=>m.close(); m.querySelector('#yes').onclick=()=>{v=true;m.close()} }) }
+function uiConfirm(msg, {title='Точно?', ok='Да', cancel='Отмена', danger=false}={}){ return new Promise(res=>{ let v=false; const m=modal(`<h2>${esc(title)}</h2><div>${msg}</div><div class="row" style="justify-content:flex-end;margin-top:14px"><button id="no">${esc(cancel)}</button><button class="${danger?'danger':'primary'}" id="yes">${esc(ok)}</button></div>`, ()=>res(v)); m.querySelector('#no').onclick=()=>m.close(); m.querySelector('#yes').onclick=()=>{v=true;m.close()} }) }
 function uiPrompt(title, {label='', value='', placeholder=''}={}){ return new Promise(res=>{ let v=null; const m=modal(`<h2>${esc(title)}</h2>${label?`<label>${esc(label)}</label>`:''}<input id="pv" value="${esc(value)}" placeholder="${esc(placeholder)}"><div class="row" style="justify-content:flex-end;margin-top:14px"><button id="no">Отмена</button><button class="primary" id="yes">OK</button></div>`, ()=>res(v)); const i=m.querySelector('#pv'); i.focus(); const go=()=>{v=i.value;m.close()}; m.querySelector('#yes').onclick=go; i.onkeydown=e=>{if(e.key==='Enter')go()}; m.querySelector('#no').onclick=()=>m.close() }) }
 const fail = e => uiAlert(e.message||String(e));
 
@@ -490,6 +491,7 @@ function openGuide(first){
 }
 // новое в версиях (самое свежее сверху)
 const CHANGES=[
+  ['0.9.9',['Новая иконка приложения', 'Кнопка «⟳ Обновить» в шапке проекта — перечитать папку, .flp и сэмплы и проверить, нет ли нового на GitHub', '«⟲ Откатить сюда» в «Истории» — весь проект (.flp и аудио) становится как в выбранной версии; текущее состояние остаётся в истории, откат можно отменить', 'Достал старую копию .flp — рядом сразу кнопка «▶ Запустить копию»', 'Темп, тональность и длительность — отдельным блоком в настройках проекта', 'Сколько ни нажимай «Отправить», пока интерфейс думает, — окно отправки одно', 'Удаление аудио идёт задачей с плашкой — видно, что файлы удаляются']],
   ['0.9.8',['Сэмплы, которых нет на диске (в том числе из плагинов), сами достаются из прошлых версий проекта — при отправке, получении и скачивании', 'Если обновление уже идёт (в том числе автоматическое), кнопка «Обновить и перезапустить» не появляется — обновление не качается дважды']],
   ['0.9.7',['Перед отправкой FruityHub проверяет, не пропали ли сэмплы (в том числе загруженные в синты, которые FL удаляет как «неиспользуемые»), и возвращает их из прошлой версии проекта или из Корзины', '«Вернуть пропавшие…» во вкладке «Сэмплы»; файлы с галочкой «Отправлять» защищены от удаления', 'Сменил ник — твои старые комментарии, задачи и статус показываются под новым']],
   ['0.9.6',['Длительность трека считается сама: по красному выделению в плейлисте, а без него — до конца последнего клипа; общее время папки в списке тоже', 'Проекты FL Studio 2026 читаются правильно (темп, название, артист)']],
@@ -580,7 +582,7 @@ async function setSort(k){ S.state.config.sortMode=k; renderList(); try{ await a
 function fmtLen(sec){ const h=Math.floor(sec/3600), m=Math.floor(sec%3600/60), s=sec%60; return h?`${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`:`${m}:${String(s).padStart(2,'0')}` }
 function groupLen(list){ const known=list.filter(p=>p.length>0); if(!known.length) return '';
   const total=known.reduce((a,p)=>a+p.length,0), miss=list.length-known.length;
-  return `<span class="glen" title="Общая длительность треков${miss?` — у ${miss} из ${list.length} она не указана (Настройки проекта → «Трек»)`:''}">${fmtLen(total)}${miss?'+':''}</span>` }
+  return `<span class="glen" title="Общая длительность треков${miss?` — у ${miss} из ${list.length} она не указана (Настройки проекта → «Темп, тональность, длительность»)`:''}">${fmtLen(total)}${miss?'+':''}</span>` }
 function renderList(){
   renderSortBar();
   const ps=sortProjects(S.state?.projects||[]), groups=sortGroups(S.state?.groups||[], S.state?.projects||[]);
@@ -641,6 +643,16 @@ async function loadProject(path){
 function sizeText(path){ const z=(S.sizes||{})[path]; if(!z) return '';
   return `Занимает <b style="color:var(--text)">${fmtSize(z.total)}</b>: аудио ${fmtSize(z.audio)}${z.git?` · история и копии аудио (.git) ${fmtSize(z.git)}`:''} · файлов ${z.files}` }
 async function loadSize(path, fresh){ try{ const z=await api('/api/project/size?path='+enc(path)+(fresh?'&fresh=1':'')); S.sizes=S.sizes||{}; S.sizes[path]=z; const el=$('#psize'); if(el&&S.sel===path) el.innerHTML=sizeText(path) }catch(e){} }
+async function refreshProject(){
+  const path=S.sel; if(!path||S.refreshing) return;
+  S.refreshing=path; renderMain();
+  let r={}; try{ r=await api('/api/project/refresh',{path}) }catch(e){}
+  try{ S.analysis=null; S.hidden=null; if(S.tab==='history') S.history=null; await refreshAll(); await loadProject(path); loadSize(path,true); if(S.tab==='talk') loadComments(true) }
+  finally{ S.refreshing=null; if(S.sel===path) renderMain() }
+  const p=S.proj; if(S.sel!==path||!p) return;
+  const n=(p.changes||[]).filter(c=>!c.hidden).length;
+  toast(`Обновлено: ${n?'изменений — '+n:'изменений нет'}${p.behind>0?` · <b>на сервере новое: ${p.behind}</b>`:''}${r.fetched===false&&p.remote?' · GitHub сейчас не ответил':''}`);
+}
 async function loadHistory(){ S.history = await api('/api/project/history?path='+enc(S.sel)).catch(()=>[]); renderMain() }
 async function loadComments(fetch){
   const path=S.sel; if(!path) return;
@@ -974,8 +986,8 @@ function renderMainNow(){
   const sync = p.ahead<0 ? 'на сервере ещё ничего нет' : (p.behind? `<b style="color:var(--accent)">на сервере новое: ${p.behind}</b>`:'с сервером совпадает') + (p.ahead>0?` · не отправлено коммитов: ${p.ahead}`:'');
   const tabs=[['changes','Изменения',visibleChanges.length,''],['talk','Обсуждение',unread||openTodos||null,unread?'hot':''],['samples','Сэмплы',(a?.samples||[]).length,missing.length?'bad':''],['plugins','Плагины',plugins.length,pluginProblems.length?'bad':''],['history','История',null,''],['settings','Настройки',null,'']];
   m.innerHTML=`<div class="card phead">
-    <div class="row"><h1>${esc(p.name)}</h1><button class="ghost sm" title="Переименовать (только на этом компьютере)" onclick="renameProject()">✎</button>${st?.stage?`<span class="stage" title="${esc(st.text||'')}">● ${esc(st.stage)}</span>`:''}${p.tempo?`<span class="tchip" title="${p.tempoFlp?'Темп из .flp (в начале проекта). Свой — во вкладке «Настройки» → «Трек»':'Темп из «Настройки» → «Трек»'}" onclick="setTab('settings')">${esc(p.tempo)} BPM</span>`:''}${p.key?`<span class="tchip" title="Тональность" onclick="setTab('settings')">${esc(p.key)}</span>`:''}${(S.state.projects||[]).find(x=>x.path===p.path)?.length?`<span class="tchip" title="Длительность трека" onclick="setTab('settings')">${fmtLen((S.state.projects||[]).find(x=>x.path===p.path).length)}</span>`:''}<span class="spacer"></span>
-      ${p.onServer?`<button class="ghost" onclick="participantsDialog()">Участники</button>`:''}<button class="ghost" onclick="api('/api/project/open',{path:S.sel})">Открыть папку</button></div>
+    <div class="row"><h1>${esc(p.name)}</h1><button class="ghost sm" title="Переименовать (только на этом компьютере)" onclick="renameProject()">✎</button>${st?.stage?`<span class="stage" title="${esc(st.text||'')}">● ${esc(st.stage)}</span>`:''}${p.tempo?`<span class="tchip" title="${p.tempoFlp?'Темп из .flp (в начале проекта). Свой — «Настройки» → «Темп, тональность, длительность»':'Темп из «Настройки» → «Темп, тональность, длительность»'}" onclick="setTab('settings')">${esc(p.tempo)} BPM</span>`:''}${p.key?`<span class="tchip" title="Тональность" onclick="setTab('settings')">${esc(p.key)}</span>`:''}${(S.state.projects||[]).find(x=>x.path===p.path)?.length?`<span class="tchip" title="Длительность трека" onclick="setTab('settings')">${fmtLen((S.state.projects||[]).find(x=>x.path===p.path).length)}</span>`:''}<span class="spacer"></span>
+      ${p.onServer?`<button class="ghost" onclick="participantsDialog()">Участники</button>`:''}<button class="ghost" onclick="refreshProject()" ${S.refreshing===p.path?'disabled':''} title="Перечитать проект: изменения в папке, .flp, сэмплы, размер — и проверить, нет ли нового на GitHub">${S.refreshing===p.path?'<span class="spin"></span> Обновляю…':'⟳ Обновить'}</button><button class="ghost" onclick="api('/api/project/open',{path:S.sel})">Открыть папку</button></div>
     <div class="muted small mono ellip" title="${esc(p.path)}">${esc(p.path)}</div>
     <div class="muted small" id="psize">${sizeText(p.path)}</div>
     <div class="muted small" style="margin-top:4px">${p.remote?('⇅ '+esc(p.remote.replace(/https:\/\/[^@]*@/,'https://'))):'<span style="color:var(--warn)">сервер не указан — открой «Настройки» проекта</span>'} · ${sync}${p.lastSync?' · проверено '+p.lastSync:''}</div>
@@ -984,7 +996,7 @@ function renderMainNow(){
       <div class="actions">
         <button onclick="receive()">⤓ Получить</button>
         ${mine?'':`<button onclick="takeLock(${!!(lock&&!mine)})">Взять в работу</button>`}
-        <button class="primary" onclick="sendDialog()">⤒ Отправить${visibleChanges.length?' ('+visibleChanges.length+')':''}</button>
+        <button class="primary" onclick="sendDialog()" ${S.sendOpen?'disabled':''}>${S.sendOpen?'<span class="spin"></span> ':''}⤒ Отправить${visibleChanges.length?' ('+visibleChanges.length+')':''}</button>
         ${mine?`<button class="ghost" onclick="unlock()">Освободить без отправки</button>`:''}
       </div></div>
       <div class="card launch">${launchPanel(p)}</div></div>
@@ -1067,15 +1079,15 @@ async function loadMeta(){
   if(S.sel!==path||!$('#metaf')) return;
   S.meta=r;
   const ml=$('#mlength'), ln=$('#lengthNote'); if(ml){ ml.placeholder=r.meta?.flpLength||'напр. 3:12';
-    if(ln) ln.innerHTML=r.meta?.flpLength?`<div style="margin-top:24px">${r.meta.flpLengthBy==='selection'?'Посчитано по красному выделению в плейлисте':'Посчитано до конца последнего клипа в плейлисте (выдели трек красной полосой сверху в плейлисте FL — посчитаю по ней)'} — ${esc(r.meta.flpLength)}. Впиши своё, если нужно иначе.</div>`:'' }
+    if(ln) ln.innerHTML=r.meta?.flpLength?`Длительность ${esc(r.meta.flpLength)} — ${r.meta.flpLengthBy==='selection'?'по красному выделению в плейлисте':'до конца последнего клипа в плейлисте (выдели трек красной полосой сверху в плейлисте FL — посчитаю по ней)'}. Впиши своё, если нужно иначе.`:'' }
   const tt=$('#mtempo'); if(tt){ tt.placeholder=r.meta?.flpTempo||'напр. 140'; const n=$('#tempoNote'); if(n) n.textContent=r.meta?.flpTempo?`В .flp темп в начале проекта — ${r.meta.flpTempo} BPM. Если темп по ходу трека меняется (автоматизация), впиши основной сам.`:'' }
-  f.querySelectorAll('[data-m]').forEach(i=>{ if(!i.dataset.dirty) i.value=r.meta?.[i.dataset.m]||''; if(i.placeholder==='загружаю…') i.placeholder=S.proj?.name||'' });
+  document.querySelectorAll('#metaf [data-m], #musf [data-m]').forEach(i=>{ if(!i.dataset.dirty) i.value=r.meta?.[i.dataset.m]||''; if(i.placeholder==='загружаю…') i.placeholder=S.proj?.name||'' });
   drawCover();
 }
 function drawCover(){ const c=$('#mcover'); if(!c) return; const r=S.meta||{};
   c.innerHTML=r.cover?`<img src="${r.cover}" alt="">`:`<div class="muted small" style="text-align:center;padding:10px">Обложки нет<br><a onclick="pickCover()">выбрать картинку</a></div>`;
   const b=$('#mcrm'); if(b) b.style.display=r.cover?'':'none' }
-function metaFromForm(){ const m={}; document.querySelectorAll('#metaf [data-m]').forEach(i=>m[i.dataset.m]=i.value.trim()); return m }
+function metaFromForm(){ const m={}; document.querySelectorAll('#metaf [data-m], #musf [data-m]').forEach(i=>m[i.dataset.m]=i.value.trim()); return m }
 async function saveMeta(){
   try{ const r=await api('/api/project/meta',{path:S.sel,meta:metaFromForm(),flp:true});
     toast(r.flError?'Сохранено, но в .flp не записал: '+esc(r.flError):(r.latin?'Сохранено. В FL Studio — латиницей: <b>'+esc(r.latin)+'</b>. ':'Сохранено. ')+'Если проект открыт в FL — закрой его без сохранения и открой снова.',6000);
@@ -1121,7 +1133,7 @@ function splitDialog(){
 function renderAdopt(){
   const p=S.proj;
   $('#main').innerHTML=`<div class="card phead"><div class="row"><h1>${esc(p.name)}</h1><button class="ghost sm" title="Переименовать (только на этом компьютере)" onclick="renameProject()">✎</button><span class="spacer"></span>
-    <button class="primary" onclick="launchProject()">Запустить проект</button><button class="ghost" onclick="api('/api/project/open',{path:S.sel})">Открыть папку</button></div>
+    <button class="primary" onclick="launchProject()">Запустить проект</button><button class="ghost" onclick="refreshProject()" ${S.refreshing===p.path?'disabled':''} title="Перечитать проект: изменения в папке, .flp, сэмплы, размер — и проверить, нет ли нового на GitHub">${S.refreshing===p.path?'<span class="spin"></span> Обновляю…':'⟳ Обновить'}</button><button class="ghost" onclick="api('/api/project/open',{path:S.sel})">Открыть папку</button></div>
     <div class="muted small mono">${esc(p.path)}</div>${p.fl?.saved?`<div class="muted small">Сохранён в FL Studio ${esc(p.fl.saved)}${p.fl.installed?` · у тебя ${esc(p.fl.installed)}`:''}</div>`:''}</div>
     ${p.fl?.tooOld?`<div class="badbox">${esc(p.fl.text)}</div>`:''}${layoutBanners(p)}
     <div class="card"><h3 style="margin-top:0">В этой папке уже есть git-репозиторий</h3><div id="adopt" class="muted">Смотрю, что в нём…</div></div>`;
@@ -1167,7 +1179,7 @@ function renderTab(){
       <h3>Аудио в папке, которое проект не использует (${unused.length})</h3>
       <div class="muted small">Старые дубли, неудачные записи, рендеры. По умолчанию такие файлы не отправляются; «Отправлять» — отправить всё равно (и защитить от удаления — отметь так сэмплы, которые загружены прямо в синты). Ненужное можно выделить и удалить в корзину.</div>
       ${unused.length?`<div class="row" style="margin-top:8px"><label class="switch small" style="margin:0"><input type="checkbox" onchange="selAllUnused(this.checked)"> выделить всё</label><span class="spacer"></span>
-        <button class="sm danger" ${Object.values(S.trashSel).some(Boolean)?'':'disabled'} onclick="trashSelected()">В корзину (${Object.values(S.trashSel).filter(Boolean).length})</button></div>
+        ${S.trashing===S.sel?'<span class="row small muted" style="gap:6px"><span class="spin"></span> Удаляю…</span>':`<button class="sm danger" ${Object.values(S.trashSel).some(Boolean)?'':'disabled'} onclick="trashSelected()">В корзину (${Object.values(S.trashSel).filter(Boolean).length})</button>`}</div>
         <table><tr><th></th><th>Отправлять</th><th>Файл</th><th style="text-align:right">Размер</th></tr>${unused.map(f=>`<tr><td><input type="checkbox" style="width:auto" ${S.trashSel[f.rel]?'checked':''} onchange="S.trashSel[decodeURIComponent('${enc(f.rel)}')]=this.checked;renderMain()"></td>
         <td>${f.tracked?'<span class="tag" title="уже на сервере">уже на сервере</span>':`<input type="checkbox" style="width:auto" ${!f.ignored?'checked':''} onchange="toggleInclude('${enc(f.rel)}',this.checked)">`}</td><td class="mono">${esc(f.rel)}</td><td style="text-align:right" class="muted">${fmtSize(f.size)}</td></tr>`).join('')}</table>`:'<p class="muted">Лишнего аудио нет </p>'}`;
   }
@@ -1176,9 +1188,13 @@ function renderTab(){
     if(!S.history) return `<p class="muted">Загружаю…</p>`;
     if(!S.history.length) return `<p class="muted">Коммитов пока нет.</p>`;
     const other=c=>(c.files||[]).filter(f=>!/\.flp$/i.test(f)&&!f.startsWith('.flsync/')&&f!=='PLUGINS.txt').length;
-    return `<table><tr><th>Когда</th><th>Кто</th><th>Что</th><th>Файлы</th></tr>${S.history.map(c=>`<tr><td class="muted" style="white-space:nowrap">${fmtTime(c.time)}</td><td>${esc(c.author)}</td><td>${esc(c.subject)}</td>
-      <td>${(c.files||[]).filter(f=>/\.flp$/i.test(f)).map(f=>`<div class="row" style="gap:6px"><span class="mono">${esc(f)}</span><button class="ghost sm" title="Сохранить эту версию рядом копией" onclick="restore('${c.hash}','${enc(f)}')">↺ достать копию</button></div>`).join('')}
-      ${other(c)?`<span class="muted small">+ ${other(c)} файл(ов)</span>`:''}</td></tr>`).join('')}</table>`;
+    const got=(S.restored||{})[S.sel]||{};
+    return `<div class="muted small" style="margin-bottom:8px"><b>↺ достать копию</b> — старый .flp встанет рядом с текущим, ничего не меняя. <b>⟲ Откатить сюда</b> — весь проект (.flp и аудио) станет как в этой версии; текущее состояние останется в истории, так что откат можно отменить.</div>
+    <table><tr><th>Когда</th><th>Кто</th><th>Что</th><th>Файлы</th><th></th></tr>${S.history.map((c,i)=>`<tr><td class="muted" style="white-space:nowrap">${fmtTime(c.time)}</td><td>${esc(c.author)}</td><td>${esc(c.subject)}</td>
+      <td>${(c.files||[]).filter(f=>/\.flp$/i.test(f)).map(f=>{ const cp=got[c.hash+'|'+f];
+        return `<div class="row" style="gap:6px"><span class="mono">${esc(f)}</span>${cp?`<button class="sm primary" title="${esc(cp)}" onclick="launchCopy('${enc(cp)}')">▶ Запустить копию</button>`:`<button class="ghost sm" title="Сохранить эту версию рядом копией" onclick="restore('${c.hash}','${enc(f)}')">↺ достать копию</button>`}</div>` }).join('')}
+      ${other(c)?`<span class="muted small">+ ${other(c)} файл(ов)</span>`:''}</td>
+      <td style="white-space:nowrap;text-align:right">${i===0?'<span class="tag ok" title="Проект сейчас в этой версии (плюс неотправленные правки, если есть)">сейчас</span>':`<button class="ghost sm" onclick="rollbackTo('${c.hash}')" title="Сделать весь проект таким, как в этой версии">⟲ Откатить сюда</button>`}</td></tr>`).join('')}</table>`;
   }
   if(S.tab==='settings'){
     const sh=p.shared;
@@ -1197,14 +1213,16 @@ function renderTab(){
         <div><label>Название</label><input data-m="title" placeholder="загружаю…">
         <label>Артист</label><input data-m="artist">
         <div class="grid3"><div><label>Альбом</label><input data-m="album"></div><div><label>Год</label><input data-m="year" placeholder="${new Date().getFullYear()}"></div><div><label>№ трека</label><input data-m="track"></div></div>
-        <div class="grid3" style="grid-template-columns:1fr 1fr 1fr"><div><label>Жанр</label><input data-m="genre" placeholder="напр. Phonk"></div><div><label>Темп, BPM</label><input data-m="tempo" inputmode="decimal" id="mtempo"></div><div><label>Тональность</label><input data-m="key" list="keylist" placeholder="напр. Am"></div></div>
-        <div class="grid3"><div><label>Длительность, м:сс</label><input data-m="length" id="mlength" placeholder="напр. 3:12"></div><div style="grid-column:span 2" class="muted small" id="lengthNote"></div></div>
-        <datalist id="keylist">${KEYS.map(k=>`<option value="${k}">`).join('')}</datalist>
-        <div class="muted small" id="tempoNote"></div>
-        <label>Комментарий</label><input data-m="comment" placeholder="prod. by …"></div></div>
+        <div class="grid3" style="grid-template-columns:1fr 1fr"><div><label>Жанр</label><input data-m="genre" placeholder="напр. Phonk"></div><div><label>Комментарий</label><input data-m="comment" placeholder="prod. by …"></div></div></div></div>
       <div class="row" style="margin-top:10px"><button class="primary" onclick="saveMeta()">Сохранить</button><button onclick="pickCover()">Обложка…</button><button class="ghost" id="mcrm" onclick="removeCover()" style="display:none">Убрать обложку</button><span class="spacer"></span>
         <button class="ghost sm" onclick="tagRendersNow()" title="Записать название, артиста и обложку во все рендеры в папке проекта">В рендеры сейчас</button><button class="ghost sm" onclick="makeReadme()">Собрать README</button></div>
       <div class="muted small" id="metaNote" style="margin-top:6px">${p.fl?.saved?`Проект сохранён в FL Studio ${esc(p.fl.saved)}${p.fl.installed?`, у тебя установлена ${esc(p.fl.installed)}`:''}.`:''}</div></div>
+      <div class="card" id="musf"><h3 style="margin-top:0">Темп, тональность, длительность</h3>
+      <div class="muted small">Видны в списке проектов и в шапке проекта, уходят другу с отправкой, записываются в рендеры (BPM и тональность — в теги файла) и в README. Пустое поле — значение берётся из .flp само.</div>
+      <div class="grid3" style="grid-template-columns:1fr 1fr 1fr"><div><label>Темп, BPM</label><input data-m="tempo" inputmode="decimal" id="mtempo"></div><div><label>Тональность</label><input data-m="key" list="keylist" placeholder="напр. Am"></div><div><label>Длительность, м:сс</label><input data-m="length" id="mlength" placeholder="напр. 3:12"></div></div>
+      <datalist id="keylist">${KEYS.map(k=>`<option value="${k}">`).join('')}</datalist>
+      <div class="muted small" id="tempoNote" style="margin-top:6px"></div><div class="muted small" id="lengthNote" style="margin-top:4px"></div>
+      <div class="row" style="margin-top:10px"><button class="primary" onclick="saveMeta()">Сохранить</button></div></div>
       <div class="card"><h3 style="margin-top:0">Этот компьютер</h3>
       <label class="switch"><input type="checkbox" ${p.relinkOnReceive?'checked':''} onchange="api('/api/project/settings',{path:S.sel,relinkOnReceive:this.checked}).then(()=>toast('Сохранено'))"> После получения направлять пути сэмплов в .flp на папку проекта</label>
       <div class="muted small">Резервная копия .flp перед правкой лежит в .flsync-local/backup.</div>
@@ -1442,7 +1460,7 @@ function reviewReq(id){ const r=(S.reqs||[]).find(x=>x.id===id); if(r) askPermis
 function renderSetup(){
   const p=S.proj, reg=S.state.registered;
   $('#main').innerHTML=`<div class="card phead"><div class="row"><h1>${esc(p.name)}</h1><button class="ghost sm" title="Переименовать (только на этом компьютере)" onclick="renameProject()">✎</button><span class="spacer"></span>
-    <button class="primary" onclick="launchProject()">Запустить проект</button><button class="ghost" onclick="api('/api/project/open',{path:S.sel})">Открыть папку</button></div>
+    <button class="primary" onclick="launchProject()">Запустить проект</button><button class="ghost" onclick="refreshProject()" ${S.refreshing===p.path?'disabled':''} title="Перечитать проект: изменения в папке, .flp, сэмплы, размер — и проверить, нет ли нового на GitHub">${S.refreshing===p.path?'<span class="spin"></span> Обновляю…':'⟳ Обновить'}</button><button class="ghost" onclick="api('/api/project/open',{path:S.sel})">Открыть папку</button></div>
     <div class="muted small mono">${esc(p.path)}</div>${p.fl?.saved?`<div class="muted small">Сохранён в FL Studio ${esc(p.fl.saved)}${p.fl.installed?` · у тебя ${esc(p.fl.installed)}`:''}</div>`:''}</div>
     ${p.fl?.tooOld?`<div class="badbox">${esc(p.fl.text)}</div>`:''}${layoutBanners(p)}
   <div class="card"><h3 style="margin-top:0">Подключить проект к синхронизации</h3>
@@ -1479,6 +1497,12 @@ async function takeLock(force){
 }
 async function unlock(){ await runJob('/api/project/unlock',{path:S.sel},{title:'Освобождаю проект'}) }
 async function sendDialog(){
+  // интерфейс подвис, а по «Отправить» нажали много раз — окно одно
+  if(S.sendOpen){ const ex=document.querySelector('.modal-bg[data-send]'); if(ex) ex.querySelector('#msg')?.focus(); return }
+  S.sendOpen=true; renderMain();
+  try{ await sendDialogNow() }catch(e){ S.sendOpen=false; renderMain(); fail(e) }
+}
+async function sendDialogNow(){
   const p=S.proj, mine=p.lock&&p.lock.user===p.me;
   const a=S.analysis?.analysis;
   const flps=(p.changes||[]).filter(c=>c.isFlp);
@@ -1496,7 +1520,8 @@ async function sendDialog(){
     <label>Что сделал</label><textarea id="msg" placeholder="Напр.: «добавил бас и переделал дроп»"></textarea>
     <label class="switch"><input type="checkbox" id="rel" ${mine?'checked':''}> Освободить проект (друг сможет взять его в работу)</label>
     <div class="muted small">${flps.length?'Проекты: '+flps.map(f=>esc(f.path)).join(', '):''}</div>
-    <div class="row" style="justify-content:flex-end;margin-top:12px"><button id="cancel">Отмена</button><button class="${lost.length?'':'primary'}" id="go">⤒ Отправить${lost.length?' так':''}</button></div>`);
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button id="cancel">Отмена</button><button class="${lost.length?'':'primary'}" id="go">⤒ Отправить${lost.length?' так':''}</button></div>`, ()=>{ S.sendOpen=false; renderMain() });
+  m.dataset.send='1';
   m.querySelector('#msg').focus();
   m.querySelector('#cancel').onclick=()=>m.close();
   const send=async()=>{ const msg=m.querySelector('#msg').value, rel=m.querySelector('#rel').checked; m.close(); await runJob('/api/project/send',{path:S.sel,message:msg,release:rel},{title:'Отправка'}) };
@@ -1520,7 +1545,29 @@ async function lostDialog(list){
   m.querySelector('#x').onclick=()=>m.close();
   const ok=m.querySelector('#ok'); if(ok) ok.onclick=async()=>{ const files=[...m.querySelectorAll('input[data-i]')].filter(b=>b.checked).map(b=>list[+b.dataset.i]); if(!files.length) return; m.close(); restoreLost(files) };
 }
-async function restore(hash, f){ await runJob('/api/project/restore',{path:S.sel,hash,file:decodeURIComponent(f)},{title:'Достаю старую версию'}) }
+async function restore(hash, f){
+  const path=S.sel, file=decodeURIComponent(f);
+  const j=await runJob('/api/project/restore',{path,hash,file},{title:'Достаю старую версию'});
+  if(!j||j.error||!j.result) return;
+  S.restored=S.restored||{}; (S.restored[path]=S.restored[path]||{})[hash+'|'+file]=j.result;
+  if(S.sel===path){ renderMain(); toast(`Копия готова: <b>${esc(j.result)}</b> — кнопка «▶ Запустить копию» в истории`,5000) }
+}
+async function launchCopy(rel){ rel=decodeURIComponent(rel); try{ await api('/api/project/launch-file',{path:S.sel,rel}); toast('Открываю '+esc(rel.split('/').pop())+' в FL Studio') }catch(e){ fail(e) } }
+async function rollbackTo(hash){
+  const p=S.proj, c=(S.history||[]).find(x=>x.hash===hash); if(!p||!c) return;
+  const lockOther=p.lock&&p.lock.user!==p.me;
+  if(!await uiConfirm(`Весь проект станет таким, как в версии от <b>${fmtTime(c.time)}</b> (${esc(c.author)}: «${esc(c.subject)}»): .flp и аудио — как тогда, файлы, появившиеся позже, уберутся.<br><br>
+    Ничего не пропадёт: текущее состояние (и несохранённые правки) сначала запишется в историю — откат можно отменить, откатившись обратно. Не отправлявшиеся файлы, которые мешают, уйдут в папку <b>Backup</b>.<br><br>
+    <b>Закрой проект в FL Studio</b> перед откатом.${p.behind?`<div class="warnbox" style="margin-top:10px">На сервере есть новое (${p.behind}) — лучше сначала «Получить», иначе при отправке оно сольётся с откатом.</div>`:''}${lockOther?`<div class="warnbox" style="margin-top:10px">Сейчас проектом занят ${esc(p.lock.user)}.</div>`:''}
+    <div class="muted small" style="margin-top:10px">Откат делается у тебя; чтобы у друга стало так же — потом «Отправить».</div>`,{title:'Откатить проект к этой версии',ok:'Откатить'})) return;
+  const path=S.sel;
+  const j=await runJob('/api/project/rollback',{path,hash},{title:'Откат проекта к версии'});
+  if(S.sel===path){ S.history=null; S.analysis=null; if(S.tab==='history') loadHistory(); loadSize(path,true) }
+  if(!j||j.error||!j.result) return;
+  const r=j.result;
+  if(r.nothing){ toast('Проект и так в этой версии'); return }
+  if(S.sel===path && await uiConfirm(`Проект как в версии ${esc(r.to)}: вернулось файлов — ${r.changed}, убрано появившихся позже — ${r.removed}.${r.moved?`<br>Мешавшие файлы (${r.moved}) — в <span class="mono">${esc(r.backupTo)}</span>.`:''}<br><br>Отправить откат, чтобы у друга стало так же? Передумаешь — откатись обратно к версии ${esc(r.before)} (она в «Истории»).`,{title:'Откат готов',ok:'Отправить…',cancel:'Позже'})) sendDialog();
+}
 function selAllUnused(v){ S.trashSel={}; if(v) for(const f of (S.analysis?.analysis?.audio||[]).filter(x=>!x.used)) S.trashSel[f.rel]=true; renderMain() }
 async function trashSelected(){
   const files=Object.entries(S.trashSel).filter(([,v])=>v).map(([k])=>k); if(!files.length) return;
@@ -1532,10 +1579,14 @@ async function trashSelected(){
     <div class="row" style="justify-content:flex-end;margin-top:14px"><button id="no">Отмена</button><button class="danger" id="ok">В корзину</button></div>`);
   m.querySelector('#no').onclick=()=>m.close();
   m.querySelectorAll('input[name=tm]').forEach(i=>i.onchange=()=>m.querySelectorAll('.radio').forEach(l=>l.classList.toggle('on',l.querySelector('input').checked)));
-  m.querySelector('#ok').onclick=async()=>{ const mode=(m.querySelector('input[name=tm]:checked')||{}).value||'all'; m.close();
-    try{ const r=await api('/api/project/trash',{path:S.sel,files,mode});
-      toast(mode==='local'?`Убрано только у тебя: ${r.n}, освободилось ${fmtSize(r.freed)}`:`Удалено в корзину: ${r}`,5000) }catch(e){ fail(e) }
-    S.trashSel={}; S.analysis=null; S.hidden=null; loadProject(S.sel); loadSize(S.sel,true) };
+  m.querySelector('#ok').onclick=async()=>{ const mode=(m.querySelector('input[name=tm]:checked')||{}).value||'all', path=S.sel; m.close();
+    S.trashSel={}; S.trashing=path; renderMain();
+    // задачей с плашкой: на больших файлах удаление идёт заметное время, а в списке это не видно
+    const j=await runJob('/api/project/trash',{path,files,mode},{title:mode==='local'?`Убираю аудио с этого компьютера (${files.length})`:`Удаляю аудио в корзину (${files.length})`});
+    S.trashing=null;
+    const r=j&&!j.error&&j.result;
+    if(r) toast(mode==='local'?`Убрано только у тебя: ${r.n}, освободилось ${fmtSize(r.freed)}`:`Удалено в корзину: ${r.n}`,5000);
+    if(S.sel===path){ S.analysis=null; S.hidden=null; loadProject(path); loadSize(path,true) } };
 }
 async function loadHidden(){ const path=S.sel; S.hidden=[]; try{ const l=await api('/api/project/hidden?path='+enc(path)); if(S.sel===path){ S.hidden=l; if(S.tab==='samples') renderMain() } }catch(e){ S.hidden=[] } }
 async function restoreHidden(files){ const j=await runJob('/api/project/restore-hidden',{path:S.sel,files},{title:'Возвращаю аудио'}); S.hidden=null; S.analysis=null; loadProject(S.sel); loadSize(S.sel,true) }
