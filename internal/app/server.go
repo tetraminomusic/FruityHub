@@ -45,7 +45,7 @@ func (s *Server) assetStamp() string {
 		return stampVal
 	}
 	h := crc32.NewIEEE()
-	h.Write([]byte(Version))
+	h.Write([]byte(Version + s.cfg.IconStyle))
 	if s.Assets != nil {
 		for _, n := range []string{"bg.jpg", "bg.png", "bg.jpeg", "bg.webp", "icon.png"} {
 			if b, err := fs.ReadFile(s.Assets, n); err == nil {
@@ -138,6 +138,14 @@ func (s *Server) Handler(port int) http.Handler {
 		if s.Assets == nil || strings.ContainsAny(name, "/\\.") {
 			http.NotFound(w, r)
 			return
+		}
+		switch name { // иконка в шапке — та, что выбрана в Настройки → Вид
+		case "icon":
+			if s.cfg.IconStyle == IconTile {
+				name = "icon-tile"
+			}
+		case "icon-clear":
+			name = "icon"
 		}
 		if name == "bg" { // свой фон пользователя
 			if c := customBackground(); c != "" {
@@ -232,6 +240,7 @@ func (s *Server) Handler(port int) http.Handler {
 	s.routes5(api)
 	s.routes6(api)
 	s.routes7(api)
+	s.routesIcon(api)
 	s.routesRelocate(api)
 	// DNS-rebinding protection: only accept our own host names
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -61,6 +61,7 @@ type Config struct {
 	Lang             string         `json:"lang,omitempty"`
 	OldNicks         []string       `json:"oldNicks,omitempty"`     // мои прежние ники (мои старые комментарии — мои)
 	ProjectRoots     []string       `json:"projectRoots,omitempty"` // папки, где лежат проекты FL (Настройки → Проекты)
+	IconStyle        string         `json:"iconStyle,omitempty"`    // иконка приложения: "" — без фона, "tile" — на тёмной плитке
 	LiteUI           bool           `json:"liteUi,omitempty"`       // лёгкий режим окна: без фона и размытия, без видеокарты (меньше памяти)             // язык интерфейса: "" — русский, "en" — английский
 	LitePlugins      []string       `json:"litePlugins,omitempty"`  // плагины, у которых не тянуть библиотеку пресетов при передаче
 	Meta             MetaSettings   `json:"meta"`                   // метаданные рендеров и README проектов

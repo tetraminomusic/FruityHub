@@ -77,8 +77,17 @@ func main() {
 
 	if !browserMode {
 		srv.Windowed = true
+		style := srv.IconStyle()
+		var dock []byte
+		if style == app.IconTile {
+			dock = app.AppIconPNG(web.FS, style)
+		}
+		app.OnIconChange = func(st string) {
+			ui.SetIcon(app.IconGroup(st), app.AppIconPNG(web.FS, st), st == app.IconTile)
+		}
 		err := ui.Run(ui.Options{URL: url, Title: app.AppName, Width: 1240, Height: 820,
-			DataPath: filepath.Join(app.ConfigDir(), "webview"), Quit: srv.Quit(), Lite: srv.LiteUI()})
+			DataPath: filepath.Join(app.ConfigDir(), "webview"), Quit: srv.Quit(), Lite: srv.LiteUI(),
+			IconID: app.IconGroup(style), IconPNG: dock, Bundle: app.AppBundle()})
 		if err == nil {
 			return // window closed → exit
 		}

@@ -491,6 +491,7 @@ function openGuide(first){
 }
 // новое в версиях (самое свежее сверху)
 const CHANGES=[
+  ['0.9.10',['Иконку приложения можно выбрать в Настройки → Вид: без фона или на тёмной плитке. Меняется у окна, на панели задач и в Доке, у FruityHub.exe и FruityHub.app; выбор сохраняется и после обновлений']],
   ['0.9.9',['Новая иконка приложения', 'Кнопка «⟳ Обновить» в шапке проекта — перечитать папку, .flp и сэмплы и проверить, нет ли нового на GitHub', '«⟲ Откатить сюда» в «Истории» — весь проект (.flp и аудио) становится как в выбранной версии; текущее состояние остаётся в истории, откат можно отменить', 'Достал старую копию .flp — рядом сразу кнопка «▶ Запустить копию»', 'Темп, тональность и длительность — отдельным блоком в настройках проекта', 'Сколько ни нажимай «Отправить», пока интерфейс думает, — окно отправки одно', 'Удаление аудио идёт задачей с плашкой — видно, что файлы удаляются']],
   ['0.9.8',['Сэмплы, которых нет на диске (в том числе из плагинов), сами достаются из прошлых версий проекта — при отправке, получении и скачивании', 'Если обновление уже идёт (в том числе автоматическое), кнопка «Обновить и перезапустить» не появляется — обновление не качается дважды']],
   ['0.9.7',['Перед отправкой FruityHub проверяет, не пропали ли сэмплы (в том числе загруженные в синты, которые FL удаляет как «неиспользуемые»), и возвращает их из прошлой версии проекта или из Корзины', '«Вернуть пропавшие…» во вкладке «Сэмплы»; файлы с галочкой «Отправлять» защищены от удаления', 'Сменил ник — твои старые комментарии, задачи и статус показываются под новым']],
@@ -1717,6 +1718,9 @@ async function openSettings(tab){
     <h3>Фон</h3>
     <div class="row"><button class="sm" id="bgpick">Выбрать картинку…</button><button class="sm ghost" id="bgreset" ${st.customBg?'':'disabled'}>Вернуть стандартный</button></div>
     <label>Затемнение фона</label><input type="range" id="bgdim" min="0" max="90" step="1" value="${c.bgDim||50}" style="padding:0">
+    <h3>Иконка приложения</h3>
+    <div id="icst" class="row" style="gap:8px;align-items:stretch">${[['','Без фона','icon-clear'],['tile','На тёмной плитке','icon-tile']].map(([k,t1,img])=>`<label class="radio ${(c.iconStyle||'')===k?'on':''}" style="flex:1;align-items:center;margin:0"><input type="radio" name="icst" value="${k}" ${(c.iconStyle||'')===k?'checked':''}><img src="/assets/${img}?v=__V__" alt="" style="width:44px;height:44px;flex:none"><span><b>${t1}</b></span></label>`).join('')}</div>
+    <div class="muted small">${/mac/i.test(S.state.os||navigator.platform)?'Меняется в Доке и у FruityHub.app в Finder.':'Меняется у окна и на панели задач, и у самого файла FruityHub.exe — если он лежит в защищённой папке (общий рабочий стол), Windows один раз спросит разрешение. Значок, закреплённый на панели задач, Windows может обновить не сразу.'}</div>
     <h3>Уведомления</h3>
     <label>Сколько держать на экране сообщения о готовых задачах (справа снизу) и подсказки</label>
     <select id="tsec" style="width:auto">${[[3,'3 секунды'],[4,'4 секунды (обычно)'],[6,'6 секунд'],[10,'10 секунд'],[20,'20 секунд'],[60,'минуту'],[0,'пока не закрою']].map(([v,t])=>`<option value="${v}" ${noteSec()===v?'selected':''}>${t}</option>`).join('')}</select>
@@ -1814,6 +1818,10 @@ async function openSettings(tab){
   }).catch(()=>{});
   // фон
   const bgApply=r=>{ S.state.customBg=r.custom; m.querySelector('#bgreset').disabled=!r.custom; reloadBg(r.stamp) };
+  m.querySelectorAll('input[name=icst]').forEach(i=>i.onchange=async()=>{
+    m.querySelectorAll('#icst .radio').forEach(l=>l.classList.toggle('on',l.querySelector('input').checked));
+    const j=await runJob('/api/appicon',{style:i.value},{title:'Меняю иконку приложения'});
+    if(j){ S.state.config.iconStyle=i.value; const lg=document.querySelector('.logo img'); if(lg) lg.src='/assets/icon?v='+Date.now(); document.querySelectorAll('link[rel=icon]').forEach(l=>l.href='/assets/icon?v='+Date.now()) } });
   m.querySelector('#bgpick').onclick=async()=>{ try{ const r=await api('/api/background',{action:'pick'}); if(r.ok) bgApply(r) }catch(e){ fail(e) } };
   m.querySelector('#bgreset').onclick=async()=>{ try{ bgApply(await api('/api/background',{action:'reset'})) }catch(e){ fail(e) } };
   const dim=m.querySelector('#bgdim'); let dimT;

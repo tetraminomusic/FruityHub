@@ -1343,5 +1343,12 @@ window.I18N_EN = {
 "Отправить…": "Send…",
 "Убираю аудио с этого компьютера (": "Removing audio from this computer (",
 "Удаляю аудио в корзину (": "Moving audio to the Trash (",
-"Удаляю аудио": "Deleting audio"
+"Удаляю аудио": "Deleting audio",
+"Иконку приложения можно выбрать в Настройки → Вид: без фона или на тёмной плитке. Меняется у окна, на панели задач и в Доке, у FruityHub.exe и FruityHub.app; выбор сохраняется и после обновлений": "The app icon can be chosen in Settings → Look: without a background or on a dark tile. It changes for the window, the taskbar and the Dock, for FruityHub.exe and FruityHub.app; the choice is kept after updates",
+"Иконка приложения": "App icon",
+"Без фона": "No background",
+"На тёмной плитке": "On a dark tile",
+"Меняется в Доке и у FruityHub.app в Finder.": "Changes in the Dock and for FruityHub.app in Finder.",
+"Меняется у окна и на панели задач, и у самого файла FruityHub.exe — если он лежит в защищённой папке (общий рабочий стол), Windows один раз спросит разрешение. Значок, закреплённый на панели задач, Windows может обновить не сразу.": "Changes for the window and the taskbar, and for the FruityHub.exe file itself — if it is in a protected folder (the shared desktop), Windows will ask for permission once. Windows may not update a pinned taskbar icon right away.",
+"Меняю иконку приложения": "Changing the app icon"
 };

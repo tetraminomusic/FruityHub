@@ -6,5 +6,5 @@ import "embed"
 //go:embed index.html
 var Index []byte
 
-//go:embed index.html bg.jpg icon.png i18n_en.js
+//go:embed index.html bg.jpg icon.png icon-tile.png appicon-clear.png appicon-tile.png i18n_en.js
 var FS embed.FS

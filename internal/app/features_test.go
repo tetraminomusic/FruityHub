@@ -14,7 +14,7 @@ func TestNewerVersion(t *testing.T) {
 	for _, c := range []struct {
 		a, b string
 		want bool
-	}{{"0.7.10", "0.7.9", true}, {"0.7.0", "0.7.0", false}, {"0.6.9", "0.7.0", false}, {"1.0", "0.9.9", true}, {"0.7.0", "dev", false}, {"", "0.1", false}} {
+	}{{"0.7.10", "0.7.9", true}, {"0.7.0", "0.7.0", false}, {"0.6.9", "0.7.0", false}, {"1.0", "0.9.9", true}, {"0.9.10", "0.9.9", true}, {"0.7.0", "dev", false}, {"", "0.1", false}} {
 		if newerVersion(c.a, c.b) != c.want {
 			t.Errorf("newerVersion(%q,%q) != %v", c.a, c.b, c.want)
 		}

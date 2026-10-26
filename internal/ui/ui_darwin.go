@@ -4,7 +4,10 @@ package ui
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"runtime"
+	"unsafe"
 
 	"github.com/ebitengine/purego"
 	"github.com/ebitengine/purego/objc"
@@ -101,6 +104,26 @@ func Run(o Options) (err error) {
 	u := cls("NSURL").Send(sel("URLWithString:"), nsStr(o.URL))
 	wv.Send(sel("loadRequest:"), cls("NSURLRequest").Send(sel("requestWithURL:"), u))
 
+	// своя иконка (Настройки → Вид): Док — сейчас, Finder — если после обновления её на бандле нет
+	if len(o.IconPNG) > 0 {
+		if img := nsImage(o.IconPNG); img != 0 {
+			app.Send(sel("setApplicationIconImage:"), img)
+			if o.Bundle != "" && !hasCustomIcon(o.Bundle) {
+				go bundleIcon(o.Bundle, img)
+			}
+		}
+	}
+	setIcon = func(_ int, png []byte, custom bool) {
+		defer func() { recover() }()
+		var img objc.ID
+		if custom && len(png) > 0 {
+			img = nsImage(png)
+		}
+		app.Send(sel("performSelectorOnMainThread:withObject:waitUntilDone:"), sel("setApplicationIconImage:"), img, false)
+		if o.Bundle != "" {
+			bundleIcon(o.Bundle, img)
+		}
+	}
 	win.Send(sel("makeKeyAndOrderFront:"), objc.ID(0))
 	app.Send(sel("activateIgnoringOtherApps:"), true)
 
@@ -115,4 +138,21 @@ func Run(o Options) (err error) {
 	}
 	app.Send(sel("run"))
 	return nil
+}
+
+func nsImage(png []byte) objc.ID {
+	data := cls("NSData").Send(sel("dataWithBytes:length:"), uintptr(unsafe.Pointer(&png[0])), uint64(len(png)))
+	runtime.KeepAlive(png)
+	return cls("NSImage").Send(sel("alloc")).Send(sel("initWithData:"), data)
+}
+
+// своя иконка файла у FruityHub.app в Finder (как «Свойства» → вставить картинку); img=0 — убрать
+func bundleIcon(bundle string, img objc.ID) {
+	defer func() { recover() }()
+	cls("NSWorkspace").Send(sel("sharedWorkspace")).Send(sel("setIcon:forFile:options:"), img, nsStr(bundle), uint64(0))
+}
+
+func hasCustomIcon(bundle string) bool {
+	_, err := os.Stat(filepath.Join(bundle, "Icon\r"))
+	return err == nil
 }
