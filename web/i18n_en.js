@@ -1350,5 +1350,6 @@ window.I18N_EN = {
 "На тёмной плитке": "On a dark tile",
 "Меняется в Доке и у FruityHub.app в Finder.": "Changes in the Dock and for FruityHub.app in Finder.",
 "Меняется у окна и на панели задач, и у самого файла FruityHub.exe — если он лежит в защищённой папке (общий рабочий стол), Windows один раз спросит разрешение. Значок, закреплённый на панели задач, Windows может обновить не сразу.": "Changes for the window and the taskbar, and for the FruityHub.exe file itself — if it is in a protected folder (the shared desktop), Windows will ask for permission once. Windows may not update a pinned taskbar icon right away.",
-"Меняю иконку приложения": "Changing the app icon"
+"Меняю иконку приложения": "Changing the app icon",
+"Смена иконки на Windows: больше нет ложной ошибки «Windows не дал заменить файл приложения» (файл менялся, а проверка смотрела на уже запущенную копию); если замена правда не удалась — пишется почему": "Changing the icon on Windows: no more false «Windows didn't let me replace the app file» error (the file was changed, but the check looked at the already running copy); if the replacement really failed, the reason is shown"
 };

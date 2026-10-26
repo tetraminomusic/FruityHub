@@ -1,7 +1,6 @@
 package app
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -34,31 +33,13 @@ const (
 	shcnfFlushNow = 0x1000
 )
 
-// groupData — содержимое набора иконок id из exe-файла (не запущенного модуля: после смены там уже другой).
-func groupData(path string, id int) ([]byte, error) {
-	h, err := windows.LoadLibraryEx(path, 0, loadAsData)
-	if err != nil {
-		return nil, fmt.Errorf("не открыл %s: %v", path, err)
-	}
-	defer windows.FreeLibrary(h)
-	r, err := windows.FindResource(h, windows.ResourceID(id), windows.RT_GROUP_ICON)
-	if err != nil {
-		return nil, errors.New("в этой версии нет второй иконки")
-	}
-	b, err := windows.LoadResourceData(h, r)
-	if err != nil || len(b) == 0 {
-		return nil, errors.New("не прочитал иконку")
-	}
-	return append([]byte(nil), b...), nil
-}
-
 // patchExeIcon — в файле path (не запущенном) иконкой Проводника станет выбранный набор.
 func patchExeIcon(path, style string) error {
-	want, err := groupData(path, IconGroup(style))
+	want, err := exeIconGroup(path, uint32(IconGroup(style)))
 	if err != nil {
 		return err
 	}
-	if cur, err := groupData(path, iconGroupShown); err == nil && string(cur) == string(want) {
+	if cur, err := exeIconGroup(path, iconGroupShown); err == nil && string(cur) == string(want) {
 		return nil
 	}
 	p, _ := syscall.UTF16PtrFromString(path)
@@ -80,6 +61,14 @@ func patchExeIcon(path, style string) error {
 // replaceExeIcon: копия exe с новой иконкой встаёт на место запущенного. Старый файл уезжает во временную папку
 // (запущенный exe можно переносить в пределах диска), если папка защищена — Windows один раз спросит разрешение.
 func replaceExeIcon(exe, style string) error {
+	want, err := exeIconGroup(exe, uint32(IconGroup(style)))
+	if err != nil {
+		return err
+	}
+	if cur, err := exeIconGroup(exe, iconGroupShown); err == nil && string(cur) == string(want) {
+		refreshShellIcon(exe)
+		return nil // у файла уже эта иконка
+	}
 	tmpDir, err := os.MkdirTemp("", "fruityhub-icon-")
 	if err != nil {
 		return err
@@ -92,44 +81,54 @@ func replaceExeIcon(exe, style string) error {
 		return err
 	}
 	old := filepath.Join(tmpDir, "old-"+time.Now().Format("150405")+".exe")
+	errFile := filepath.Join(tmpDir, "error.txt")
 	q := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
 	script := strings.Join([]string{
 		"$ErrorActionPreference = 'Stop'",
-		"try { Move-Item -LiteralPath " + q(exe) + " -Destination " + q(old) + " -Force } catch { $h = " + q(exe+".old-icon") + "; Move-Item -LiteralPath " + q(exe) + " -Destination $h -Force; (Get-Item -LiteralPath $h -Force).Attributes = 'Hidden' }",
-		"Copy-Item -LiteralPath " + q(tmp) + " -Destination " + q(exe) + " -Force",
+		"try {",
+		"  try { Move-Item -LiteralPath " + q(exe) + " -Destination " + q(old) + " -Force } catch { $h = " + q(exe+".old-icon") + "; Move-Item -LiteralPath " + q(exe) + " -Destination $h -Force; (Get-Item -LiteralPath $h -Force).Attributes = 'Hidden' }",
+		"  Copy-Item -LiteralPath " + q(tmp) + " -Destination " + q(exe) + " -Force",
+		"} catch { $_.Exception.Message | Out-File -LiteralPath " + q(errFile) + " -Encoding utf8; exit 1 }",
 	}, "\r\n")
 	ps1 := filepath.Join(tmpDir, "icon.ps1")
 	if err := os.WriteFile(ps1, []byte("\ufeff"+script), 0o644); err != nil {
 		return err
 	}
+	elevated := !writableDir(filepath.Dir(exe))
 	var cmd *exec.Cmd
-	if writableDir(filepath.Dir(exe)) {
-		cmd = exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps1)
-	} else {
+	if elevated {
 		cmd = exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
 			"Start-Process powershell -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList "+q(`-NoProfile -ExecutionPolicy Bypass -File "`+ps1+`"`))
+	} else {
+		cmd = exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps1)
 	}
 	hideWindow(cmd)
-	out, err := cmd.CombinedOutput()
+	out, runErr := cmd.CombinedOutput()
 	if !exists(exe) { // что-то пошло не так посередине — вернуть как было
 		for _, b := range []string{old, exe + ".old-icon"} {
 			if exists(b) {
 				os.Rename(b, exe)
 			}
 		}
-		return errors.New("не получилось заменить файл приложения")
 	}
-	if cur, e := groupData(exe, iconGroupShown); e != nil || string(cur) != string(mustGroup(tmp)) {
-		if err != nil {
-			return fmt.Errorf("Windows не дал заменить %s (разрешение не дано?) %s", filepath.Base(exe), strings.TrimSpace(string(out)))
-		}
-		return errors.New("Windows не дал заменить файл приложения (разрешение не дано?)")
+	// проверяем сам файл на диске (а не загруженный модуль): встала ли копия с новой иконкой
+	if cur, err := exeIconGroup(exe, iconGroupShown); err == nil && string(cur) == string(want) {
+		refreshShellIcon(exe)
+		return nil
 	}
-	refreshShellIcon(exe)
-	return nil
+	why := ""
+	if b, err := os.ReadFile(errFile); err == nil {
+		why = strings.TrimSpace(strings.TrimPrefix(string(b), "\ufeff"))
+	} else if runErr != nil && elevated {
+		why = "разрешение не дано"
+	} else if runErr != nil {
+		why = strings.TrimSpace(string(out))
+	}
+	if why == "" {
+		why = "причина неизвестна"
+	}
+	return fmt.Errorf("Windows не дал заменить %s (%s). Окно и панель задач уже с новой иконкой; файл можно поменять ещё раз позже. Если мешает антивирус — «Контролируемый доступ к папкам» в Защитнике Windows не даёт менять файлы на рабочем столе", filepath.Base(exe), why)
 }
-
-func mustGroup(path string) []byte { b, _ := groupData(path, iconGroupShown); return b }
 
 // Проводник держит иконки в кэше — просим обновить.
 func refreshShellIcon(path string) {
