@@ -8,7 +8,7 @@
   <a href="LICENSE"><img alt="Лицензия: MIT" src="https://img.shields.io/badge/license-MIT-green.svg"></a>
   <img alt="Go 1.22" src="https://img.shields.io/badge/Go-1.22-00ADD8?logo=go&logoColor=white">
   <img alt="Платформы" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue">
-  <img alt="Версия" src="https://img.shields.io/badge/version-0.9.11-orange">
+  <img alt="Версия" src="https://img.shields.io/badge/version-0.9.12-orange">
   <img alt="Git LFS" src="https://img.shields.io/badge/Git-LFS-F05032?logo=git&logoColor=white">
   <img alt="FL Studio" src="https://img.shields.io/badge/FL%20Studio-compatible-ff8c00">
 </p>

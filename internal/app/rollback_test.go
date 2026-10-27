@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -83,5 +84,43 @@ func TestRollback(t *testing.T) {
 	// отправка доходит до GitHub
 	if _, err := p.Send("после отката", false); err != nil {
 		t.Fatal(err, dump(p.Job))
+	}
+}
+
+// «История» показывает и коммиты, которые уже есть на сервере, но ещё не получены.
+func TestHistoryIncoming(t *testing.T) {
+	root := t.TempDir()
+	run := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=a", "GIT_AUTHOR_EMAIL=a@a", "GIT_COMMITTER_NAME=a", "GIT_COMMITTER_EMAIL=a@a")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	bare := filepath.Join(root, "srv.git")
+	run(root, "init", "-q", "--bare", "-b", "main", bare)
+	a, b := filepath.Join(root, "a"), filepath.Join(root, "b")
+	run(root, "clone", "-q", bare, a)
+	os.WriteFile(filepath.Join(a, "t.flp"), []byte("1"), 0o644)
+	run(a, "add", "-A")
+	run(a, "commit", "-q", "-m", "первая")
+	run(a, "push", "-q", "origin", "HEAD:main")
+	run(root, "clone", "-q", bare, b)
+	os.WriteFile(filepath.Join(b, "t.flp"), []byte("2"), 0o644)
+	run(b, "commit", "-q", "-am", "от друга")
+	run(b, "push", "-q", "origin", "HEAD:main")
+	g := &Git{Dir: a}
+	if len(g.Incoming(10)) != 0 {
+		t.Fatal("до проверки сервера нового быть не должно")
+	}
+	run(a, "fetch", "-q", "origin")
+	in := g.Incoming(10)
+	if len(in) != 1 || !in[0].Incoming || in[0].Subject != "от друга" || len(in[0].Files) != 1 {
+		t.Fatalf("%+v", in)
+	}
+	if l := g.Log(10); len(l) != 1 || l[0].Subject != "первая" {
+		t.Fatalf("%+v", l)
 	}
 }

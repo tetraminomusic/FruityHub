@@ -30,6 +30,7 @@ type InstalledPlugin struct {
 // Machine is the inventory a participant publishes into the repo.
 type Machine struct {
 	User      string            `json:"user"`
+	UserID    string            `json:"userId,omitempty"` // id на сервере FruityHub: после смены ника данные остаются за человеком
 	GitHub    string            `json:"github,omitempty"`
 	OS        string            `json:"os"`
 	FLVersion string            `json:"flVersion,omitempty"`
@@ -213,8 +214,54 @@ func (p *Project) Machines() []Machine {
 			ms = append(ms, m)
 		}
 	}
-	return ms
+	return p.resolveMachines(ms)
 }
+
+// resolveMachines: у каждого компьютера — нынешний ник владельца (файл мог остаться под прежним),
+// а если у одного человека два файла (старый ник и новый) — берётся свежий.
+func (p *Project) resolveMachines(ms []Machine) []Machine {
+	var out []Machine
+	idx := map[string]int{}
+	for _, m := range ms {
+		if m.UserID == "" && ownerByPlugins != nil {
+			if taken, ok := nickTaken(m.User); ok && !taken { // такого ника больше нет — чей это компьютер?
+				m.UserID = ownerByPlugins(m)
+			}
+		}
+		if p.Cfg != nil && p.Cfg.isMe(m.UserID, m.User) {
+			m.User = p.Cfg.MachineID()
+		} else if currentNick != nil {
+			m.User = currentNick(m.UserID, m.User)
+		}
+		if i, ok := idx[m.User]; ok {
+			if m.Updated > out[i].Updated {
+				out[i] = m
+			}
+			continue
+		}
+		idx[m.User] = len(out)
+		out = append(out, m)
+	}
+	return out
+}
+
+// isMyOldMachine — мой файл под прежним ником: по id, известному прежнему нику или (для файлов без id,
+// записанных до 0.9.12) — по набору плагинов, сверенному с тем, что лежит на сервере.
+func (p *Project) isMyOldMachine(m Machine) bool {
+	if p.Cfg.isMe(m.UserID, m.User) {
+		return true
+	}
+	return m.UserID == "" && ownerByPlugins != nil && p.Cfg.UserID != "" && ownerByPlugins(m) == p.Cfg.UserID
+}
+
+// ownerByPlugins — id человека, чей это компьютер, по плагинам (у каждого компьютера набор свой), "" — не ясно.
+var ownerByPlugins func(m Machine) string
+
+// nickTaken: есть ли сейчас на сервере человек с таким ником (ok=false — список ещё не известен).
+var nickTaken func(nick string) (taken, ok bool)
+
+// currentNick — нынешний ник по id или прежнему нику (ставит сервер приложения; без сервера — как есть).
+var currentNick func(id, nick string) string
 
 func (p *Project) Catalog() map[string]CatalogEntry {
 	c := map[string]CatalogEntry{}
@@ -234,8 +281,28 @@ func (p *Project) SetCatalog(name, url, note string) error {
 	return writeJSON(filepath.Join(p.Dir, ".flsync", "catalog.json"), c)
 }
 
+// dropMyOldMachines убирает мои файлы под прежними никами — после смены ника в проекте остаётся только нынешний.
+func (p *Project) dropMyOldMachines(keep string) {
+	dir := filepath.Join(p.Dir, ".flsync", "machines")
+	ents, _ := os.ReadDir(dir)
+	for _, e := range ents {
+		if e.Name() == keep || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		var m Machine
+		if readJSON(filepath.Join(dir, e.Name()), &m) == nil && m.User != "" && p.isMyOldMachine(m) {
+			os.Remove(filepath.Join(dir, e.Name()))
+			if m.UserID == "" && !p.Cfg.isMe("", m.User) { // узнали прежний ник по плагинам
+				p.Cfg.OldNicks = append(p.Cfg.OldNicks, m.User)
+				p.Cfg.Save()
+				go p.Cfg.Hub().AddOldNick(m.User)
+			}
+		}
+	}
+}
+
 func (p *Project) myMachine(a *Analysis) Machine {
-	me := Machine{User: p.Cfg.MachineID(), OS: OSName(), Updated: time.Now().Format("2006-01-02 15:04")}
+	me := Machine{User: p.Cfg.MachineID(), UserID: p.Cfg.UserID, OS: OSName(), Updated: time.Now().Format("2006-01-02 15:04")}
 	var prev Machine
 	readJSON(filepath.Join(p.Dir, ".flsync", "machines", me.User+".json"), &prev)
 	me.FLVersion = prev.FLVersion
@@ -401,6 +468,7 @@ func (p *Project) WriteManifest(a *Analysis) error {
 	if err := writeJSON(filepath.Join(p.Dir, ".flsync", "machines", me.User+".json"), me); err != nil {
 		return err
 	}
+	p.dropMyOldMachines(me.User + ".json")
 	var flv string
 	for _, f := range a.FLPs {
 		if cmpVersion(f.Info.FLVersion, flv) > 0 {

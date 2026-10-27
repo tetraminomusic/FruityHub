@@ -182,6 +182,23 @@ func (s *Store) userByNick(nick string) *User {
 	return nil
 }
 
+// userByAnyNick — по нынешнему нику, а если такого нет — по прежнему: у друга в проекте ещё может
+// значиться старый ник (запросы плагинов, сэмплов). Нынешний ник другого человека важнее.
+func (s *Store) userByAnyNick(nick string) *User {
+	if u := s.userByNick(nick); u != nil {
+		return u
+	}
+	n := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(nick, "@")))
+	for _, u := range s.db.Users {
+		for _, o := range u.OldNicks {
+			if strings.ToLower(o) == n {
+				return u
+			}
+		}
+	}
+	return nil
+}
+
 func isMember(p *Project, uid string) bool {
 	for _, m := range p.Members {
 		if m == uid {

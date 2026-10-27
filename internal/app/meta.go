@@ -367,3 +367,123 @@ func (s *Server) nickResolver() func(id, nick string) string {
 		return nick
 	}
 }
+
+// cachedNickResolver — как nickResolver, но без ожидания сервера: берёт то, что уже известно,
+// а список пользователей обновляет в фоне (зовётся при разборе проекта — тормозить нельзя).
+func (s *Server) cachedNickResolver() func(id, nick string) string {
+	us := s.usersCached()
+	byID, byOld := map[string]string{}, map[string]string{}
+	for _, u := range us {
+		byID[u.ID] = u.Nick
+		for _, o := range u.OldNicks {
+			byOld[o] = u.Nick
+		}
+	}
+	return func(id, nick string) string {
+		if n := byID[id]; id != "" && n != "" {
+			return n
+		}
+		for _, u := range us { // нынешний ник важнее прежнего чужого
+			if u.Nick == nick {
+				return nick
+			}
+		}
+		if n := byOld[nick]; n != "" {
+			return n
+		}
+		return nick
+	}
+}
+
+// usersCached — пользователи сервера из кэша; устаревший кэш обновляется в фоне.
+func (s *Server) usersCached() []HubUser {
+	usersCache.Lock()
+	us, stale := usersCache.list, time.Since(usersCache.at) > 30*time.Second
+	if stale {
+		usersCache.at = time.Now() // одна фоновая попытка за раз
+	}
+	usersCache.Unlock()
+	if stale && s.cfg.Hub().Registered() {
+		go func() {
+			if l, err := s.cfg.Hub().Users(); err == nil {
+				usersCache.Lock()
+				usersCache.list, usersCache.at = l, time.Now()
+				usersCache.Unlock()
+			}
+		}()
+	}
+	return us
+}
+
+// nickTakenCached: есть ли сейчас на сервере человек с таким ником (ok=false — список ещё не известен).
+func (s *Server) nickTakenCached(nick string) (taken, ok bool) {
+	us := s.usersCached()
+	if len(us) == 0 {
+		return false, false
+	}
+	for _, u := range us {
+		if strings.EqualFold(u.Nick, nick) {
+			return true, true
+		}
+	}
+	return false, true
+}
+
+var invCache struct {
+	sync.Mutex
+	byUser map[string]map[string]bool // id → плагины на сервере
+	at     time.Time
+}
+
+// ownerByPluginsCached: чей компьютер по плагинам — у кого на сервере не меньше 85% тех же плагинов и
+// заметно больше совпадений, чем у остальных. Данные — из кэша, обновление в фоне.
+func (s *Server) ownerByPluginsCached(m Machine) string {
+	if len(m.Plugins) < 5 {
+		return ""
+	}
+	invCache.Lock()
+	inv, stale := invCache.byUser, time.Since(invCache.at) > 5*time.Minute
+	if stale {
+		invCache.at = time.Now()
+	}
+	invCache.Unlock()
+	if stale && s.cfg.Hub().Registered() {
+		go func() {
+			us, err := s.cfg.Hub().Users()
+			if err != nil {
+				return
+			}
+			out := map[string]map[string]bool{}
+			for _, u := range us {
+				if i, err := s.cfg.Hub().Inventory(u.ID); err == nil {
+					set := map[string]bool{}
+					for _, pl := range i.Plugins {
+						set[normName(pl.Name)] = true
+					}
+					out[u.ID] = set
+				}
+			}
+			invCache.Lock()
+			invCache.byUser, invCache.at = out, time.Now()
+			invCache.Unlock()
+		}()
+	}
+	best, bestN, second := "", 0, 0
+	for id, set := range inv {
+		n := 0
+		for _, pl := range m.Plugins {
+			if set[normName(pl.Name)] {
+				n++
+			}
+		}
+		if n > bestN {
+			best, bestN, second = id, n, bestN
+		} else if n > second {
+			second = n
+		}
+	}
+	if bestN*100 < len(m.Plugins)*85 || bestN-second < max(2, len(m.Plugins)/20) {
+		return ""
+	}
+	return best
+}

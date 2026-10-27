@@ -201,6 +201,23 @@ func (p *Project) markIntentionalRollback() {
 	}
 }
 
+// quickFetch — свежие данные с GitHub, если сейчас не идёт отправка или получение; медленную сеть не ждём
+// дольше wait (fetch доделается сам).
+func (s *Server) quickFetch(p *Project, wait time.Duration) bool {
+	g := p.git()
+	if !g.IsRepo() || g.Remote() == "" || !s.mu.TryLock() {
+		return false
+	}
+	done := make(chan error, 1)
+	go func() { done <- g.Fetch(); s.mu.Unlock() }()
+	select {
+	case err := <-done:
+		return err == nil
+	case <-time.After(wait):
+		return false
+	}
+}
+
 func (s *Server) routes7(api func(string, func(r *http.Request) (any, error))) {
 	str := func(m map[string]any, k string) string { v, _ := m[k].(string); return v }
 	body := func(r *http.Request) map[string]any { m := map[string]any{}; decode(r, &m); return m }
@@ -212,17 +229,7 @@ func (s *Server) routes7(api func(string, func(r *http.Request) (any, error))) {
 			return nil, err
 		}
 		sizeCache.Delete(p.Dir)
-		fetched := false
-		g := p.git()
-		if g.IsRepo() && g.Remote() != "" && s.mu.TryLock() {
-			done := make(chan error, 1)
-			go func() { done <- g.Fetch(); s.mu.Unlock() }()
-			select {
-			case err := <-done:
-				fetched = err == nil
-			case <-time.After(20 * time.Second): // медленная сеть — не держим кнопку, fetch доделается сам
-			}
-		}
+		fetched := s.quickFetch(p, 20*time.Second)
 		return map[string]any{"fetched": fetched}, nil
 	})
 

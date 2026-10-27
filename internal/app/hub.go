@@ -270,6 +270,11 @@ func (h *Hub) UpdateMe(nick, sharing, githubToken *string) (*HubUser, error) {
 	return &u, nil
 }
 
+// AddOldNick сообщает серверу мой прежний ник: записи под ним (у друзей в проектах) будут показываться под нынешним.
+func (h *Hub) AddOldNick(nick string) error {
+	return h.do("PATCH", "/api/me", map[string]any{"addOldNick": nick}, nil)
+}
+
 func (h *Hub) Users() ([]HubUser, error) {
 	var u []HubUser
 	return u, h.do("GET", "/api/users", nil, &u)

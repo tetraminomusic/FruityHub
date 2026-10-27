@@ -626,13 +626,36 @@ type Commit struct {
 	Time    int64    `json:"time"`
 	Subject string   `json:"subject"`
 	Files   []string `json:"files"`
+	// Incoming — есть на сервере, но ещё не получено (появится после «Получить»)
+	Incoming bool `json:"incoming,omitempty"`
 }
 
 func (g *Git) Log(n int) []Commit {
 	if !g.HasCommits() {
 		return nil
 	}
-	out, err := g.RunQuiet("log", fmt.Sprintf("-n%d", n), "--name-only", "--format=\x1e%H\x1f%h\x1f%an\x1f%at\x1f%s")
+	return g.logRange(n, "HEAD")
+}
+
+// Incoming — коммиты, которые уже есть на сервере (после последней проверки), но ещё не получены.
+func (g *Git) Incoming(n int) []Commit {
+	b := g.Branch()
+	if b == "" || !g.RemoteBranchExists(b) {
+		return nil
+	}
+	rng := "origin/" + b
+	if g.HasCommits() {
+		rng = "HEAD..origin/" + b
+	}
+	l := g.logRange(n, rng)
+	for i := range l {
+		l[i].Incoming = true
+	}
+	return l
+}
+
+func (g *Git) logRange(n int, rng string) []Commit {
+	out, err := g.RunQuiet("log", fmt.Sprintf("-n%d", n), "--name-only", "--format=\x1e%H\x1f%h\x1f%an\x1f%at\x1f%s", rng, "--")
 	if err != nil {
 		return nil
 	}

@@ -258,11 +258,17 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		s.st.mu.Lock()
-		n := len(s.st.db.Users)
-		s.st.mu.Unlock()
-		fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><title>FruityHub — сервер</title><body style="font:16px system-ui;background:#141518;color:#eee;padding:40px">
-<h1>FruityHub — сервер работает</h1><p>Пользователей: %d. Этот адрес вписывается в FruityHub при регистрации.</p>`, n)
+		w.Header().Set("Cache-Control", "no-cache")
+		io.WriteString(w, landingPage)
+	})
+	mux.HandleFunc("GET /icon.png", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Write(iconPNG)
+	})
+	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Write(iconPNG)
 	})
 	mux.HandleFunc("POST /api/register", s.wrap(false, s.register))
 	mux.HandleFunc("GET /api/me", s.wrap(true, func(w http.ResponseWriter, r *http.Request, me *User) (any, error) { return view(me), nil }))
@@ -391,6 +397,7 @@ func (s *Server) updateMe(w http.ResponseWriter, r *http.Request, me *User) (any
 		Nick        *string `json:"nick"`
 		Sharing     *string `json:"sharing"`
 		GitHubToken *string `json:"githubToken"`
+		AddOldNick  *string `json:"addOldNick"` // приложение узнало мой прежний ник (по старым файлам в проекте)
 	}
 	if err := decode(r, &req); err != nil {
 		return nil, err
@@ -415,8 +422,23 @@ func (s *Server) updateMe(w http.ResponseWriter, r *http.Request, me *User) (any
 		}
 		if n != me.Nick {
 			me.OldNicks = appendUnique(me.OldNicks, me.Nick)
+			var keep []string // вернул себе прежний ник — он снова нынешний
+			for _, o := range me.OldNicks {
+				if !strings.EqualFold(o, n) {
+					keep = append(keep, o)
+				}
+			}
+			me.OldNicks = keep
 		}
 		me.Nick = n
+	}
+	if req.AddOldNick != nil { // только ник, которого сейчас ни у кого нет и который не числится за другим
+		n := strings.TrimSpace(*req.AddOldNick)
+		if n != "" && !strings.EqualFold(n, me.Nick) && s.st.userByNick(n) == nil {
+			if o := s.st.userByAnyNick(n); o == nil || o.ID == me.ID {
+				me.OldNicks = appendUnique(me.OldNicks, n)
+			}
+		}
 	}
 	if req.Sharing != nil {
 		switch *req.Sharing {
@@ -647,7 +669,7 @@ func (s *Server) invite(w http.ResponseWriter, r *http.Request, me *User) (any, 
 	if err != nil {
 		return nil, err
 	}
-	u := s.st.userByNick(req.Nick)
+	u := s.st.userByAnyNick(req.Nick)
 	if u == nil {
 		return nil, notFound(fmt.Sprintf("пользователь «%s» не найден", strings.TrimSpace(req.Nick)))
 	}
@@ -812,7 +834,7 @@ func (s *Server) createRequests(w http.ResponseWriter, r *http.Request, me *User
 	}
 	s.st.mu.Lock()
 	defer s.st.mu.Unlock()
-	to := s.st.userByNick(req.To)
+	to := s.st.userByAnyNick(req.To)
 	if to == nil {
 		return nil, notFound("пользователь не найден")
 	}

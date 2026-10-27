@@ -188,3 +188,55 @@ func TestHubRules(t *testing.T) {
 		}
 	}
 }
+
+// Сменил ник: запросы к прежнему нику (у друга в проекте он ещё записан) доходят до нынешнего;
+// прежний ник свободен для других, и его нынешний владелец важнее.
+func TestRenamedNick(t *testing.T) {
+	root := t.TempDir()
+	gh := fakegh.New(root)
+	defer gh.Close()
+	gh.AddUser("tA", "alogin")
+	gh.AddUser("tB", "blogin")
+	gh.AddUser("tC", "clogin")
+	data := filepath.Join(root, "data")
+	os.MkdirAll(data, 0o700)
+	s, err := hub.New(hub.Options{DataDir: data, GitHubAPI: gh.Srv.URL, Code: "secret", StreamWait: 2 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+	anon := &client{t: t, base: srv.URL}
+	reg := func(nick, tok string) *client {
+		code, r := anon.do("POST", "/api/register", map[string]string{"nick": nick, "os": "macOS", "code": "secret", "githubToken": tok})
+		if code != 200 {
+			t.Fatalf("register %s: %d %v", nick, code, r)
+		}
+		return &client{t: t, base: srv.URL, tok: r["token"].(string)}
+	}
+	a, b := reg("старый", "tA"), reg("друг", "tB")
+	if code, _ := a.do("PATCH", "/api/me", map[string]string{"nick": "новый"}); code != 200 {
+		t.Fatal("rename")
+	}
+	if code, r := b.do("POST", "/api/plugin-requests", map[string]any{"to": "старый", "items": []map[string]string{{"plugin": "Serum", "format": "VST3"}}}); code != 200 {
+		t.Fatalf("запрос к прежнему нику: %d %v", code, r)
+	}
+	_, inbox := a.do("GET", "/api/inbox", nil)
+	if len(inbox["incoming"].([]any)) != 1 {
+		t.Fatal("запрос не дошёл до нового ника")
+	}
+	// прежний ник занял другой человек — теперь запросы идут ему
+	c := reg("старый", "tC")
+	b.do("POST", "/api/plugin-requests", map[string]any{"to": "старый", "items": []map[string]string{{"plugin": "Vital", "format": "VST3"}}})
+	if _, ci := c.do("GET", "/api/inbox", nil); len(ci["incoming"].([]any)) != 1 {
+		t.Fatal("нынешний владелец ника не получил запрос")
+	}
+	// приложение сообщает узнанный прежний ник; чужой нынешний ник так не присвоить
+	a.do("PATCH", "/api/me", map[string]string{"addOldNick": "совсем старый"})
+	a.do("PATCH", "/api/me", map[string]string{"addOldNick": "друг"})
+	_, me := a.do("GET", "/api/me", nil)
+	olds, _ := json.Marshal(me["oldNicks"])
+	if !strings.Contains(string(olds), "совсем старый") || strings.Contains(string(olds), "друг") {
+		t.Fatalf("прежние ники: %v", olds)
+	}
+}

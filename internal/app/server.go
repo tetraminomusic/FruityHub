@@ -91,8 +91,12 @@ func NewServer(index []byte) *Server {
 	cfg := LoadConfig()
 	directOff.Store(cfg.NoLAN)
 	go cleanStaleTransfers()
-	return &Server{cfg: cfg, token: hex.EncodeToString(b), index: index, jobs: map[string]*Job{},
+	s := &Server{cfg: cfg, token: hex.EncodeToString(b), index: index, jobs: map[string]*Job{},
 		lastPing: time.Now(), quit: make(chan struct{}), notes: map[string]*ProjectNotes{}}
+	currentNick = func(id, nick string) string { return s.cachedNickResolver()(id, nick) }
+	nickTaken = s.nickTakenCached
+	ownerByPlugins = s.ownerByPluginsCached
+	return s
 }
 
 func (s *Server) Quit() <-chan struct{} { return s.quit }
@@ -690,7 +694,15 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 		if err != nil {
 			return nil, err
 		}
-		return p.git().Log(150), nil
+		if r.URL.Query().Get("fetch") == "1" { // открыли «Историю» — заодно посмотреть, что нового на сервере
+			s.quickFetch(p, 15*time.Second)
+		}
+		g := p.git()
+		out := append(g.Incoming(100), g.Log(150)...)
+		if out == nil {
+			out = []Commit{}
+		}
+		return out, nil
 	})
 	api("/api/project/settings", func(r *http.Request) (any, error) {
 		var req struct {
