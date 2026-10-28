@@ -48,6 +48,6 @@ async function loadFlStats(el, fresh) {
     <div class="stchart">${bars}</div>
     <div class="row small muted" style="gap:14px;margin:2px 0 8px"><span><i class="stdot m"></i>ты</span><span><i class="stdot o"></i>друзья в твоих проектах</span><span class="spacer"></span><a id="strf">пересчитать</a></div>
     <div class="stprojs">${projs}</div>
-    <div class="muted small" style="margin-top:6px">Время берётся у самой FL Studio: счётчик «сколько проект был открыт» (Project info) сохраняется в .flp, и прибавка между версиями в истории записывается тому, кто эту версию отправил. Твоё ещё не сохранённое в историю тоже учтено. Время до FruityHub записано тому, кто добавил проект.</div>`;
+    <div class="muted small" style="margin-top:6px">Время берётся у самой FL Studio: счётчик «сколько проект был открыт» (Project info) сохраняется в .flp, и прибавка между версиями в истории записывается тому, кто эту версию отправил. Твоё ещё не сохранённое в историю тоже учтено. Время, накопленное в проекте до того, как его добавили в FruityHub (первая запись в историю), не считается.</div>`;
   el.querySelector('#strf').onclick = () => loadFlStats(el, true);
 }

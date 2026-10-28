@@ -159,13 +159,14 @@ type statsChange struct {
 type statsCommit struct {
 	who     string
 	at      time.Time
+	root    bool // первый коммит репозитория (без родителей)
 	changes []statsChange
 }
 
 // statsLog — коммиты с .flp, от старых к новым (все ветки: и то, что друг отправил, а я ещё не получил).
 func statsLog(g *Git) []statsCommit {
 	out, err := g.RunQuiet("-c", "core.quotePath=false", "log", "--branches", "--remotes", "HEAD", "--no-merges", "--date-order", "--reverse",
-		"--raw", "-M", "--no-abbrev", "-z", "--format=\x1e%H\x1f%an\x1f%at", "--", ":(icase)*.flp")
+		"--raw", "-M", "--no-abbrev", "-z", "--format=\x1e%H\x1f%an\x1f%at\x1f%P", "--", ":(icase)*.flp")
 	if err != nil {
 		return nil
 	}
@@ -176,11 +177,11 @@ func statsLog(g *Git) []statsCommit {
 		}
 		tok := strings.Split(chunk, "\x00")
 		h := strings.Split(tok[0], "\x1f")
-		if len(h) < 3 {
+		if len(h) < 4 {
 			continue
 		}
 		at, _ := strconv.ParseInt(strings.TrimSpace(h[2]), 10, 64)
-		c := statsCommit{who: h[1], at: time.Unix(at, 0)}
+		c := statsCommit{who: h[1], at: time.Unix(at, 0), root: strings.TrimSpace(h[3]) == ""}
 		for i := 1; i < len(tok); i++ {
 			m := strings.TrimSpace(tok[i])
 			if !strings.HasPrefix(m, ":") {
@@ -255,14 +256,20 @@ func (s *Server) projectWork(lp LocalProject, name func(id, nick string) string)
 		}
 		pieces = append(pieces, w)
 	}
-	for _, c := range commits {
+	// Первая запись проекта в историю (создание репозитория) — не работа: в .flp уже накопленное время,
+	// оно становится точкой отсчёта. Считается только то, что прибавилось после.
+	for i, c := range commits {
+		start := i == 0 || c.root
 		got := map[int64]int64{} // по проекту (дате создания) — сколько добавил этот коммит
 		for _, ch := range c.changes {
 			nw := bt[ch.new]
 			if nw.Spent < 0 {
 				continue
 			}
-			base := lineage[nw.Created]
+			base, known := lineage[nw.Created]
+			if !known && start {
+				base = nw.Spent
+			}
 			if !ch.added {
 				if o := bt[ch.old]; o.Spent >= 0 && o.Created == nw.Created {
 					base = o.Spent
@@ -310,7 +317,10 @@ func (s *Server) projectWork(lp LocalProject, name func(id, nick string) string)
 		if strings.EqualFold(rel, lp.MainFLP) || (lp.MainFLP == "" && cur.Spent > fl) {
 			fl = cur.Spent
 		}
-		base := lineage[cur.Created]
+		base, known := lineage[cur.Created]
+		if !known && len(commits) == 0 { // проект ещё ни разу не записан в историю — время в нём накоплено до FruityHub
+			base = cur.Spent
+		}
 		if sha, ok := head[rel]; ok {
 			if o := bt[sha]; o.Spent >= 0 && o.Created == cur.Created {
 				base = o.Spent
