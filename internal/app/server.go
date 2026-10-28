@@ -267,6 +267,7 @@ func (s *Server) Handler(port int) http.Handler {
 	s.routes7(api)
 	s.routesIcon(api)
 	s.routesInstall(api)
+	s.routesStats(api)
 	s.routesRelocate(api)
 	// DNS-rebinding protection: only accept our own host names
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -67,6 +67,8 @@ async function openSettings(tab) {
       <div class="muted small" style="margin-top:6px">Одно устройство — один пользователь: этот компьютер и есть твой аккаунт.</div>`
         : `<div class="row"><span class="muted">Не зарегистрирован</span><button class="sm primary" id="regb">Зарегистрироваться</button></div>`
     }
+    <h3>Время в FL Studio</h3>
+    <div id="flstats"></div>
     <div class="row" style="margin-top:10px"><button class="sm" onclick="openGuide()">Как пользоваться FruityHub</button><button class="sm" onclick="openWhatsNew()">Что нового</button></div>
     <div class="muted small" style="margin-top:10px">Плагины — кто может скачивать их с твоего компьютера, где FruityHub их ищет, люди и передачи — в окне <a onclick="openPluginManager('settings')">«Плагины»</a> (кнопка вверху).</div>
     </div>
@@ -203,6 +205,7 @@ async function openSettings(tab) {
     } catch (e) {}
   };
   m.querySelectorAll('[data-st]').forEach(b => (b.onclick = () => showSet(b.dataset.st)));
+  loadFlStats(m.querySelector('#flstats'));
   let st0 = tab || 'profile';
   if (!tab) {
     try {

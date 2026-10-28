@@ -1538,3 +1538,90 @@ tr.prow:hover .pname {
   margin-top: 20px;
   align-items: center;
 }
+
+/* статистика «Время в FL Studio» (Настройки → Профиль) */
+.sttiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.stt {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel2);
+}
+.stt b {
+  font-size: 17px;
+}
+.stchart {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 110px;
+  margin-top: 12px;
+}
+.stw {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  gap: 3px;
+}
+.stw span {
+  font-size: 10px;
+  color: var(--muted);
+}
+.stb {
+  flex: 1;
+  width: 100%;
+  max-width: 26px;
+  display: flex;
+  flex-direction: column-reverse;
+  border-radius: 4px 4px 0 0;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.04);
+}
+.stb i,
+.stdot {
+  display: block;
+}
+.stb i.m,
+.stdot.m {
+  background: var(--accent);
+}
+.stb i.o,
+.stdot.o {
+  background: var(--blue);
+  opacity: 0.75;
+}
+.stdot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  margin-right: 5px;
+}
+.stp {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+.stp .grow {
+  flex: 1;
+  min-width: 0;
+}
+.stme {
+  white-space: nowrap;
+}
+@media (max-width: 560px) {
+  .sttiles {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

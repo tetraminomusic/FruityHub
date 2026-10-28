@@ -23,12 +23,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf16"
 )
 
@@ -116,22 +118,22 @@ func writeVarint(buf *bytes.Buffer, v int) {
 	}
 }
 
-// Parse decodes raw FLP bytes.
-func Parse(b []byte) (*File, error) {
+// walk проходит по событиям .flp (заголовок — в f, если он не nil); fn вернул false — остановиться.
+func walk(b []byte, f *File, fn func(id byte, data []byte) bool) error {
 	if len(b) < 22 || string(b[0:4]) != "FLhd" {
-		return nil, errors.New("не похоже на .flp (нет заголовка FLhd)")
+		return errors.New("не похоже на .flp (нет заголовка FLhd)")
 	}
 	hsize := binary.LittleEndian.Uint32(b[4:8])
 	if hsize != 6 {
-		return nil, fmt.Errorf("неожиданный размер заголовка %d", hsize)
+		return fmt.Errorf("неожиданный размер заголовка %d", hsize)
 	}
-	f := &File{
-		Format:   int16(binary.LittleEndian.Uint16(b[8:10])),
-		Channels: binary.LittleEndian.Uint16(b[10:12]),
-		PPQ:      binary.LittleEndian.Uint16(b[12:14]),
+	if f != nil {
+		f.Format = int16(binary.LittleEndian.Uint16(b[8:10]))
+		f.Channels = binary.LittleEndian.Uint16(b[10:12])
+		f.PPQ = binary.LittleEndian.Uint16(b[12:14])
 	}
 	if string(b[14:18]) != "FLdt" {
-		return nil, errors.New("нет блока FLdt")
+		return errors.New("нет блока FLdt")
 	}
 	pos := 22
 	end := len(b)
@@ -156,18 +158,61 @@ func Parse(b []byte) (*File, error) {
 			var err error
 			n, pos, err = readVarint(b, pos)
 			if err != nil {
-				return nil, err
+				return err
 			}
 		}
 		if pos+n > end {
-			return nil, fmt.Errorf("событие %d выходит за конец файла", id)
+			return fmt.Errorf("событие %d выходит за конец файла", id)
 		}
-		f.Events = append(f.Events, Event{ID: id, Data: b[pos : pos+n]})
 		if id == evFLVersion && major == 0 {
 			v := strings.TrimRight(string(b[pos:pos+n]), "\x00")
 			major, _ = strconv.Atoi(strings.SplitN(v, ".", 2)[0])
 		}
+		if !fn(id, b[pos:pos+n]) {
+			return nil
+		}
 		pos += n
+	}
+	return nil
+}
+
+// событие 237: дата создания проекта и сколько времени он был открыт в FL (Project info → «Time spent»)
+const evTimestamp = 208 + 29
+
+// delphiEpoch — отсчёт дат FL (TDateTime): дни с 30.12.1899
+var delphiEpoch = time.Date(1899, 12, 30, 0, 0, 0, 0, time.UTC)
+
+// Timestamp — сколько времени проект был открыт в FL и когда создан (ok=false — в файле этого нет).
+func Timestamp(b []byte) (spent time.Duration, created time.Time, ok bool) {
+	walk(b, nil, func(id byte, data []byte) bool {
+		if id != evTimestamp {
+			return true
+		}
+		if len(data) >= 16 {
+			c := math.Float64frombits(binary.LittleEndian.Uint64(data[0:8]))
+			sp := math.Float64frombits(binary.LittleEndian.Uint64(data[8:16]))
+			if sp >= 0 && sp < 3650 && !math.IsNaN(sp) { // не больше 10 лет — иначе это мусор
+				spent = time.Duration(sp * 24 * float64(time.Hour))
+				if c > 0 && c < 200000 {
+					created = delphiEpoch.Add(time.Duration(c * 24 * float64(time.Hour)))
+				}
+				ok = true
+			}
+		}
+		return false
+	})
+	return
+}
+
+// Parse decodes raw FLP bytes.
+func Parse(b []byte) (*File, error) {
+	f := &File{}
+	err := walk(b, f, func(id byte, data []byte) bool {
+		f.Events = append(f.Events, Event{ID: id, Data: data})
+		return true
+	})
+	if err != nil {
+		return nil, err
 	}
 	// Text encoding: UTF-16LE since FL 11.5.
 	f.utf16 = true
@@ -752,4 +797,17 @@ func (f *File) LengthSeconds() (sec float64, from string) {
 		return 0, ""
 	}
 	return float64(ticks) / ppq * 60 / tempo, from
+}
+
+// WithTimestampForTest — копия .flp с событием 237 (время в FL и дата создания): для тестов.
+func WithTimestampForTest(b []byte, spent time.Duration, created time.Time) []byte {
+	var ev bytes.Buffer
+	ev.WriteByte(evTimestamp)
+	writeVarint(&ev, 16)
+	binary.Write(&ev, binary.LittleEndian, created.Sub(delphiEpoch).Hours()/24)
+	binary.Write(&ev, binary.LittleEndian, spent.Hours()/24)
+	out := append([]byte{}, b...)
+	out = append(out, ev.Bytes()...)
+	binary.LittleEndian.PutUint32(out[18:22], uint32(len(out)-22))
+	return out
 }

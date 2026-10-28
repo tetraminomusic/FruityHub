@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"testing"
+	"time"
 )
 
 func mini() []byte {
@@ -138,5 +139,21 @@ func TestFL26AndLength(t *testing.T) {
 	g, _ := Parse(mk(true))
 	if s, by := g.LengthSeconds(); by != "selection" || int(s*100) != 1627 {
 		t.Fatalf("по выделению: %v %v", s, by)
+	}
+}
+
+// Время в FL (Project info → Time spent) и дата создания — событие 237.
+func TestTimestamp(t *testing.T) {
+	if _, _, ok := Timestamp(mini()); ok {
+		t.Fatal("в файле без события 237 времени быть не должно")
+	}
+	created := time.Date(2026, 10, 7, 11, 19, 30, 0, time.UTC)
+	b := WithTimestampForTest(mini(), 17*time.Hour+57*time.Minute, created)
+	sp, cr, ok := Timestamp(b)
+	if !ok || sp.Round(time.Second) != 17*time.Hour+57*time.Minute || !cr.Round(time.Second).Equal(created) {
+		t.Fatalf("%v %v %v", sp, cr, ok)
+	}
+	if _, err := Parse(b); err != nil {
+		t.Fatal(err)
 	}
 }
