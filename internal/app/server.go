@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -168,18 +169,29 @@ func (s *Server) Handler(port int) http.Handler {
 		}
 		http.NotFound(w, r)
 	})
-	// словарь английского интерфейса
-	mux.HandleFunc("/i18n/en.js", func(w http.ResponseWriter, r *http.Request) {
-		if s.Assets == nil {
+	// код, оформление и тексты интерфейса (web/static): __V__ в них — отпечаток сборки, как и в самой странице
+	mux.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/")
+		if s.Assets == nil || strings.Contains(name, "..") {
 			http.NotFound(w, r)
 			return
 		}
-		b, err := fs.ReadFile(s.Assets, "i18n_en.js")
+		b, err := fs.ReadFile(s.Assets, name)
 		if err != nil {
 			http.NotFound(w, r)
 			return
 		}
-		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		switch path.Ext(name) {
+		case ".js":
+			w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+			b = bytes.ReplaceAll(b, []byte("__V__"), []byte(s.assetStamp()))
+		case ".css":
+			w.Header().Set("Content-Type", "text/css; charset=utf-8")
+			b = bytes.ReplaceAll(b, []byte("__V__"), []byte(s.assetStamp()))
+		default:
+			http.NotFound(w, r)
+			return
+		}
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Write(b)
 	})
