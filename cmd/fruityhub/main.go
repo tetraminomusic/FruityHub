@@ -46,16 +46,36 @@ func main() {
 		poll = d
 	}
 	browserMode := len(os.Args) > 1 && (os.Args[1] == "--browser" || os.Args[1] == "--no-browser")
+	// установка на Windows: --after-install — первый запуск установленного (старый ещё закрывается),
+	// --remove-old <путь> — убрать файл, с которого ставили; --uninstall — удаление из «Приложений»
+	app.UninstallMode = hasArg("--uninstall")
+	afterInstall := hasArg("--after-install")
+	removeOld := argValue("--remove-old")
 
-	// already running? bring that window to the front
 	cl := &http.Client{Timeout: time.Second}
-	if resp, err := cl.Get(fmt.Sprintf("http://127.0.0.1:%d/hello", preferredPort)); err == nil {
+	running := func() bool {
+		resp, err := cl.Get(fmt.Sprintf("http://127.0.0.1:%d/hello", preferredPort))
+		if err != nil {
+			return false
+		}
 		b, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		if string(b) == "uzbek" {
-			cl.Get(fmt.Sprintf("http://127.0.0.1:%d/focus", preferredPort))
-			return
+		return string(b) == "uzbek"
+	}
+	if afterInstall || app.UninstallMode {
+		if app.UninstallMode && running() { // удалить можно, только когда FruityHub закрыт — просим открытый закрыться
+			req, _ := http.NewRequest("POST", fmt.Sprintf("http://127.0.0.1:%d/bye", preferredPort), nil)
+			req.Header.Set("X-FruityHub-Uninstall", "1")
+			if resp, err := cl.Do(req); err == nil {
+				resp.Body.Close()
+			}
 		}
+		for i := 0; i < 75 && running(); i++ { // ждём, пока прежний FruityHub закроется
+			time.Sleep(200 * time.Millisecond)
+		}
+	} else if running() { // уже открыт — показать его окно
+		cl.Get(fmt.Sprintf("http://127.0.0.1:%d/focus", preferredPort))
+		return
 	}
 
 	l, port, err := app.Listen(preferredPort)
@@ -72,6 +92,10 @@ func main() {
 	go srv.HubLoop(8 * time.Second)
 	go srv.MetaWatcher(6 * time.Second)
 	go srv.RelocateWatcher(time.Minute)
+	go app.RefreshInstallEntry()
+	if removeOld != "" {
+		go app.RemoveOldExe(removeOld)
+	}
 	app.OnFocus = ui.Focus
 	app.PickerOwner = func() uintptr { return ui.Handle() }
 
@@ -99,4 +123,22 @@ func main() {
 		go srv.IdleWatcher(3 * time.Minute)
 	}
 	<-srv.Quit()
+}
+
+func hasArg(a string) bool {
+	for _, x := range os.Args[1:] {
+		if x == a {
+			return true
+		}
+	}
+	return false
+}
+
+func argValue(a string) string {
+	for i, x := range os.Args[1:] {
+		if x == a && i+2 < len(os.Args) {
+			return os.Args[i+2]
+		}
+	}
+	return ""
 }

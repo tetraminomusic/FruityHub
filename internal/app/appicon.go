@@ -10,12 +10,10 @@ import (
 
 // Иконка приложения (Настройки → Вид): без фона (по умолчанию) или на тёмной плитке, как в 0.9.9.
 //
-// Windows: в exe вшиты три набора иконок — 2 (её показывает Проводник), 10 (плитка) и 18 (без фона).
-// Смена стиля: окно и панель задач — сразу (WM_SETICON), а в копии exe набор 2 заменяется нужным,
-// и копия встаёт на место запущенного файла (запущенный exe можно переименовать, но не перезаписать).
-// При обновлении приложения скачанный exe подписывается выбранной иконкой до замены.
-// macOS: значок в Доке — сразу, у FruityHub.app в Finder — своя иконка файла (как «Свойства» → вставить картинку);
-// после обновления (новый бандл) ставится снова при запуске.
+// Windows: в exe вшиты три набора иконок — 2 (по умолчанию), 10 (плитка), 18 (без фона). Окно и панель задач
+// меняют иконку сразу (WM_SETICON), а у установленного FruityHub — ещё и ярлыки на рабочем столе и в «Пуске».
+// Сам exe не переписывается (антивирусы принимают такое за вирус).
+// macOS: значок в Доке — сразу, у FruityHub.app в Finder — своя иконка файла; после обновления ставится снова при запуске.
 
 const (
 	IconClear = ""
@@ -81,23 +79,15 @@ func (s *Server) setIconStyle(style string, j *Job) error {
 	if OnIconChange != nil {
 		OnIconChange(style)
 	}
-	switch runtime.GOOS {
-	case "windows":
-		exe, err := os.Executable()
-		if err != nil {
-			return err
+	if runtime.GOOS == "windows" {
+		if err := setShortcutIcon(style); err != nil {
+			j.Logf("Ярлыки не обновил: %v", err)
 		}
-		exe, _ = filepath.EvalSymlinks(exe)
-		j.Logf("Меняю иконку у %s", exe)
-		return replaceExeIcon(exe, style)
-	case "darwin":
-		return nil // Док и Finder — в OnIconChange
 	}
 	return nil // в браузере (Linux) — только иконка в шапке
 }
 
 func (s *Server) routesIcon(api func(string, func(r *http.Request) (any, error))) {
-	cleanOldIcons()
 	api("/api/appicon", func(r *http.Request) (any, error) {
 		var req struct {
 			Style string `json:"style"`

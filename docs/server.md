@@ -36,12 +36,12 @@
 
 ## Раскладка по Windows-ноутбукам в локальной сети
 
-`deploy/deploy-windows.sh` (с Mac) кладёт `dist/FruityHub.exe` на общий рабочий стол Windows-ноутбуков через общий доступ к файлам (SMB), на все сразу. Адреса, логины и пароли ноутбуков — в `deploy/machines.local`, по строке `ip|логин|пароль` (файл не попадает в git; при первом запуске скрипт создаст заготовку).
+`deploy/deploy-windows.sh` (с Mac) кладёт `dist/FruityHub.exe` в установленный FruityHub каждого пользователя ноутбука (`C:\Users\<имя>\AppData\Local\Programs\FruityHub`), а где он ещё не установлен — на общий рабочий стол (при запуске покажет окно установки), через общий доступ к файлам (SMB), на все сразу. Адреса, логины и пароли ноутбуков — в `deploy/machines.local`, по строке `ip|логин|пароль` (файл не попадает в git; при первом запуске скрипт создаст заготовку).
 ```
 ./deploy/deploy-windows.sh                    # на все
 ./deploy/deploy-windows.sh 192.168.1.126      # на один
 ```
-* Файл попадает в `C:\Users\Public\Desktop`; старый «прога узбека.exe» оттуда убирается. Подробный журнал каждого ноутбука — `deploy/logs/<ip>.log`.
+* Если FruityHub на ноутбуке ещё не установлен, файл попадает в `C:\Users\Public\Desktop`; старый «прога узбека.exe» оттуда убирается. Подробный журнал каждого ноутбука — `deploy/logs/<ip>.log`.
 * На ноутбуках: сеть «Частная», включён «Общий доступ к файлам и принтерам». Для локальной (не Microsoft) учётки один раз выполнить там от имени администратора:
   `reg add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System /v LocalAccountTokenFilterPolicy /t REG_DWORD /d 1 /f`
 * Если что-то не так с одним ноутбуком — `./deploy/diagnose-windows.sh <ip>`.

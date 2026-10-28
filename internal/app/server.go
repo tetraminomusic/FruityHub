@@ -196,6 +196,15 @@ func (s *Server) Handler(port int) http.Handler {
 		w.Write(b)
 	})
 	mux.HandleFunc("/hello", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "uzbek") })
+	// удаление FruityHub из «Приложений» просит открытый FruityHub закрыться
+	mux.HandleFunc("/bye", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || r.Header.Get("X-FruityHub-Uninstall") != "1" {
+			http.NotFound(w, r)
+			return
+		}
+		io.WriteString(w, "ok")
+		go func() { time.Sleep(200 * time.Millisecond); s.Stop() }()
+	})
 	mux.HandleFunc("/focus", func(w http.ResponseWriter, r *http.Request) {
 		if OnFocus != nil {
 			OnFocus()
@@ -257,6 +266,7 @@ func (s *Server) Handler(port int) http.Handler {
 	s.routes6(api)
 	s.routes7(api)
 	s.routesIcon(api)
+	s.routesInstall(api)
 	s.routesRelocate(api)
 	// DNS-rebinding protection: only accept our own host names
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -507,7 +517,7 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 		}
 		return map[string]any{"config": cfg, "registered": s.cfg.Hub().Registered(), "projects": list, "windowed": s.Windowed,
 			"tools": CheckTools(), "os": OSName(), "me": s.cfg.MachineID(), "userId": s.cfg.UserID, "version": Version, "configDir": ConfigDir(),
-			"groups": s.cfg.Groups, "server": s.cfg.ServerURL(), "serverDefault": DefaultServer, "sharing": sharing, "hasToken": s.cfg.Token != "", "githubLogin": s.cfg.GitHubLogin, "serverCodeBuiltIn": DefaultServerCode != "", "proxy": s.cfg.Proxy, "proxyHint": SystemProxyHint(),
+			"groups": s.cfg.Groups, "server": s.cfg.ServerURL(), "serverDefault": DefaultServer, "sharing": sharing, "hasToken": s.cfg.Token != "", "githubLogin": s.cfg.GitHubLogin, "serverCodeBuiltIn": DefaultServerCode != "", "install": s.installState(), "proxy": s.cfg.Proxy, "proxyHint": SystemProxyHint(),
 			"hasAdminKey": hasAdmin, "customBg": customBackground() != "", "platform": Platform(), "defaultLfs": DefaultLFSExtensions()}, nil
 	})
 	api("/api/settings", func(r *http.Request) (any, error) {

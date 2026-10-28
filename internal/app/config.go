@@ -59,12 +59,13 @@ type Config struct {
 	NoErrorReports   bool           `json:"noErrorReports,omitempty"`   // не отправлять свои ошибки в журнал сервера
 	SortMode         string         `json:"sortMode,omitempty"`         // порядок списка проектов: manual, name, name-desc, modified, modified-asc
 	Lang             string         `json:"lang,omitempty"`
-	OldNicks         []string       `json:"oldNicks,omitempty"`     // мои прежние ники (мои старые комментарии — мои)
-	ProjectRoots     []string       `json:"projectRoots,omitempty"` // папки, где лежат проекты FL (Настройки → Проекты)
-	IconStyle        string         `json:"iconStyle,omitempty"`    // иконка приложения: "" — без фона, "tile" — на тёмной плитке
-	LiteUI           bool           `json:"liteUi,omitempty"`       // лёгкий режим окна: без фона и размытия, без видеокарты (меньше памяти)             // язык интерфейса: "" — русский, "en" — английский
-	LitePlugins      []string       `json:"litePlugins,omitempty"`  // плагины, у которых не тянуть библиотеку пресетов при передаче
-	Meta             MetaSettings   `json:"meta"`                   // метаданные рендеров и README проектов
+	OldNicks         []string       `json:"oldNicks,omitempty"`        // мои прежние ники (мои старые комментарии — мои)
+	ProjectRoots     []string       `json:"projectRoots,omitempty"`    // папки, где лежат проекты FL (Настройки → Проекты)
+	InstallDeclined  bool           `json:"installDeclined,omitempty"` // Windows: «запускать без установки» — окно установки больше не показывать
+	IconStyle        string         `json:"iconStyle,omitempty"`       // иконка приложения: "" — без фона, "tile" — на тёмной плитке
+	LiteUI           bool           `json:"liteUi,omitempty"`          // лёгкий режим окна: без фона и размытия, без видеокарты (меньше памяти)             // язык интерфейса: "" — русский, "en" — английский
+	LitePlugins      []string       `json:"litePlugins,omitempty"`     // плагины, у которых не тянуть библиотеку пресетов при передаче
+	Meta             MetaSettings   `json:"meta"`                      // метаданные рендеров и README проектов
 
 	hub *Hub
 }

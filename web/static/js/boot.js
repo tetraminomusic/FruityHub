@@ -13,8 +13,18 @@ window.addEventListener('focus', () => {
   if (S.sel && !document.querySelector('.modal-bg')) loadProject(S.sel);
 });
 
-refreshAll()
+// Windows: запущен не из папки программы — сначала окно установки (до знакомства и регистрации)
+api('/api/state')
+  .then(st => {
+    if (st.install && (st.install.show || st.install.uninstall)) {
+      S.state = st;
+      S.installer = true;
+    }
+  })
+  .catch(() => {})
+  .then(() => refreshAll())
   .then(() => {
+    if (S.installer) openInstaller();
     hideSplash();
     applyLang();
     pollNotes();

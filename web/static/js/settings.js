@@ -174,6 +174,7 @@ async function openSettings(tab) {
     <div class="muted small">Знакомство всегда можно открыть во вкладке «Профиль». Скрытые крестиком предупреждения в проектах: <a id="undis">показать снова</a>.</div>
     </div>
     <div data-sp="system">
+    ${st.install?.supported ? `<h3>Установка</h3>${st.install.installed ? `<div class="small">FruityHub установлен в <span class="mono">${esc(st.install.dir)}</span>. Удалить — Параметры Windows → Приложения → FruityHub.</div>` : `<div class="small">FruityHub запущен прямо из файла <span class="mono">${esc(st.install.exe)}</span>, без установки.</div><div style="margin-top:8px"><button onclick="startInstallFromSettings()">Установить как программу…</button></div>`}` : ''}
     <h3>Компоненты</h3>
     <div class="small">${t.gitOk ? esc(t.git) : 'git не найден'}<br>${t.lfsOk ? esc(t.lfs) : 'git-lfs не найден'}</div>
     ${!t.gitOk || !t.lfsOk ? `<div style="margin-top:8px"><button onclick="installTools()">Установить автоматически</button></div>` : ''}
@@ -612,4 +613,11 @@ function openRegister(first) {
   un.onkeydown = e => {
     if (e.key === 'Enter') go();
   };
+}
+
+// «Установить как программу…» (Настройки → Система) — для тех, кто раньше выбрал «без установки»
+function startInstallFromSettings() {
+  document.querySelectorAll('.modal-bg').forEach(m => m.close());
+  S.state.install.show = true;
+  openInstaller();
 }

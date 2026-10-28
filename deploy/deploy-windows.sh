@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Раскладывает FruityHub на рабочие столы Windows-ноутбуков в локальной сети — ПАРАЛЛЕЛЬНО на все сразу.
+# Раскладывает FruityHub по Windows-ноутбукам в локальной сети — ПАРАЛЛЕЛЬНО на все сразу.
 # Запускать с Mac. Работает через общий доступ к файлам Windows (SMB, админ-шара C$).
 #
 #   ./deploy/deploy-windows.sh                      # на все ноутбуки из списка ниже
 #   ./deploy/deploy-windows.sh 192.168.1.126        # только на один
 #   ./deploy/deploy-windows.sh -f другой.exe        # другой файл (можно несколько -f)
 #
-# Файл (по умолчанию dist/FruityHub.exe) кладётся на ОБЩИЙ рабочий стол C:\Users\Public\Desktop.
+# FruityHub.exe (по умолчанию dist/FruityHub.exe) кладётся в установленный FruityHub каждого пользователя
+# (C:\Users\<имя>\AppData\Local\Programs\FruityHub), а где его ещё не ставили — на ОБЩИЙ рабочий стол
+# C:\Users\Public\Desktop: при первом запуске он покажет окно установки. Другие файлы (-f) — на общий рабочий стол.
 # Каждый шаг с таймаутом и замером времени; подробный журнал каждого ноутбука — deploy/logs/<ip>.log.
 # Копирование идёт под временным именем и ставится на место только после сверки размера;
 # если старый exe занят запущенной прогой, он отодвигается.
@@ -34,7 +36,7 @@ FILES=(); ONLY=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -f) FILES+=("$2"); shift 2 ;;
-    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) ONLY+=("$1"); shift ;;
   esac
 done
@@ -84,10 +86,11 @@ deploy_one() { # ip user pass
   local D="$MNT/Users/Public/Desktop"
   [[ -d "$D" ]] || fail "нет папки C:\\Users\\Public\\Desktop"
 
-  local f name size tmp
-  for f in "${FILES[@]}"; do
+  put_file() { # файл папка-назначение
+    local f="$1" D="$2" name size tmp where
     name="$(basename "$f")"; size=$(stat -f%z "$f"); tmp="$D/.$name.part"
-    say "копирую $name ($((size / 1048576)) МБ)"
+    where="C:\\${D#"$MNT"/}"; where="${where//\//\\}"
+    say "копирую $name ($((size / 1048576)) МБ) → $where"
     ( cp "$f" "$tmp" 2>>"$LOG" ) & local cp=$!
     local last=-1 stall=0 S=$SECONDS shown=-1 sz pct
     while kill -0 $cp 2>/dev/null; do
@@ -106,10 +109,24 @@ deploy_one() { # ip user pass
       run_to 10 mv "$tmp" "$D/$name" || fail "не смог поставить новый файл"
       rm -f "$D/$name.old-"* 2>/dev/null
     elif [[ ! -e "$D/$name" ]]; then
-      run_to 10 mv "$tmp" "$D/$name" || fail "не смог переименовать"
+      run_to 10 mv "$tmp" "$D/$name" || fail "не смог переименовать (если Защитник Windows держит файл — добавь FruityHub в исключения)"
     fi
     [[ "$(stat -f%z "$D/$name")" == "$size" ]] || fail "после замены размер не тот"
-    say "✓ $name → C:\\Users\\Public\\Desktop"
+    say "✓ $name → $where"
+  }
+
+  # куда класть: FruityHub.exe — в установленный FruityHub каждого пользователя (%LOCALAPPDATA%\Programs\FruityHub),
+  # а если его ещё не ставили — на общий рабочий стол (при первом запуске он покажет окно установки)
+  local f name dest targets
+  for f in "${FILES[@]}"; do
+    name="$(basename "$f")"; targets=()
+    if [[ "$name" == "FruityHub.exe" ]]; then
+      for dest in "$MNT"/Users/*/AppData/Local/Programs/FruityHub; do
+        [[ -f "$dest/FruityHub.exe" ]] && targets+=("$dest")
+      done
+    fi
+    [[ ${#targets[@]} -gt 0 ]] || targets=("$D")
+    for dest in "${targets[@]}"; do put_file "$f" "$dest"; done
   done
   # старое название приложения — убираем с рабочего стола, чтобы не было двух ярлыков
   for oldname in "прога узбека.exe"; do

@@ -104,11 +104,6 @@ func ApplyUpdate(cfg *Config, job *Job) (string, error) {
 	job.Logf("✓ Скачано и проверено")
 	switch runtime.GOOS {
 	case "windows":
-		if cfg.IconStyle == IconTile { // выбранная иконка остаётся и после обновления
-			if err := patchExeIcon(dl, cfg.IconStyle); err != nil {
-				job.Logf("Иконку в новой версии не поменял: %v", err)
-			}
-		}
 		return m.Version, startWindowsUpdate(exe, dl)
 	case "darwin":
 		return m.Version, startMacUpdate(exe, dl, tmpDir)

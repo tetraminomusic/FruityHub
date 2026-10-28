@@ -8,7 +8,8 @@
 Запуск из корня репозитория:
   python3 scripts/i18n_check.py          — что не переведено на английский, каких фраз нет в ru.js,
                                             какие фразы в ru.js больше не встречаются в коде;
-  python3 scripts/i18n_check.py --sync   — дописать в ru.js новые фразы из кода (правая часть = как в коде).
+  python3 scripts/i18n_check.py --sync   — дописать в ru.js новые фразы из кода (правая часть = как в коде);
+  python3 scripts/i18n_check.py --sync --prune — заодно убрать из ru.js фразы, которых в коде больше нет.
 """
 import re, sys, json, os
 
@@ -177,6 +178,8 @@ def main():
     stale = [k for k in ru if k not in set(keys)]
     if '--sync' in sys.argv:
         added = [k for k in keys if k not in ru]
+        if '--prune' in sys.argv:
+            stale = []
         write_ru(entries, ru, stale)
         print(f'ru.js: добавлено фраз: {len(added)}, всего: {len(keys)}' + (f', больше не встречаются в коде: {len(stale)}' if stale else ''))
         return 0

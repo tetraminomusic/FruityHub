@@ -19,6 +19,7 @@ async function refreshAll() {
   if (S.side === 'av' || (st.registered && !S.avail)) loadAvailable(true);
   if (S.sel) await loadProject(S.sel);
   else renderMain();
+  if (S.installer) return; // открыто окно установки — знакомство и регистрация после него
   if (!S.introShown) {
     S.introShown = true;
     if (!st.config.guideSeen) {

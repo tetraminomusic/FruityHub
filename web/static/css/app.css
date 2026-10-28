@@ -1465,3 +1465,76 @@ tr.prow:hover td {
 tr.prow:hover .pname {
   text-decoration: underline;
 }
+
+/* окно установки (Windows) — поверх всего, как отдельная программа-установщик */
+#installer {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: radial-gradient(80% 60% at 50% 0%, #2a1f10 0%, #121317 55%, #0d0e11 100%);
+}
+.inst-card {
+  width: min(560px, 100%);
+  text-align: center;
+  padding: 32px 30px 24px;
+  border: 1px solid var(--line2);
+  border-radius: 18px;
+  background: rgba(22, 23, 28, 0.85);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+}
+.inst-card h1 {
+  margin: 12px 0 6px;
+  font-size: 24px;
+}
+.inst-icon {
+  width: 96px;
+  height: 96px;
+  filter: drop-shadow(0 8px 22px rgba(0, 0, 0, 0.5));
+}
+.inst-form {
+  text-align: left;
+  margin-top: 18px;
+}
+.inst-path {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.inst-note {
+  margin: -2px 0 6px 26px;
+  font-size: 12px;
+  color: var(--muted);
+  word-break: break-all;
+}
+.inst-steps {
+  text-align: left;
+  margin-top: 16px;
+}
+.inst-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.inst-step.ok {
+  color: var(--text);
+}
+.inst-step .tick {
+  width: 14px;
+  color: var(--ok);
+  font-weight: 800;
+}
+.inst-buttons {
+  margin-top: 20px;
+  align-items: center;
+}
