@@ -10,7 +10,7 @@ type Options struct {
 	Height   int
 	DataPath string          // WebView2 profile folder (Windows)
 	Quit     <-chan struct{} // close the window when this fires
-	Lite     bool            // лёгкий режим: без видеокарты и лишних служб WebView2 (меньше памяти на слабых компьютерах)
+	Lite     bool            // лёгкий режим оформления, аппаратное ускорение сохраняется
 	IconID   int             // набор иконок из exe для окна (Windows)
 	IconPNG  []byte          // своя картинка для Дока (macOS), nil — иконка бандла
 	Bundle   string          // путь к FruityHub.app (macOS) — для своей иконки в Finder

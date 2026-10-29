@@ -79,10 +79,17 @@ function startI18n(d, lang) {
   document.documentElement.lang = lang;
   trNode(document.body);
   I18N.obs = new MutationObserver(ms => {
+    const roots = new Set();
     for (const m of ms) {
-      if (m.type === 'childList') m.addedNodes.forEach(trNode);
-      else trNode(m.target);
+      if (m.type === 'childList') m.addedNodes.forEach(n => roots.add(n));
+      else roots.add(m.target);
     }
+    for (const n of roots) {
+      let parent = n.parentNode;
+      while (parent && !roots.has(parent)) parent = parent.parentNode;
+      if (!parent && n.isConnected) trNode(n);
+    }
+
   });
   I18N.obs.observe(document.body, {
     subtree: true,

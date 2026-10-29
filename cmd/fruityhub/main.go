@@ -88,8 +88,22 @@ func main() {
 	url := fmt.Sprintf("http://127.0.0.1:%d/", port)
 	fmt.Println(app.AppName, version, "→", url)
 	go http.Serve(l, srv.Handler(port))
-	go srv.Poller(poll)
-	go srv.HubLoop(8 * time.Second)
+	go func() {
+		select {
+		case <-srv.Quit():
+			return
+		case <-time.After(4 * time.Second):
+			srv.Poller(poll)
+		}
+	}()
+	go func() {
+		select {
+		case <-srv.Quit():
+			return
+		case <-time.After(time.Second):
+			srv.HubLoop(8 * time.Second)
+		}
+	}()
 	go srv.MetaWatcher(6 * time.Second)
 	go srv.RelocateWatcher(time.Minute)
 	go app.RefreshInstallEntry()

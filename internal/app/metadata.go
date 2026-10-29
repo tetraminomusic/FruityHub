@@ -614,16 +614,29 @@ func TagRenders(cfg *Config, p *Project, all bool) ([]string, error) {
 // Чтобы не нагружать компьютер, полный разбор проекта идёт, только если в папке появился (или изменился) аудиофайл.
 func (s *Server) MetaWatcher(every time.Duration) {
 	seen := map[string]time.Time{}
+	pending := map[string]bool{}
 	for {
-		time.Sleep(every)
+		select {
+		case <-s.quit:
+			pruneRenderWatches(nil)
+			return
+		case <-time.After(every):
+		}
 		if s.cfg.Meta.Off {
+			pruneRenderWatches(nil)
 			continue
 		}
+		paths := map[string]bool{}
 		for _, lp := range append([]LocalProject{}, s.cfg.Projects...) {
+			paths[lp.Path] = true
 			if !dirExists(lp.Path) {
 				continue
 			}
+			if !renderChanged(lp.Path) && !pending[lp.Path] {
+				continue
+			}
 			newest := newestRender(lp.Path, s.cfg.Meta.Extensions())
+			pending[lp.Path] = false
 			if last, ok := seen[lp.Path]; ok && !newest.After(last) {
 				continue
 			}
@@ -634,6 +647,15 @@ func (s *Server) MetaWatcher(every time.Duration) {
 			}
 			if time.Since(newest) > 5*time.Second { // файл ещё пишется — проверим на следующем круге
 				seen[lp.Path] = newestRender(lp.Path, s.cfg.Meta.Extensions())
+			} else {
+				pending[lp.Path] = true
+			}
+		}
+		pruneRenderWatches(paths)
+		for path := range seen {
+			if !paths[path] {
+				delete(seen, path)
+				delete(pending, path)
 			}
 		}
 	}

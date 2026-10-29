@@ -209,9 +209,11 @@ func refreshScanInBackground(cfg *Config) {
 	}()
 }
 
+var scanWork sync.Mutex
+
 func scanInstalledNow(cfg *Config) []InstalledPlugin {
-	scanMu.Lock()
-	defer scanMu.Unlock()
+	scanWork.Lock()
+	defer scanWork.Unlock()
 	vc := loadVersionCache()
 	idx := map[string]int{}
 	var res []InstalledPlugin
@@ -273,7 +275,9 @@ func scanInstalledNow(cfg *Config) []InstalledPlugin {
 	}
 	vc.save()
 	sort.Slice(res, func(i, j int) bool { return strings.ToLower(res[i].Name) < strings.ToLower(res[j].Name) })
+	scanMu.Lock()
 	scanCache, scanFolders, scanTime = res, folders, time.Now()
+	scanMu.Unlock()
 	go saveScanCache(res, folders)
 	return res
 }

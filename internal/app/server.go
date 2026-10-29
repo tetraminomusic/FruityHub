@@ -506,18 +506,25 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 		for _, p := range s.cfg.Projects {
 			ps := ProjectSummary{Path: p.Path, Name: p.DisplayName(), Exists: exists(p.Path), Group: p.Group}
 			pr := &Project{Dir: p.Path, Cfg: s.cfg}
-			ps.Lock = pr.ReadLock()
 			ps.IsRepo = pr.git().IsRepo()
-			ps.Modified, ps.Artist = projectMeta(p.Path)
-			ps.Length = trackLengthSec(p.Path)
+			if r.URL.Query().Get("quick") != "1" {
+				ps.Lock = pr.ReadLock()
+				ps.IsRepo = pr.git().IsRepo()
+				ps.Modified, ps.Artist = projectMeta(p.Path)
+				ps.Length = trackLengthSec(p.Path)
+			}
 			list = append(list, ps)
+		}
+		tools := ToolsStatus{CanFetch: true}
+		if r.URL.Query().Get("quick") != "1" {
+			tools = CheckTools()
 		}
 		sharing := s.cfg.Sharing
 		if sharing == "" {
 			sharing = "ask"
 		}
 		return map[string]any{"config": cfg, "registered": s.cfg.Hub().Registered(), "projects": list, "windowed": s.Windowed,
-			"tools": CheckTools(), "os": OSName(), "me": s.cfg.MachineID(), "userId": s.cfg.UserID, "version": Version, "configDir": ConfigDir(),
+			"tools": tools, "os": OSName(), "me": s.cfg.MachineID(), "userId": s.cfg.UserID, "version": Version, "configDir": ConfigDir(),
 			"groups": s.cfg.Groups, "server": s.cfg.ServerURL(), "serverDefault": DefaultServer, "sharing": sharing, "hasToken": s.cfg.Token != "", "githubLogin": s.cfg.GitHubLogin, "serverCodeBuiltIn": DefaultServerCode != "", "install": s.installState(), "proxy": s.cfg.Proxy, "proxyHint": SystemProxyHint(),
 			"hasAdminKey": hasAdmin, "customBg": customBackground() != "", "platform": Platform(), "defaultLfs": DefaultLFSExtensions()}, nil
 	})

@@ -72,9 +72,14 @@ func (s *Server) Poller(every time.Duration) {
 				behindBefore = n.Behind
 			}
 			s.notesMu.Unlock()
-			if g.IsRepo() && g.Remote() != "" && s.mu.TryLock() {
-				g.Fetch()
-				s.mu.Unlock()
+			if g.IsRepo() && g.Remote() != "" {
+				// Fetch меняет только remote refs, не рабочие файлы; сеть не держит общий mutex интерфейса.
+				g.RunQuiet("fetch", "--no-tags", "--prune", "--no-write-fetch-head", "--no-auto-maintenance", "origin")
+			}
+			select {
+			case <-s.quit:
+				return
+			case <-time.After(150 * time.Millisecond):
 			}
 			n := s.computeNotes(lp.Path)
 			if behindBefore >= 0 && n.Behind > behindBefore {
@@ -82,7 +87,11 @@ func (s *Server) Poller(every time.Duration) {
 				LogActivity(lp.Path, "info", "На сервере новое — "+who)
 			}
 		}
-		time.Sleep(every)
+		select {
+		case <-s.quit:
+			return
+		case <-time.After(every):
+		}
 	}
 }
 

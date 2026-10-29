@@ -1439,4 +1439,12 @@ window.I18N_EN = {
 "Настройки → Профиль: «Время в FL Studio» — сколько ты работал сегодня, за неделю, месяц и всё время, столбики по неделям и время по проектам (твоё и друзей). Считается по счётчику времени, который FL сама сохраняет в .flp": "Settings → Profile: “Time in FL Studio” — how long you worked today, this week, this month and in total, weekly bars and time per project (yours and friends'). Counted from the time counter FL itself saves in the .flp",
 "«Время в FL Studio»: время, накопленное в проекте до добавления в FruityHub, больше не записывается тому, кто его добавил — считается только работа после": "“Time in FL Studio”: time accumulated in a project before it was added to FruityHub is no longer credited to whoever added it — only work after that counts",
   "Плагины: найденные файлы лицензий переносятся вместе с пресетами и ресурсами. На другом компьютере может потребоваться повторная активация": "Plugins: detected license files are transferred with presets and resources. Reactivation may be required on another computer",
+  "Быстрый запуск, меньше фоновых проверок и лишних перерисовок интерфейса": "Faster startup, fewer background checks and unnecessary interface redraws",
+  "Windows: плавная прокрутка с аппаратным ускорением в обоих режимах графики": "Windows: hardware-accelerated scrolling in both graphics modes",
+  "В простом режиме графики можно использовать фоновое изображение": "Background images are available in simple graphics mode",
+  "Windows: крестик сворачивает приложение в трей — аудио и плагины остаются доступны. В меню значка есть «Открыть FruityHub» и «Выйти»": "Windows: closing the window minimizes to the tray; audio and plugins remain available. The tray menu has Open FruityHub and Quit",
+  "Без размытия, прозрачности и лишних анимаций. Фоновая картинка сохраняется.": "No blur, transparency or unnecessary animations. Your background image stays visible.",
+  "Меняется сразу. Аппаратное ускорение прокрутки работает в обоих режимах.": "Changes immediately. Hardware-accelerated scrolling works in both modes.",
+  "Простая графика включена": "Simple graphics enabled",
+  "Высокое качество графики включено": "High-quality graphics enabled",
 };

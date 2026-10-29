@@ -69,10 +69,10 @@ body.lite {
   --blur: none;
 }
 body.lite::before {
-  background: #0d0e11 !important;
+  background: #0d0e11 url('/assets/bg?v=__V__') center/cover no-repeat;
 }
 body.lite::after {
-  background: radial-gradient(90% 70% at 80% 0%, #2a1f10 0%, #111216 60%) !important;
+  background: rgba(10, 11, 14, var(--dim, 0.5));
 }
 body.lite * {
   -webkit-backdrop-filter: none !important;
@@ -1624,4 +1624,10 @@ tr.prow:hover .pname {
   .sttiles {
     grid-template-columns: repeat(2, 1fr);
   }
+}
+
+/* Нативная прокрутка с композитором, без перехвата колеса JavaScript. */
+#plist, #main, .modal, .details { overscroll-behavior: contain; }
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
 }

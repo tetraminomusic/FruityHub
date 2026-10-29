@@ -378,7 +378,7 @@ func (g *Git) Run(args ...string) (string, error) {
 
 // RunQuiet executes git without echoing the command into the job log.
 func (g *Git) RunQuiet(args ...string) (string, error) {
-	return g.run(nil, false, args...)
+	return cachedGitRead(g, args...)
 }
 
 func (g *Git) run(stdin io.Reader, echo bool, args ...string) (string, error) {

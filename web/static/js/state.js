@@ -1,8 +1,10 @@
 // Состояние приложения (refreshAll) и опрос уведомлений с сервера (pollNotes): кто на связи, приглашения.
 
 async function refreshAll() {
-  S.state = await api('/api/state');
+  const initial = !S.state;
+  S.state = await api('/api/state' + (initial ? '?quick=1' : ''));
   const st = S.state;
+  if (st.install && (st.install.show || st.install.uninstall)) S.installer = true;
   renderWho();
   setDim(st.config.bgDim || 50);
   renderDevBtn();
@@ -10,7 +12,7 @@ async function refreshAll() {
   $('#helpBtn').style.display = st.config.hideHelp ? 'none' : '';
   const t = st.tools,
     tc = $('#toolsChip');
-  if (!t.gitOk || !t.lfsOk) {
+  if (!initial && (!t.gitOk || !t.lfsOk)) {
     tc.style.display = '';
     tc.innerHTML = `<span style="color:var(--warn)">${!t.gitOk ? 'нет git' : 'нет git-lfs'}</span> <a onclick="installTools()">установить</a>`;
   } else tc.style.display = 'none';
@@ -38,13 +40,17 @@ async function refreshAll() {
     openRegister(true);
   }
 }
+let notesPending = false;
 async function pollNotes() {
-  if (document.hidden) return; // окно свёрнуто — не опрашиваем (догоним, когда развернут)
+  if (document.hidden || window.FH_TRAY || notesPending) return; // окно свёрнуто — не опрашиваем (догоним, когда развернут)
   let r;
+  notesPending = true;
   try {
     r = await api('/api/notifications');
   } catch (e) {
     return;
+  } finally {
+    notesPending = false;
   }
   S.updating = r.updating || '';
   renderUpdateBar(r.update);

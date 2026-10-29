@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -73,7 +74,30 @@ type ToolsStatus struct {
 	CanFetch bool   `json:"canFetch"`
 }
 
+var toolsCache struct {
+	sync.Mutex
+	key   string
+	at    time.Time
+	value ToolsStatus
+}
+
 func CheckTools() ToolsStatus {
+	toolsCache.Lock()
+	defer toolsCache.Unlock()
+	key := ConfigDir() + os.Getenv("PATH")
+	ttl := time.Minute
+	if !toolsCache.value.GitOK || !toolsCache.value.LFSOK {
+		ttl = 2 * time.Second
+	}
+	if toolsCache.key == key && time.Since(toolsCache.at) < ttl {
+		return toolsCache.value
+	}
+	value := checkToolsNow()
+	toolsCache.key, toolsCache.at, toolsCache.value = key, time.Now(), value
+	return value
+}
+
+func checkToolsNow() ToolsStatus {
 	var s ToolsStatus
 	g := &Git{Dir: os.TempDir()}
 	if v, err := g.RunQuiet("--version"); err == nil {

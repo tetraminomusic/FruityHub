@@ -9,25 +9,22 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden) pollNotes();
 });
 // вернулся в окно — перечитать открытый проект (мог поменяться в FL)
+let focusRefresh;
 window.addEventListener('focus', () => {
-  if (S.sel && !document.querySelector('.modal-bg')) loadProject(S.sel);
+  clearTimeout(focusRefresh);
+  focusRefresh = setTimeout(() => {
+    if (S.sel && !document.hidden && !document.querySelector('.modal-bg')) loadProject(S.sel);
+  }, 250);
 });
 
-// Windows: запущен не из папки программы — сначала окно установки (до знакомства и регистрации)
-api('/api/state')
-  .then(st => {
-    if (st.install && (st.install.show || st.install.uninstall)) {
-      S.state = st;
-      S.installer = true;
-    }
-  })
-  .catch(() => {})
-  .then(() => refreshAll())
+// Состояние загружается один раз; окно показываем до фоновых проверок.
+refreshAll()
   .then(() => {
     if (S.installer) openInstaller();
     hideSplash();
     applyLang();
     pollNotes();
+    setTimeout(() => refreshAll().catch(() => {}), 150);
   })
   .catch(e => {
     hideSplash();

@@ -134,7 +134,7 @@ async function openSettings(tab) {
       [
         'lite',
         'Простое',
-        'Без размытия, прозрачности и анимаций, окно рисуется без видеокарты — меньше оперативной памяти и нагрузки. Для слабых компьютеров.',
+        'Без размытия, прозрачности и лишних анимаций. Фоновая картинка сохраняется.',
       ],
     ]
       .map(
@@ -142,7 +142,7 @@ async function openSettings(tab) {
           `<label class="radio ${(c.liteUi ? 'lite' : 'high') === k ? 'on' : ''}"><input type="radio" name="gfx" value="${k}" ${(c.liteUi ? 'lite' : 'high') === k ? 'checked' : ''}><span><b>${t1}</b><div class="muted small">${d}</div></span></label>`
       )
       .join('')}</div>
-    <div class="muted small">Меняется сразу; память видеокарты освободится после перезапуска FruityHub.</div>
+    <div class="muted small">Меняется сразу. Аппаратное ускорение прокрутки работает в обоих режимах.</div>
     <h3>Фон</h3>
     <div class="row"><button class="sm" id="bgpick">Выбрать картинку…</button><button class="sm ghost" id="bgreset" ${st.customBg ? '' : 'disabled'}>Вернуть стандартный</button></div>
     <label>Затемнение фона</label><input type="range" id="bgdim" min="0" max="90" step="1" value="${c.bgDim || 50}" style="padding:0">
@@ -276,8 +276,8 @@ async function openSettings(tab) {
           if (!on && !BG.src) BG.src = '/assets/bg?v=__V__';
           toast(
             on
-              ? 'Простая графика включена — перезапусти FruityHub, чтобы освободить ещё и память видеокарты'
-              : 'Высокое качество графики включено — перезапусти FruityHub, чтобы окно снова рисовалось видеокартой',
+              ? 'Простая графика включена'
+              : 'Высокое качество графики включено',
             7000
           );
         } catch (er) {

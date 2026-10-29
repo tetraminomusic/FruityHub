@@ -8,5 +8,5 @@ function reloadBg(stamp) {
   const st =
     document.getElementById('bgstyle') ||
     document.head.appendChild(Object.assign(document.createElement('style'), { id: 'bgstyle' }));
-  st.textContent = `body::before{background-image:url('${u}')}`;
+  st.textContent = `body::before,body.lite::before{background-image:url('${u}')}`;
 }

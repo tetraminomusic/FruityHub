@@ -1,9 +1,19 @@
 // Экран проекта: шапка, баннеры, запуск в FL, переименование, переезд папки, подключение папки к GitHub.
 
-async function loadProject(path) {
+const projectLoads = new Map();
+function loadProject(path) {
+  if (projectLoads.has(path)) return projectLoads.get(path);
+  const pending = readProject(path).finally(() => projectLoads.delete(path));
+  projectLoads.set(path, pending);
+  return pending;
+}
+async function readProject(path) {
   try {
-    S.proj = await api('/api/project?path=' + enc(path));
+    const project = await api('/api/project?path=' + enc(path));
+    if (S.sel !== path) return;
+    S.proj = project;
   } catch (e) {
+    if (S.sel !== path) return;
     S.proj = null;
   }
   if (S.proj?.exists) loadSize(path);

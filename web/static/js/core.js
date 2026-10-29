@@ -103,6 +103,12 @@ function toast(msg, ms = 3500) {
 }
 // не больше 3 уведомлений на экране: новые сверху, остальные — прокруткой вниз
 function stackFit() {
+  let fitting = false;
+  const scheduleFit = () => {
+    if (fitting) return;
+    fitting = true;
+    requestAnimationFrame(() => { fitting = false; stackFit(); });
+  };
   for (const id of ['tasks', 'toasts']) {
     const box = $('#' + id);
     if (!box) continue;
@@ -228,14 +234,20 @@ const REPO_URL = 'https://github.com/tetraminomusic/FruityHub';
 // запуск: фон, высота стопок уведомлений, «я жив» для сервера, внешние ссылки — в браузер
 function initCore() {
   BG.onerror = () => document.body.classList.add('nobg');
-  if (!document.body.classList.contains('lite')) BG.src = '/assets/bg?v=__V__';
+  BG.src = '/assets/bg?v=__V__';
+  let fitting = false;
+  const scheduleFit = () => {
+    if (fitting) return;
+    fitting = true;
+    requestAnimationFrame(() => { fitting = false; stackFit(); });
+  };
   for (const id of ['tasks', 'toasts'])
-    new MutationObserver(() => stackFit()).observe(document.getElementById(id), {
+    new MutationObserver(scheduleFit).observe(document.getElementById(id), {
       childList: true,
       subtree: true,
       characterData: true,
     });
-  window.addEventListener('resize', () => stackFit());
+  window.addEventListener('resize', scheduleFit);
   setInterval(() => api('/api/ping', {}).catch(() => {}), 20000);
   api('/api/ping', {}).catch(() => {});
 

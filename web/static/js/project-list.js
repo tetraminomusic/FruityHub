@@ -173,7 +173,12 @@ function renderList() {
     h =
       `<div class="muted small" style="padding:10px">Проектов пока нет. Добавь папку с .flp или прими приглашение друга.</div>` +
       (groups.length ? h : '');
-  $('#plist').innerHTML = h;
+  const list = $('#plist');
+  if (list._rendered === h) return;
+  const scroll = list.scrollTop;
+  list.innerHTML = h;
+  list._rendered = h;
+  list.scrollTop = scroll;
   renderLegend();
   // drag & drop projects between folders
   document.querySelectorAll('.pitem[draggable]').forEach(

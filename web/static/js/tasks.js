@@ -133,6 +133,10 @@ async function followJob(id, title, onDone, retry) {
   const el = taskCard(title);
   el.retry = retry;
   for (;;) {
+    if (document.hidden || window.FH_TRAY) {
+      await new Promise(r => setTimeout(r, 1500));
+      continue;
+    }
     let j;
     try {
       j = await api('/api/job?id=' + id);
