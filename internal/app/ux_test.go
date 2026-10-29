@@ -12,6 +12,15 @@ func TestPinsAndTrayPersist(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("APPDATA", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	// Windows cannot remove the temporary settings directory while its log is open.
+	t.Cleanup(func() {
+		devMu.Lock()
+		defer devMu.Unlock()
+		if devFile != nil {
+			devFile.Close()
+			devFile = nil
+		}
+	})
 	s := NewServer(nil)
 	dir := filepath.Join(t.TempDir(), "project")
 	s.cfg = &Config{Projects: []LocalProject{{Path: dir}}}
