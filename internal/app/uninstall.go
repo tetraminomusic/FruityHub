@@ -85,7 +85,8 @@ func uninstallPlan(cfg *Config, name, format string) (*UninstallPlan, error) {
 		return filepath.Join(r.Path, filepath.FromSlash(d.Rel))
 	}
 	for _, d := range take {
-		add(UninstallItem{Path: dataPath(d), Kind: "data", Size: d.Size, Why: d.Why, Checked: true})
+		path := dataPath(d)
+		add(UninstallItem{Path: path, Kind: "data", Size: d.Size, Why: d.Why, Checked: !isLicenseFile(filepath.Base(path))})
 	}
 	for _, d := range skip {
 		why := d.Note

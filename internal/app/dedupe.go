@@ -42,7 +42,7 @@ type depHave map[int][]int
 
 const offerMaxFiles = 200000
 
-// dataFiles — файлы элемента данных в постоянном порядке (без лицензий и ссылок).
+// dataFiles — файлы элемента данных в постоянном порядке, включая лицензии, без ссылок.
 func dataFiles(d *PluginData) (base string, files []string) {
 	base = d.abs
 	if base == "" {
@@ -60,11 +60,14 @@ func dataFiles(d *PluginData) (base string, files []string) {
 		return base, nil
 	}
 	if !st.IsDir() {
+		if !st.Mode().IsRegular() {
+			return base, nil
+		}
 		d.files = []string{""}
 		return base, d.files
 	}
 	filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() || info.Mode()&os.ModeSymlink != 0 || isLicenseFile(info.Name()) {
+		if err != nil || !info.Mode().IsRegular() {
 			return nil
 		}
 		rel, _ := filepath.Rel(base, path)

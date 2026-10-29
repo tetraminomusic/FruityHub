@@ -4,7 +4,7 @@ async function askPermission(r) {
   const m = modal(`<h2>${esc(r.fromNick)} просит плагин</h2>
     <div class="card" style="margin:8px 0"><b style="font-size:16px">${esc(r.plugin)}</b> <span class="tag">${esc(r.format)}</span>${r.vendor ? ` <span class="muted">${esc(r.vendor)}</span>` : ''}<div class="muted small">у ${esc(r.fromNick)} ${esc(r.fromOs)}${r.fromOnline ? ' · в сети' : ' · сейчас не в сети — плагин уйдёт, когда он появится'}</div></div>
     <div id="insp" class="muted small">Проверяю, что можно отправить…</div>
-    <div class="warnbox small" style="margin-top:10px">Передавай только бесплатные плагины или те, на которые у ${esc(r.fromNick)} есть своя лицензия. Данные плагина (пресеты, ресурсы) уйдут вместе с ним, а лицензии и активация — нет.</div>
+    <div class="warnbox small" style="margin-top:10px">Передавай только бесплатные плагины или те, на которые у ${esc(r.fromNick)} есть своя лицензия. Данные плагина (пресеты, ресурсы и файлы лицензий) уйдут вместе с ним.</div>
     <div class="muted small" style="margin-top:6px">Чтобы не нажимать каждый раз — Плагины → Настройки → «Кто может скачивать плагины с моего компьютера».</div>
     <label>Причина отказа (если отказываешь)</label><input id="why" placeholder="напр.: он платный, купи на сайте">
     <div class="row" style="justify-content:flex-end;margin-top:14px"><button id="later" class="ghost">Позже</button><button id="no" class="danger">Отклонить</button><button id="yes" class="primary" disabled>Разрешить и отправить</button></div>`);
@@ -47,10 +47,10 @@ async function askPermission(r) {
   });
   const dataInfo =
     (insp.data || []).length || (insp.dataSkipped || []).length
-      ? `<div class="small" style="margin-top:8px;color:var(--text)"><b>Данные плагина</b> (пресеты, ресурсы — нужны, чтобы он работал):
+      ? `<div class="small" style="margin-top:8px;color:var(--text)"><b>Данные плагина</b> (пресеты, ресурсы, файлы лицензий):
       ${(insp.data || []).map(d => `<div>✓ ${esc(d.rel)} <span class="muted">${fmtSize(d.size)} — ${esc(d.why || 'уйдёт вместе с плагином')}</span></div>`).join('')}
       ${(insp.dataSkipped || []).map(d => `<div>— ${esc(d.rel)} <span class="muted">${fmtSize(d.size)}: ${esc(d.note)}</span></div>`).join('')}
-      <div class="muted">Файлы лицензий и активации не передаются.</div></div>`
+      <div class="muted">Найденные файлы лицензий передаются вместе с данными. Может потребоваться повторная активация.</div></div>`
       : '';
   m.querySelector('#insp').innerHTML =
     dataInfo +
@@ -112,7 +112,7 @@ async function openDeps(encName, format) {
       ${(d.dataSkip || []).map(x => `<div>— ${esc(x.rel)} <span class="muted">${fmtSize(x.size)}: ${esc(x.note)}</span></div>`).join('')}
       ${(d.registry || []).length ? `<div style="margin-top:6px"><b>Пути в реестре</b> (запишутся у друга, если у него их нет):</div>${d.registry.map(r => `<div class="mono small">${esc(r.hive + '\\' + r.key)} · ${esc(r.name || '(по умолчанию)')} = ${esc(r.data)}</div>`).join('')}` : ''}</div>
     ${items.length ? `<table style="margin-top:10px"><tr><th>Что</th><th>Нашлось</th><th></th></tr>${items.map(x => `<tr><td><span class="muted small">${DEP_KIND[x.kind] || x.kind}</span><div class="mono small" style="word-break:break-all">${esc(x.name)}</div></td><td class="mono small" style="word-break:break-all">${esc(x.path || '')}${x.note ? `<div class="muted" style="font-family:inherit">${esc(x.note)}</div>` : ''}</td><td><span class="tag ${DEP_ST[x.status]?.[1] || ''}">${DEP_ST[x.status]?.[0] || x.status}</span></td></tr>`).join('')}</table>` : ''}
-    <div class="muted small" style="margin-top:8px">${sys ? `Системных библиотек: ${sys} — они есть на любом компьютере. ` : ''}Лицензии и активация не переносятся — их ставят у себя установщиком производителя.</div>`;
+    <div class="muted small" style="margin-top:8px">${sys ? `Системных библиотек: ${sys} — они есть на любом компьютере. ` : ''}Файлы лицензий переносятся с данными. Активацию с привязкой к компьютеру или аккаунту может потребоваться выполнить повторно.</div>`;
 }
 // итог установки полученного плагина: что разложено и что стоит проверить
 function showReport(rep, again, check) {
@@ -278,7 +278,7 @@ function renderPlugins() {
         : '<p class="muted">Плагинов не найдено.</p>'
     }
     ${projReqs.length ? `<h3>Передачи плагинов этого проекта</h3>${reqTable(projReqs.slice(0, 30))}` : ''}
-    <div class="card small muted">Плагин идёт с компьютера друга на твой: если вы в одной сети — напрямую по ней, иначе потоком через сервер FruityHub (там ничего не хранится). Поэтому оба компьютера должны быть включены и FruityHub открыт. Плагин сам ложится в папку, где у тебя лежат плагины этого формата, и добавляется в базу плагинов FL. Между одинаковыми системами плагин переносится и ставится сам. Между Mac и Windows — если в пакете плагина есть версия для обеих систем (так бывает у VST3), иначе друг пришлёт установщик, и FruityHub его запустит. Вместе с плагином переносятся его данные (пресеты, ресурсы из «Документов», ProgramData, AppData), если они не больше 2 ГБ. Большие библиотеки сэмплов и лицензии не переносятся — после установки FruityHub покажет, что ещё нужно сделать.</div>`;
+    <div class="card small muted">Плагин идёт с компьютера друга на твой: если вы в одной сети — напрямую по ней, иначе потоком через сервер FruityHub (там ничего не хранится). Поэтому оба компьютера должны быть включены и FruityHub открыт. Плагин сам ложится в папку, где у тебя лежат плагины этого формата, и добавляется в базу плагинов FL. Между одинаковыми системами плагин переносится и ставится сам. Между Mac и Windows — если в пакете плагина есть версия для обеих систем (так бывает у VST3), иначе друг пришлёт установщик, и FruityHub его запустит. Вместе с плагином переносятся его данные (пресеты, ресурсы и файлы лицензий из «Документов», ProgramData, AppData), если они не больше 2 ГБ. Большие библиотеки сэмплов не переносятся. Файла лицензии может быть недостаточно для активации на другом компьютере — после установки FruityHub покажет, что ещё нужно сделать.</div>`;
 }
 function reqTable(list) {
   const myId = S.state.userId;
@@ -519,7 +519,7 @@ async function uninstallPlugin(name, format, after) {
       <td class="muted small" style="text-align:right;white-space:nowrap">${it.size ? fmtSize(it.size) : ''}</td></tr>`
       )
       .join('')}</table></div>
-    <div class="muted small" style="margin-top:6px">Лицензии в системе и пути в реестре не трогаются. Без галочки — то, что может быть общим с другими плагинами (большие библиотеки).</div>`;
+    <div class="muted small" style="margin-top:6px">Отдельные файлы лицензий и большие библиотеки — без галочки. Данные внутри выбранных папок удаляются вместе с ними. Пути в реестре не трогаются.</div>`;
   const boxes = [...m.querySelectorAll('input[data-i]')],
     ok = m.querySelector('#ok');
   const upd = () => {

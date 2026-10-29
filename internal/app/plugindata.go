@@ -16,7 +16,8 @@ import (
 // отдельно — в «Документах», ProgramData, Common Files, AppData (на Mac — Application Support).
 // Без них плагин в FL открывается серым окном или не грузится. Отправитель находит такие папки
 // по имени плагина и производителя и кладёт в пакет, получатель раскладывает их по тем же местам.
-// Файлы лицензий и активации не передаются никогда: лицензия у каждого своя.
+// Файлы лицензий переносятся вместе с данными; привязанную к компьютеру активацию
+// производитель может потребовать выполнить повторно.
 
 const dataPrefix = "__uzbek_data__/"
 
@@ -190,7 +191,7 @@ func findPluginDataEx(name, vendor, pluginPath string) (take, skip []PluginData,
 				return
 			}
 			for _, t := range take {
-				if under(fullOf(t), lf) {
+				if under(fullOf(t), lf) && !isLicenseFile(filepath.Base(fullOf(t))) {
 					return
 				}
 			}
@@ -230,6 +231,9 @@ func findPluginDataEx(name, vendor, pluginPath string) (take, skip []PluginData,
 		}
 		for _, e := range ents {
 			if !e.IsDir() {
+				if isLicenseFile(e.Name()) && match(e.Name()) {
+					consider(r, e.Name(), false, "файл лицензии плагина")
+				}
 				continue
 			}
 			switch {
@@ -242,6 +246,9 @@ func findPluginDataEx(name, vendor, pluginPath string) (take, skip []PluginData,
 				found := false
 				for _, s := range sub {
 					if !s.IsDir() {
+						if isLicenseFile(s.Name()) && match(s.Name()) {
+							consider(r, e.Name()+"/"+s.Name(), false, "файл лицензии плагина")
+						}
 						continue
 					}
 					if match(s.Name()) {
@@ -254,20 +261,40 @@ func findPluginDataEx(name, vendor, pluginPath string) (take, skip []PluginData,
 						if s2.IsDir() && match(s2.Name()) {
 							consider(r, e.Name()+"/"+s.Name()+"/"+s2.Name(), false, "папка плагина у производителя")
 							found = true
+						} else if !s2.IsDir() && isLicenseFile(s2.Name()) && match(s2.Name()) {
+							consider(r, e.Name()+"/"+s.Name()+"/"+s2.Name(), false, "файл лицензии плагина")
 						}
 					}
 				}
 				if !found {
 					consider(r, e.Name(), true, "папка производителя")
 				}
+			case isLicenseDir(e.Name()):
+				sub, _ := os.ReadDir(filepath.Join(r.Path, e.Name()))
+				for _, s := range sub {
+					if match(s.Name()) && (s.IsDir() || isLicenseFile(s.Name())) {
+						consider(r, e.Name()+"/"+s.Name(), false, "лицензия в общей папке")
+					}
+				}
 			}
 		}
 	}
 	// то, на что ссылается сам файл плагина
 	deps, cands := pluginDeps(pluginPath, keys, vkey)
+	// В общей папке VST берём только лицензии с именем этого плагина.
+	// Содержимое самого пакета (.vst3/.component) уже входит в архив плагина.
+	if st, err := os.Lstat(pluginPath); err == nil && st.Mode().IsRegular() {
+		parent := filepath.Dir(filepath.Clean(pluginPath))
+		ents, _ := os.ReadDir(parent)
+		for _, e := range ents {
+			if !e.IsDir() && isLicenseFile(e.Name()) && match(e.Name()) {
+				cands = append(cands, depCand{root: DataRoot{Key: sideRoot}, rel: e.Name(), abs: filepath.Join(parent, e.Name()), why: "файл лицензии рядом с плагином"})
+			}
+		}
+	}
 	for _, c := range cands {
 		if c.root.Key == sideRoot {
-			if st, err := os.Stat(c.abs); err == nil && !seen[strings.ToLower(c.abs)] {
+			if st, err := os.Lstat(c.abs); err == nil && st.Mode().IsRegular() && !seen[strings.ToLower(c.abs)] {
 				seen[strings.ToLower(c.abs)] = true
 				take = append(take, PluginData{Root: sideRoot, Rel: c.rel, Size: st.Size(), Why: c.why, abs: c.abs})
 				total += st.Size()
@@ -287,7 +314,7 @@ func findPluginDataEx(name, vendor, pluginPath string) (take, skip []PluginData,
 	return take, skip, deps
 }
 
-// isLicenseFile: лицензии и активация — не передаём.
+// isLicenseFile распознаёт отдельные файлы лицензий для поиска вне папки данных.
 // Файлы интерфейса и ресурсов передаются всегда, даже если в названии есть «activation»
 // (у Arturia окно активации — часть интерфейса: gui-activation-generated.xml; без него плагин не открывается).
 var resourceExts = map[string]bool{".xml": true, ".png": true, ".jpg": true, ".jpeg": true, ".svg": true, ".ttf": true, ".otf": true,
@@ -297,6 +324,9 @@ var resourceExts = map[string]bool{".xml": true, ".png": true, ".jpg": true, ".j
 func isLicenseFile(name string) bool {
 	n := strings.ToLower(name)
 	ext := filepath.Ext(n)
+	if pluginExts[ext] != "" || ext == ".so" || ext == ".dylib" || ext == ".exe" {
+		return false
+	}
 	switch ext {
 	case ".lic", ".license", ".licence", ".key", ".ilok", ".keyfile", ".reg":
 		return true
@@ -312,14 +342,22 @@ func isLicenseFile(name string) bool {
 	return false
 }
 
+func isLicenseDir(name string) bool {
+	switch strings.ToLower(name) {
+	case "licenses", "licences", "license", "licence", "licensing":
+		return true
+	}
+	return false
+}
+
 func dirSizeData(p string) int64 {
 	var n int64
 	filepath.WalkDir(p, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
-		if !d.IsDir() && !isLicenseFile(d.Name()) {
-			if i, e := d.Info(); e == nil {
+		if !d.IsDir() {
+			if i, e := d.Info(); e == nil && i.Mode().IsRegular() {
 				n += i.Size()
 			}
 		}

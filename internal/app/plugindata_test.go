@@ -1,12 +1,146 @@
 package app
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/binary"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestPluginLicenseDiscovery(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	name, vendor := "LicenseTransferTestSynth", "LicenseTransferTestVendor"
+	plug := filepath.Join(home, "plugins", name+".vst3")
+	writeF(t, plug, "bin")
+	docs := documentsDir()
+	want := []string{
+		name + ".license",
+		name + "/license.dat",
+		vendor + "/" + name + "/presets/default.fxp",
+		vendor + "/Licenses/" + name + ".lic",
+		"Licenses/" + name + ".key",
+	}
+	for _, rel := range want {
+		writeF(t, filepath.Join(docs, filepath.FromSlash(rel)), "data")
+	}
+	writeF(t, filepath.Join(docs, vendor, "Licenses", "OtherSynth.lic"), "other")
+	writeF(t, filepath.Join(docs, "Licenses", "OtherSynth.key"), "other")
+	writeF(t, filepath.Join(filepath.Dir(plug), name+".key"), "side-license")
+	writeF(t, filepath.Join(filepath.Dir(plug), "OtherSynth.key"), "other")
+	writeF(t, filepath.Join(filepath.Dir(plug), "license.dat"), "unattributed")
+
+	data, skipped := findPluginData(name, vendor, plug)
+	if len(skipped) != 0 {
+		t.Fatalf("unexpected skipped data: %+v", skipped)
+	}
+	got := map[string]bool{}
+	for i := range data {
+		d := &data[i]
+		_, files := dataFiles(d)
+		for _, f := range files {
+			got[d.Root+":"+strings.TrimSuffix(d.Rel+"/"+f, "/")] = true
+		}
+	}
+	for _, rel := range want {
+		if !got["DOCS:"+rel] {
+			t.Errorf("missing %s in %+v", rel, data)
+		}
+	}
+	if !got[sideRoot+":"+name+".key"] || len(got) != len(want)+1 {
+		t.Fatalf("wrong license selection: %+v", got)
+	}
+
+	// Одна лицензия не должна мешать переносу остальных общих данных производителя.
+	otherVendor := "LicenseTransferOtherVendor"
+	writeF(t, filepath.Join(docs, otherVendor, name+".lic"), "license")
+	writeF(t, filepath.Join(docs, otherVendor, "resources.dat"), "resources")
+	data, _ = findPluginData(name, otherVendor, plug)
+	found := false
+	for _, d := range data {
+		found = found || d.Root == "DOCS" && d.Rel == otherVendor
+	}
+	if !found {
+		t.Fatalf("vendor resources omitted: %+v", data)
+	}
+}
+
+func TestLicenseDataRoundTrip(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HOME", filepath.Join(root, "home"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	src := filepath.Join(root, "source")
+	writeF(t, filepath.Join(src, "Synth.key"), "sender-license")
+	writeF(t, filepath.Join(src, "license.dat"), "activation-data")
+	writeF(t, filepath.Join(src, "gui-activation-generated.xml"), "interface")
+	if err := os.Symlink(filepath.Join(src, "Synth.key"), filepath.Join(src, "linked.key")); err != nil {
+		t.Fatal(err)
+	}
+	data := []PluginData{{Root: sideRoot, Rel: "Synth", abs: src}}
+	offer := buildOffer("VST3", "Synth.vst3", "", data)
+	if len(offer.Items) != 1 || len(offer.Items[0].Files) != 3 {
+		t.Fatalf("licenses missing from negotiation (or symlink included): %+v", offer)
+	}
+	if size := dirSizeData(src); size != int64(len("sender-licenseactivation-datainterface")) {
+		t.Fatalf("license data size = %d", size)
+	}
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	if err := zipData(zw, data); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage := filepath.Join(root, "stage")
+	for _, f := range zr.File {
+		r, err := f.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := io.ReadAll(r)
+		r.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeF(t, filepath.Join(stage, filepath.FromSlash(strings.TrimPrefix(f.Name, dataPrefix))), string(b))
+	}
+	dst := filepath.Join(root, "destination")
+	license := filepath.Join(dst, "Synth", "Synth.key")
+	writeF(t, license, "recipient-license")
+	_, problems := installData(&Job{}, stage, dst, nil, false)
+	if len(problems) != 0 {
+		t.Fatal(problems)
+	}
+	for path, want := range map[string]string{license: "recipient-license", filepath.Join(dst, "Synth", "license.dat"): "activation-data"} {
+		if b, err := os.ReadFile(path); err != nil || string(b) != want {
+			t.Fatalf("%s = %q (%v), want %q", path, b, err, want)
+		}
+	}
+	_, problems = installData(&Job{}, stage, dst, nil, true)
+	if len(problems) != 0 {
+		t.Fatal(problems)
+	}
+	if b, _ := os.ReadFile(license); string(b) != "sender-license" {
+		t.Fatalf("explicit reinstall did not replace license: %q", b)
+	}
+	backups, _ := filepath.Glob(filepath.Join(ConfigDir(), "plugin-backups", "*", filepath.Base(dst), "Synth", "Synth.key"))
+	if len(backups) != 1 {
+		t.Fatalf("missing license backup: %v", backups)
+	}
+	if b, _ := os.ReadFile(backups[0]); string(b) != "recipient-license" {
+		t.Fatalf("wrong license backup: %q", b)
+	}
+}
 
 func writeF(t *testing.T, p, s string) {
 	t.Helper()
@@ -16,7 +150,7 @@ func writeF(t *testing.T, p, s string) {
 	}
 }
 
-// Плагин уходит вместе с папками данных (без лицензий), получатель раскладывает их по тем же местам
+// Плагин уходит вместе с папками данных и лицензиями, получатель раскладывает их по тем же местам
 // и не затирает свои файлы; отчёт сообщает о больших папках, которые не ушли.
 func TestPluginDataTransfer(t *testing.T) {
 	root := t.TempDir()
@@ -29,7 +163,7 @@ func TestPluginDataTransfer(t *testing.T) {
 	docs := filepath.Join(send, "Documents")
 	writeF(t, filepath.Join(docs, "Xfer", "Serum Presets", "Presets", "Lead.fxp"), "preset")
 	writeF(t, filepath.Join(docs, "Xfer", "Serum Presets", "Tables", "Saw.wav"), "table")
-	writeF(t, filepath.Join(docs, "Xfer", "Serum Presets", "System", "Serum.key"), "LICENSE") // лицензия — не уходит
+	writeF(t, filepath.Join(docs, "Xfer", "Serum Presets", "System", "Serum.key"), "LICENSE") // лицензия уходит с данными
 	writeF(t, filepath.Join(docs, "Xfer", "Other Plugin", "x.dat"), "other")                  // чужая папка производителя — не уходит
 	writeF(t, filepath.Join(docs, "Unrelated", "a.txt"), "x")
 	writeF(t, filepath.Join(send, ".config", "Serum", "settings.json"), "{}")
@@ -68,8 +202,8 @@ func TestPluginDataTransfer(t *testing.T) {
 	if !exists(filepath.Join(recv, ".config", "Serum", "settings.json")) {
 		t.Fatal("данные из второй папки не разложены")
 	}
-	if exists(filepath.Join(recv, "Documents", "Xfer", "Serum Presets", "System", "Serum.key")) {
-		t.Fatal("лицензия не должна передаваться")
+	if b, _ := os.ReadFile(filepath.Join(recv, "Documents", "Xfer", "Serum Presets", "System", "Serum.key")); string(b) != "LICENSE" {
+		t.Fatal("лицензия должна передаваться вместе с данными")
 	}
 	if exists(filepath.Join(recv, "Documents", "Xfer", "Other Plugin")) {
 		t.Fatal("чужие данные производителя не должны передаваться")
@@ -210,6 +344,6 @@ func TestSubdirAndLicenseRules(t *testing.T) {
 		t.Fatal("ресурсы интерфейса — не лицензия (Arturia без них не открывается)")
 	}
 	if !isLicenseFile("Serum.key") || !isLicenseFile("license.dat") {
-		t.Fatal("настоящие лицензии не передаются")
+		t.Fatal("файлы лицензий должны распознаваться")
 	}
 }
