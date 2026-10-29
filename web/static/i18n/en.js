@@ -1447,4 +1447,5 @@ window.I18N_EN = {
   "Меняется сразу. Аппаратное ускорение прокрутки работает в обоих режимах.": "Changes immediately. Hardware-accelerated scrolling works in both modes.",
   "Простая графика включена": "Simple graphics enabled",
   "Высокое качество графики включено": "High-quality graphics enabled",
+  "Windows: Alt+F4 полностью завершает FruityHub вместе с треем; крестик по-прежнему скрывает окно в трей": "Windows: Alt+F4 quits FruityHub including the tray; the close button still hides the window to the tray",
 };

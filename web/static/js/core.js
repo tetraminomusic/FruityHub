@@ -220,9 +220,9 @@ function projName(path) {
 async function installTools() {
   await runJob('/api/tools/install', {}, { title: 'Установка git / git-lfs' });
 }
-async function quitApp() {
+async function quitApp(ask = true) {
   if (!(await confirmNoTransfers('закрыть FruityHub'))) return;
-  if (await uiConfirm('Закрыть FruityHub?', { ok: 'Закрыть' })) {
+  if (!ask || (await uiConfirm('Закрыть FruityHub?', { ok: 'Закрыть' }))) {
     await api('/api/quit', {}).catch(() => {});
     document.body.innerHTML = '<div class="empty"><div>FruityHub закрыт. Вкладку можно закрыть.</div></div>';
   }

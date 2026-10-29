@@ -25,6 +25,20 @@ type trayIconData struct {
 	BalloonIcon         uintptr
 }
 
+// Крестик и Alt+F4 доходят до одного WM_CLOSE. Перехватываем клавиатурное
+// закрытие до этого, включая путь через системную команду WebView2.
+func altF4Close(msg, key, flags uintptr, alt, f4 bool) bool {
+	switch msg {
+	case 0x104: // WM_SYSKEYDOWN: контекст Alt в бите 29
+		return key == 0x73 && flags&(1<<29) != 0
+	case 0x112: // WM_SYSCOMMAND / SC_CLOSE
+		return key&0xfff0 == 0xf060 && alt && f4
+	case 0x10: // WM_CLOSE, если дочернее окно переслало его напрямую
+		return alt && f4
+	}
+	return false
+}
+
 // Закрытие окна скрывает его, сервер и передачи продолжают работать.
 // При недоступном трее оставляем обычное закрытие: невидимого процесса не будет.
 func installTray(w webview2.WebView, url string, iconID int) (func(), func()) {
@@ -52,6 +66,15 @@ func installTray(w webview2.WebView, url string, iconID int) (func(), func()) {
 	name, _ := syscall.UTF16PtrFromString("TaskbarCreated")
 	restart, _, _ := user32.NewProc("RegisterWindowMessageW").Call(uintptr(unsafe.Pointer(name)))
 	callback := syscall.NewCallback(func(h, msg, wp, lp, id, ref uintptr) uintptr {
+		if msg == 0x104 || msg == 0x112 || msg == 0x10 {
+			alt, _, _ := user32.NewProc("GetKeyState").Call(0x12)
+			f4, _, _ := user32.NewProc("GetKeyState").Call(0x73)
+			if altF4Close(msg, wp, lp, alt&0x8000 != 0, f4&0x8000 != 0) {
+				show()
+				w.Eval("if(typeof quitApp==='function'&&!window.FH_QUIT_PENDING){window.FH_QUIT_PENDING=true;quitApp(false).finally(()=>{window.FH_QUIT_PENDING=false;});}")
+				return 0
+			}
+		}
 		if msg == restart {
 			active = add()
 		}
