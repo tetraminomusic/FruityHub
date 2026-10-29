@@ -26,7 +26,7 @@ async function readProject(path) {
       }
     })
     .catch(() => {});
-  if (S.tab === 'history') loadHistory();
+  if ((S.tab === 'changes' || S.tab === 'history') && !S.history) loadHistory();
   if (S.comments === null) loadComments(false);
 }
 // сколько места занимает проект: всё вместе, аудио и .git (история и вторые копии аудио Git LFS)
@@ -56,7 +56,7 @@ async function refreshProject() {
   try {
     S.analysis = null;
     S.hidden = null;
-    if (S.tab === 'history') S.history = null;
+    if (S.tab === 'changes' || S.tab === 'history') S.history = null;
     await refreshAll();
     await loadProject(path);
     loadSize(path, true);
@@ -138,41 +138,29 @@ function renderMainNow() {
   const st = S.comments?.status;
   const openTodos = (S.comments?.comments || []).filter(c => c.kind === 'todo' && !c.done).length;
   const unread = S.notes[S.sel]?.unread || 0;
-  let banner;
-  if (!lock)
-    banner = `<div class="banner free"><div><div class="big">Проект свободен</div><div class="muted small">Нажми «Взять в работу» перед тем как открывать его в FL — друг увидит, что ты им занят.</div></div></div>`;
-  else if (mine)
-    banner = `<div class="banner me"><div><div class="big">Проект в работе у тебя</div><div class="muted small">с ${fmtTime(lock.since)}. Закончил — «Отправить» с галочкой «освободить».</div></div></div>`;
-  else
-    banner = `<div class="banner other"><div><div class="big">Сейчас работает ${esc(lock.user)} (${esc(lock.os)})</div><div class="muted small">с ${fmtTime(lock.since)}. Если откроешь и сохранишь проект сейчас — получится конфликт (ничего не потеряется, но придётся сводить вручную).</div></div></div>`;
-  const sync =
-    p.ahead < 0
-      ? 'на сервере ещё ничего нет'
-      : (p.behind ? `<b style="color:var(--accent)">на сервере новое: ${p.behind}</b>` : 'с сервером совпадает') +
-        (p.ahead > 0 ? ` · не отправлено коммитов: ${p.ahead}` : '');
+  const action = projectActionState(p, missing.length, pluginProblems.length);
+  const incoming = S.history?.find(c => c.incoming);
+  const status = action.primary === 'receive' && incoming ? `Новая версия от ${incoming.author}` : action.status;
+  const banner = `<div class="banner ${!lock ? 'free' : mine ? 'me' : 'other'}"><div><div class="big">${esc(status)}</div><div class="muted small">${action.primary === 'prepare' ? `<a onclick="mainProjectAction('prepare')">Подготовить проект к работе →</a>` : lock ? `${mine ? 'С ' + fmtTime(lock.since) : 'В работе у ' + esc(lock.user)}` : 'Перед открытием можно взять проект в работу.'}</div></div></div>`;
   const tabs = [
-    ['changes', 'Изменения', visibleChanges.length, ''],
+    ['changes', 'Изменения и история', visibleChanges.length, ''],
     ['talk', 'Обсуждение', unread || openTodos || null, unread ? 'hot' : ''],
     ['samples', 'Сэмплы', (a?.samples || []).length, missing.length ? 'bad' : ''],
     ['plugins', 'Плагины', plugins.length, pluginProblems.length ? 'bad' : ''],
-    ['history', 'История', null, ''],
     ['settings', 'Настройки', null, ''],
   ];
   m.innerHTML = `<div class="card phead">
-    <div class="row"><h1>${esc(p.name)}</h1><button class="ghost sm" title="Переименовать (только на этом компьютере)" onclick="renameProject()">✎</button>${st?.stage ? `<span class="stage" title="${esc(st.text || '')}">● ${esc(st.stage)}</span>` : ''}${p.tempo ? `<span class="tchip" title="${p.tempoFlp ? 'Темп из .flp (в начале проекта). Свой — «Настройки» → «Темп, тональность, длительность»' : 'Темп из «Настройки» → «Темп, тональность, длительность»'}" onclick="setTab('settings')">${esc(p.tempo)} BPM</span>` : ''}${p.key ? `<span class="tchip" title="Тональность" onclick="setTab('settings')">${esc(p.key)}</span>` : ''}${(S.state.projects || []).find(x => x.path === p.path)?.length ? `<span class="tchip" title="Длительность трека" onclick="setTab('settings')">${fmtLen((S.state.projects || []).find(x => x.path === p.path).length)}</span>` : ''}<span class="spacer"></span>
+    <div class="row"><h1>${esc(p.name)}</h1><button class="ghost sm" onclick="projectMore(event)">Ещё ▾</button>${st?.stage ? `<span class="stage" title="Этап проекта">● ${esc(st.stage)}</span>` : ''}${p.tempo ? `<span class="tchip" title="${p.tempoFlp ? 'Темп из .flp (в начале проекта). Свой — «Настройки» → «Темп, тональность, длительность»' : 'Темп из «Настройки» → «Темп, тональность, длительность»'}" onclick="setTab('settings')">${esc(p.tempo)} BPM</span>` : ''}${p.key ? `<span class="tchip" title="Тональность" onclick="setTab('settings')">${esc(p.key)}</span>` : ''}${(S.state.projects || []).find(x => x.path === p.path)?.length ? `<span class="tchip" title="Длительность трека" onclick="setTab('settings')">${fmtLen((S.state.projects || []).find(x => x.path === p.path).length)}</span>` : ''}<span class="spacer"></span>
       ${p.onServer ? `<button class="ghost" onclick="participantsDialog()">Участники</button>` : ''}<button class="ghost" onclick="api('/api/project/open',{path:S.sel})">Открыть папку</button><button class="ghost iconbtn" onclick="refreshProject()" ${S.refreshing === p.path ? 'disabled' : ''} title="Обновить: перечитать проект (изменения в папке, .flp, сэмплы, размер) и проверить, нет ли нового на GitHub">${S.refreshing === p.path ? '<span class="spin"></span>' : ICON_REFRESH}</button></div>
-    <div class="muted small mono ellip" title="${esc(p.path)}">${esc(p.path)}</div>
-    <div class="muted small" id="psize">${sizeText(p.path)}</div>
-    <div class="muted small" style="margin-top:4px">${p.remote ? '⇅ ' + esc(p.remote.replace(/https:\/\/[^@]*@/, 'https://')) : '<span style="color:var(--warn)">сервер не указан — открой «Настройки» проекта</span>'} · ${sync}${p.lastSync ? ' · проверено ' + p.lastSync : ''}</div>
-    ${st?.text ? `<div class="muted small" style="margin-top:6px">${esc(st.text)} <span class="muted">— ${esc(st.by)}, ${fmtTime(st.time)}</span></div>` : ''}</div>
+    </div>
     <div class="top"><div>${banner}
-      <div class="actions">
-        <button onclick="receive()">⤓ Получить</button>
-        ${mine ? '' : `<button onclick="takeLock(${!!(lock && !mine)})">Взять в работу</button>`}
-        <button class="primary" onclick="sendDialog()" ${S.sendOpen ? 'disabled' : ''}>${S.sendOpen ? '<span class="spin"></span> ' : ''}⤒ Отправить${visibleChanges.length ? ' (' + visibleChanges.length + ')' : ''}</button>
-        ${mine ? `<button class="ghost" onclick="unlock()">Освободить без отправки</button>` : ''}
+      <div class="actions stable-actions">
+        <button class="${action.primary === 'receive' ? 'primary' : 'action-muted'}" onclick="receive()">⤓ Получить</button>
+        <button class="action-muted" onclick="${mine ? 'unlock()' : `takeLock(${!!lock})`}">${mine ? 'Освободить' : 'Взять в работу'}</button>
+        <button class="${action.primary === 'send' ? 'primary' : 'action-muted'}" onclick="sendDialog()" ${S.sendOpen ? 'disabled' : ''}>${S.sendOpen ? '<span class="spin"></span> ' : ''}⤒ Отправить${visibleChanges.length ? ' (' + visibleChanges.length + ')' : ''}</button>
       </div></div>
-      <div class="card launch">${launchPanel(p)}</div></div>
+      <div class="card launch ${action.primary === 'launch' ? '' : 'launch-muted'}">${launchPanel(p)}</div>
+    </div>
     ${layoutBanners(p)}
     ${p.fl?.tooOld ? `<div class="badbox">${esc(p.fl.text)}</div>` : ''}
     ${missing.length ? dbox('missing:' + missing.length, 'badbox', `Не найдено сэмплов: ${missing.length}. Они пропадут в FL — смотри вкладку «Сэмплы».`) : ''}
@@ -392,9 +380,10 @@ async function saveFLTitle(v) {
   }
 }
 function setTab(t) {
+  if (t === 'history') t = 'changes';
   S.tab = t;
   if (t === 'plugins') loadReqs();
-  if (t === 'history' && !S.history) loadHistory();
+  if ((t === 'changes' || t === 'history') && !S.history) loadHistory();
   if (t === 'talk') loadComments(true);
   renderMain();
 }
@@ -472,7 +461,7 @@ function splitDialog() {
 function renderAdopt() {
   const p = S.proj;
   $('#main').innerHTML =
-    `<div class="card phead"><div class="row"><h1>${esc(p.name)}</h1><button class="ghost sm" title="Переименовать (только на этом компьютере)" onclick="renameProject()">✎</button><span class="spacer"></span>
+    `<div class="card phead"><div class="row"><h1>${esc(p.name)}</h1><button class="ghost sm" onclick="projectMore(event)">Ещё ▾</button><span class="spacer"></span>
     <button class="primary" onclick="launchProject()">Запустить проект</button><button class="ghost" onclick="api('/api/project/open',{path:S.sel})">Открыть папку</button><button class="ghost iconbtn" onclick="refreshProject()" ${S.refreshing === p.path ? 'disabled' : ''} title="Обновить: перечитать проект (изменения в папке, .flp, сэмплы, размер) и проверить, нет ли нового на GitHub">${S.refreshing === p.path ? '<span class="spin"></span>' : ICON_REFRESH}</button></div>
     <div class="muted small mono">${esc(p.path)}</div>${p.fl?.saved ? `<div class="muted small">Сохранён в FL Studio ${esc(p.fl.saved)}${p.fl.installed ? ` · у тебя ${esc(p.fl.installed)}` : ''}</div>` : ''}</div>
     ${p.fl?.tooOld ? `<div class="badbox">${esc(p.fl.text)}</div>` : ''}${layoutBanners(p)}
@@ -504,7 +493,7 @@ function renderSetup() {
   const p = S.proj,
     reg = S.state.registered;
   $('#main').innerHTML =
-    `<div class="card phead"><div class="row"><h1>${esc(p.name)}</h1><button class="ghost sm" title="Переименовать (только на этом компьютере)" onclick="renameProject()">✎</button><span class="spacer"></span>
+    `<div class="card phead"><div class="row"><h1>${esc(p.name)}</h1><button class="ghost sm" onclick="projectMore(event)">Ещё ▾</button><span class="spacer"></span>
     <button class="primary" onclick="launchProject()">Запустить проект</button><button class="ghost" onclick="api('/api/project/open',{path:S.sel})">Открыть папку</button><button class="ghost iconbtn" onclick="refreshProject()" ${S.refreshing === p.path ? 'disabled' : ''} title="Обновить: перечитать проект (изменения в папке, .flp, сэмплы, размер) и проверить, нет ли нового на GitHub">${S.refreshing === p.path ? '<span class="spin"></span>' : ICON_REFRESH}</button></div>
     <div class="muted small mono">${esc(p.path)}</div>${p.fl?.saved ? `<div class="muted small">Сохранён в FL Studio ${esc(p.fl.saved)}${p.fl.installed ? ` · у тебя ${esc(p.fl.installed)}` : ''}</div>` : ''}</div>
     ${p.fl?.tooOld ? `<div class="badbox">${esc(p.fl.text)}</div>` : ''}${layoutBanners(p)}
@@ -551,12 +540,7 @@ async function initWith(url) {
 }
 async function addProject() {
   const r = await api('/api/pickfolder', {}).catch(() => ({ path: '' }));
-  let path = r.path;
-  if (!path)
-    path = await uiPrompt('Папка проекта', {
-      label: 'Путь к папке, где лежит .flp',
-      placeholder: '/Users/me/Music/Трек',
-    });
+  const path = r.path;
   if (!path) return;
   try {
     await api('/api/projects/add', { path });

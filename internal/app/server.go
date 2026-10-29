@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -64,26 +65,27 @@ func (s *Server) assetStamp() string {
 }
 
 type Server struct {
-	Assets    fs.FS // background picture, icon (optional)
-	cfg       *Config
-	token     string
-	index     []byte
-	mu        sync.Mutex // serialises git operations
-	jobsMu    sync.Mutex
-	jobs      map[string]*Job
-	running   int
-	lastPing  time.Time
-	quit      chan struct{}
-	quitOnce  sync.Once
-	Windowed  bool
-	notesMu   sync.Mutex
-	notes     map[string]*ProjectNotes
-	busyReq   sync.Map // plugin request id -> "sending" | "installing" | "human"
-	fetchSeen sync.Map // просьбы участников об аудио проектов, которые уже обработаны
-	cloning   sync.Map // id проекта на сервере → id задачи, которая его скачивает
-	fixPaths  sync.Map // папки из ошибки «уже существует», которые можно убрать кнопкой
-	reqJobs   sync.Map // plugin request id -> *Job идущей передачи (для отмены)
-	hubError  string
+	trayDisabled atomic.Bool
+	Assets       fs.FS // background picture, icon (optional)
+	cfg          *Config
+	token        string
+	index        []byte
+	mu           sync.Mutex // serialises git operations
+	jobsMu       sync.Mutex
+	jobs         map[string]*Job
+	running      int
+	lastPing     time.Time
+	quit         chan struct{}
+	quitOnce     sync.Once
+	Windowed     bool
+	notesMu      sync.Mutex
+	notes        map[string]*ProjectNotes
+	busyReq      sync.Map // plugin request id -> "sending" | "installing" | "human"
+	fetchSeen    sync.Map // просьбы участников об аудио проектов, которые уже обработаны
+	cloning      sync.Map // id проекта на сервере → id задачи, которая его скачивает
+	fixPaths     sync.Map // папки из ошибки «уже существует», которые можно убрать кнопкой
+	reqJobs      sync.Map // plugin request id -> *Job идущей передачи (для отмены)
+	hubError     string
 }
 
 func NewServer(index []byte) *Server {
@@ -94,6 +96,7 @@ func NewServer(index []byte) *Server {
 	go cleanStaleTransfers()
 	s := &Server{cfg: cfg, token: hex.EncodeToString(b), index: index, jobs: map[string]*Job{},
 		lastPing: time.Now(), quit: make(chan struct{}), notes: map[string]*ProjectNotes{}}
+	s.trayDisabled.Store(cfg.NoTray)
 	currentNick = func(id, nick string) string { return s.cachedNickResolver()(id, nick) }
 	nickTaken = s.nickTakenCached
 	ownerByPlugins = s.ownerByPluginsCached
@@ -101,6 +104,9 @@ func NewServer(index []byte) *Server {
 }
 
 func (s *Server) Quit() <-chan struct{} { return s.quit }
+
+// TrayEnabled reports the current close-to-tray preference.
+func (s *Server) TrayEnabled() bool { return !s.trayDisabled.Load() }
 
 // LiteUI — включён лёгкий режим окна (Настройки → Вид).
 func (s *Server) LiteUI() bool { return s.cfg.LiteUI }
@@ -395,6 +401,7 @@ func (s *Server) project(path string, j *Job) (*Project, error) {
 }
 
 type ProjectSummary struct {
+	Pinned   bool           `json:"pinned,omitempty"`
 	ReqKey   string         `json:"reqKey,omitempty"` // метка запросов плагинов из этого проекта
 	Path     string         `json:"path"`
 	Name     string         `json:"name"`
@@ -432,6 +439,7 @@ func (s *Server) summary(path string) ProjectSummary {
 	if lp := s.cfg.Project(path); lp != nil {
 		ps.Relink = lp.RelinkOnReceive
 		ps.Group = lp.Group
+		ps.Pinned = lp.Pinned
 		ps.Name = lp.DisplayName()
 	}
 	if !exists(path) {
@@ -504,7 +512,7 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 		cfg.AdminKey = ""
 		var list []ProjectSummary
 		for _, p := range s.cfg.Projects {
-			ps := ProjectSummary{Path: p.Path, Name: p.DisplayName(), Exists: exists(p.Path), Group: p.Group}
+			ps := ProjectSummary{Path: p.Path, Name: p.DisplayName(), Pinned: p.Pinned, Exists: exists(p.Path), Group: p.Group}
 			pr := &Project{Dir: p.Path, Cfg: s.cfg}
 			ps.IsRepo = pr.git().IsRepo()
 			if r.URL.Query().Get("quick") != "1" {
@@ -530,6 +538,7 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 	})
 	api("/api/settings", func(r *http.Request) (any, error) {
 		var req struct {
+			Tray            *bool         `json:"tray"`
 			Token           *string       `json:"token"`
 			ExtraPluginDirs []string      `json:"extraPluginDirs"`
 			Proxy           *string       `json:"proxy"`
@@ -554,6 +563,10 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 		}
 		if err := decode(r, &req); err != nil {
 			return nil, err
+		}
+		if req.Tray != nil {
+			s.cfg.NoTray = !*req.Tray
+			s.trayDisabled.Store(s.cfg.NoTray)
 		}
 		if req.Token != nil {
 			s.cfg.Token = strings.TrimSpace(*req.Token)
@@ -656,6 +669,21 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 			return map[string]string{"path": ""}, nil
 		}
 		return map[string]string{"path": p}, nil
+	})
+	api("/api/projects/pin", func(r *http.Request) (any, error) {
+		var req struct {
+			Path   string `json:"path"`
+			Pinned bool   `json:"pinned"`
+		}
+		if err := decode(r, &req); err != nil {
+			return nil, err
+		}
+		lp := s.cfg.Project(req.Path)
+		if lp == nil {
+			return nil, errors.New("проект не найден")
+		}
+		lp.Pinned = req.Pinned
+		return "ok", s.cfg.Save()
 	})
 	api("/api/projects/add", func(r *http.Request) (any, error) {
 		var req pathReq

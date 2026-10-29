@@ -41,7 +41,7 @@ function renderAvailable() {
       ? list
           .map(
             a => `<div class="avail"><div class="an">${esc(a.name)}</div>
-      <div class="muted small">${a.isOwner ? 'твой проект' : 'от ' + esc(a.owner.nick)} · участники: ${(a.members || []).map(m => esc(m.nick)).join(', ')}</div>
+      <div class="muted small">${a.isOwner ? 'твой проект' : 'от ' + esc(a.owner.nick)}</div>
       <div style="margin-top:6px">${a.downloading ? '<span class="tag blue">скачивается…</span>' : `<button class="sm primary" onclick="downloadAvailable('${a.id}')">Скачать</button>`}</div></div>`
           )
           .join('')

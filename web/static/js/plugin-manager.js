@@ -60,7 +60,23 @@ async function pmMine(el, m, force) {
   const fmts = [...new Set(list.map(p => p.format))].sort();
   el.innerHTML = `<div class="row"><input id="pmq" placeholder="поиск: название или производитель" style="flex:1;min-width:180px"><select id="pmf" style="width:auto"><option value="">все форматы</option>${fmts.map(f => `<option>${esc(f)}</option>`).join('')}</select><button class="sm" id="pmr" title="Найти плагины заново">↻ Пересканировать</button></div>
     <div class="muted small" style="margin:6px 0">Найдено плагинов: ${list.length}. Нажми на плагин — проверка, зависимости, «без пресетов» при передаче и полное удаление вместе с данными.</div>
-    <div style="max-height:56vh;overflow:auto"><table id="pmt"><tr><th>Плагин</th><th>Формат</th><th>Версия</th><th>Производитель</th></tr>${list.map((p, i) => `<tr class="prow" data-i="${i}" data-q="${esc((p.name + ' ' + (p.vendor || '')).toLowerCase())}" data-f="${esc(p.format)}"><td><b class="pname">${esc(p.name)}</b>${S.state.config.litePlugins?.some(n => n.toLowerCase() === p.name.toLowerCase()) ? ' <span class="tag" title="При передаче библиотека пресетов не тянется">без пресетов</span>' : ''}${p.copies > 1 ? ` <span class="tag warn" title="Плагин лежит в нескольких местах">копий: ${p.copies}</span>` : ''}</td><td><span class="tag">${esc(p.format)}</span></td><td class="muted small">${esc(p.version || '')}</td><td class="muted small">${esc(p.vendor || '')}</td></tr>`).join('')}</table></div>`;
+    <div style="max-height:56vh;overflow:auto"><table id="pmt"><tr>${[['name','Плагин'],['format','Формат'],['version','Версия'],['vendor','Производитель']].map(([key,label]) => `<th data-sort="${key}" aria-sort="none"><button class="ghost column-sort" type="button">${label} <span class="sort-direction"></span></button></th>`).join('')}</tr>${list.map((p, i) => `<tr class="prow" data-i="${i}" data-q="${esc((p.name + ' ' + (p.vendor || '')).toLowerCase())}" data-f="${esc(p.format)}"><td><b class="pname">${esc(p.name)}</b>${S.state.config.litePlugins?.some(n => n.toLowerCase() === p.name.toLowerCase()) ? ' <span class="tag" title="При передаче библиотека пресетов не тянется">без пресетов</span>' : ''}${p.copies > 1 ? ` <span class="tag warn" title="Плагин лежит в нескольких местах">копий: ${p.copies}</span>` : ''}</td><td><span class="tag">${esc(p.format)}</span></td><td class="muted small">${esc(p.version || '')}</td><td class="muted small">${esc(p.vendor || '')}</td></tr>`).join('')}</table></div>`;
+  const sort = (key, toggle = true) => {
+    const previous = S.pluginSort || { key: 'name', direction: 1 };
+    const direction = toggle && previous.key === key ? -previous.direction : toggle ? 1 : previous.direction;
+    S.pluginSort = { key, direction };
+    const rows = [...el.querySelectorAll('tr[data-i]')];
+    rows.sort((a,b) => direction * String(list[+a.dataset.i][key] || '').localeCompare(String(list[+b.dataset.i][key] || ''), undefined, { numeric: true, sensitivity: 'base' }) || +a.dataset.i - +b.dataset.i);
+    const parent = rows[0]?.parentNode;
+    rows.forEach(row => parent.appendChild(row));
+    el.querySelectorAll('th[data-sort]').forEach(th => {
+      const active = th.dataset.sort === key;
+      th.setAttribute('aria-sort', active ? direction > 0 ? 'ascending' : 'descending' : 'none');
+      th.querySelector('.sort-direction').textContent = active ? direction > 0 ? '↑' : '↓' : '';
+    });
+  };
+  el.querySelectorAll('th[data-sort]').forEach(th => th.querySelector('button').onclick = () => sort(th.dataset.sort));
+  sort(S.pluginSort?.key || 'name', false);
   const flt = () => {
     const q = el.querySelector('#pmq').value.toLowerCase(),
       f = el.querySelector('#pmf').value;

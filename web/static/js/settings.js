@@ -124,10 +124,6 @@ async function openSettings(tab) {
     <div data-sp="look">
     <h3>Язык</h3>
     <select id="lang" style="width:auto"><option value="" ${c.lang ? '' : 'selected'}>Русский</option><option value="en" ${c.lang === 'en' ? 'selected' : ''}>English</option></select>
-    <h3>Список проектов</h3>
-    <label>Порядок</label>
-    <select id="sortm" style="width:auto">${SORTS.map(([k, t]) => `<option value="${k}" ${sortMode() === k ? 'selected' : ''}>${t}</option>`).join('')}</select>
-    <div class="muted small">Цвет точки у проекта: зелёный — актуально, синий — есть твои изменения, жёлтый — на GitHub новое, красный — занят другом, пустой — без GitHub. Подсказка — при наведении на точку.</div>
     <h3>Качество графики</h3>
     <div id="gfx">${[
       ['high', 'Высокое', 'Размытие, прозрачные панели, фоновая картинка и плавные анимации. Для мощных компьютеров.'],
@@ -176,6 +172,7 @@ async function openSettings(tab) {
     <div class="muted small">Знакомство всегда можно открыть во вкладке «Профиль». Скрытые крестиком предупреждения в проектах: <a id="undis">показать снова</a>.</div>
     </div>
     <div data-sp="system">
+    ${st.platform?.startsWith('windows') ? `<h3>Закрытие окна</h3><label class="switch"><input type="checkbox" id="tray" ${c.noTray ? '' : 'checked'}> Оставлять приложение в трее при закрытии окна</label><div class="muted small">Alt+F4 всегда полностью завершает приложение.</div>` : ''}
     ${st.install?.supported ? `<h3>Установка</h3>${st.install.installed ? `<div class="small">FruityHub установлен в <span class="mono">${esc(st.install.dir)}</span>. Удалить — Параметры Windows → Приложения → FruityHub.</div>` : `<div class="small">FruityHub запущен прямо из файла <span class="mono">${esc(st.install.exe)}</span>, без установки.</div><div style="margin-top:8px"><button onclick="startInstallFromSettings()">Установить как программу…</button></div>`}` : ''}
     <h3>Компоненты</h3>
     <div class="small">${t.gitOk ? esc(t.git) : 'git не найден'}<br>${t.lfsOk ? esc(t.lfs) : 'git-lfs не найден'}</div>
@@ -190,7 +187,7 @@ async function openSettings(tab) {
     <h3>Обновления</h3>
     <label class="switch"><input type="checkbox" id="autoup" ${c.autoUpdate ? 'checked' : ''}> Автоматически обновлять FruityHub, когда выходит новая версия</label>
     <div class="muted small">Обновление ставится, только когда ничего не передаётся и не отправляется: если идёт передача плагина или синхронизация проекта, FruityHub дождётся её конца и перезапустится сам.</div>
-    <label class="switch"><input type="checkbox" id="errrep" ${c.noErrorReports ? '' : 'checked'}> Отправлять мои ошибки в журнал сервера (их видит администратор — так проще разобраться, что сломалось)</label>
+    <label class="switch"><input type="checkbox" id="errrep" ${c.noErrorReports ? '' : 'checked'}> Отправлять мои ошибки в журнал сервера</label>
     <div class="row" style="margin-top:8px"><span class="small">Версия <b>${esc(st.version)}</b></span><button class="sm" onclick="checkUpdate()">Проверить обновления</button><button class="sm" onclick="openWhatsNew()">Что нового</button></div>
     </div>
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="primary" id="cancel">Готово</button></div>`);
@@ -263,7 +260,6 @@ async function openSettings(tab) {
     renderMain();
     toast('Предупреждения снова видны');
   };
-  m.querySelector('#sortm').onchange = e => setSort(e.target.value);
   m.querySelectorAll('input[name=gfx]').forEach(
     i =>
       (i.onchange = async () => {
@@ -316,6 +312,7 @@ async function openSettings(tab) {
       fail(er);
     }
   };
+  if (m.querySelector('#tray')) m.querySelector('#tray').onchange = e => set({ tray: e.target.checked }, () => { S.state.config.noTray = !e.target.checked; });
   m.querySelector('#errrep').onchange = e =>
     set({ errorReports: e.target.checked }, () => (S.state.config.noErrorReports = !e.target.checked));
   const rn = m.querySelector('#rn');

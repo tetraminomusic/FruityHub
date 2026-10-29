@@ -10,14 +10,15 @@ const LETTER = /[A-Za-zА-Яа-яЁё0-9]/;
 const I18N_ATTRS = ['placeholder', 'title', 'alt'];
 
 function trText(t) {
-  if (!t || !/[А-Яа-яЁё]/.test(t)) return t;
-  return t.replace(I18N.re, (m, _, off, str) => {
+  if (!t) return t;
+  const translated = !I18N.re || !/[А-Яа-яЁё]/.test(t) ? t : t.replace(I18N.re, (m, _, off, str) => {
     // кусок внутри слова (например «Отмена» в «Отменами») не трогаем
     if (LETTER.test(m[0]) && off > 0 && LETTER.test(str[off - 1])) return m;
     const e = off + m.length;
     if (LETTER.test(m[m.length - 1]) && e < str.length && LETTER.test(str[e])) return m;
     return I18N.dict[m] ?? m;
   });
+  return platformShortcuts(translated);
 }
 
 // уже подменённое не трогаем повторно (иначе «Отправить» → «Отправить!» превращалось бы в «Отправить!!»)
@@ -70,10 +71,10 @@ function loadDict(lang) {
 function startI18n(d, lang) {
   // в работу идут только фразы, которые что-то меняют (в русском словаре обычно — те, что ты переписал)
   const keys = Object.keys(d).filter(k => d[k] && d[k] !== k);
-  if (!keys.length) return;
+
   keys.sort((a, b) => b.length - a.length);
   I18N.dict = d;
-  I18N.re = new RegExp('(' + keys.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')', 'g');
+  I18N.re = keys.length ? new RegExp('(' + keys.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')', 'g') : null;
   I18N.on = true;
   I18N.lang = lang;
   document.documentElement.lang = lang;
@@ -111,4 +112,11 @@ function applyLang() {
   loadDict(lang).then(d => {
     if (!I18N.on) startI18n(d, lang);
   });
+}
+
+function platformShortcuts(text) {
+ const mac = S.state?.platform?.startsWith('darwin') || S.state?.os === 'macOS';
+ return text.replace(/(?:⌘|cmd|command)\s*\/\s*ctrl|ctrl\s*\/\s*(?:⌘|cmd|command)/gi, mac ? '⌘' : 'Ctrl')
+    .replace(/\b(?:Ctrl|Control)(?=\s*\+)/gi, mac ? '⌘' : 'Ctrl')
+    .replace(/(?:⌘|Cmd|Command)(?=\s*\+)/gi, mac ? '⌘' : 'Ctrl');
 }

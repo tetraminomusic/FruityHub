@@ -41,7 +41,7 @@ func altF4Close(msg, key, flags uintptr, alt, f4 bool) bool {
 
 // Закрытие окна скрывает его, сервер и передачи продолжают работать.
 // При недоступном трее оставляем обычное закрытие: невидимого процесса не будет.
-func installTray(w webview2.WebView, url string, iconID int) (func(), func()) {
+func installTray(w webview2.WebView, url string, iconID int, enabled func() bool) (func(), func()) {
 	hwnd := uintptr(w.Window())
 	shell := syscall.NewLazyDLL("shell32.dll").NewProc("Shell_NotifyIconW")
 	comctl := syscall.NewLazyDLL("comctl32.dll")
@@ -80,6 +80,11 @@ func installTray(w webview2.WebView, url string, iconID int) (func(), func()) {
 		}
 		switch msg {
 		case 0x10: // WM_CLOSE
+			if enabled != nil && !enabled() {
+				show()
+				w.Eval("if(typeof quitApp==='function'&&!window.FH_QUIT_PENDING){window.FH_QUIT_PENDING=true;quitApp(false).finally(()=>{window.FH_QUIT_PENDING=false;});}")
+				return 0
+			}
 			if !active {
 				r, _, _ := defSubclass.Call(h, msg, wp, lp)
 				return r

@@ -5,7 +5,7 @@ async function receive() {
   await runJob('/api/project/receive', { path }, { title: 'Получение изменений' });
   if (S.sel === path) {
     S.history = null;
-    if (S.tab === 'history') loadHistory();
+    if (S.tab === 'changes' || S.tab === 'history') loadHistory();
   }
 }
 async function takeLock(force) {

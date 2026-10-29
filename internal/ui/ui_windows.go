@@ -65,7 +65,7 @@ func Run(o Options) error {
 	defer w.Destroy()
 	w.SetSize(900, 600, webview2.HintMin)
 	w.Navigate(o.URL)
-	cleanupTray, show := installTray(w, o.URL, iconOr(o.IconID))
+	cleanupTray, show := installTray(w, o.URL, iconOr(o.IconID), o.TrayEnabled)
 	defer cleanupTray()
 	Handle = func() uintptr { return uintptr(w.Window()) }
 	setIcon = func(id int, _ []byte, _ bool) {

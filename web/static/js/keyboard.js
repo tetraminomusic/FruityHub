@@ -14,7 +14,7 @@ function topModal() {
 function groupStarts() {
   // первый проект каждой папки (и общего списка) — для Tab
   const out = [];
-  document.querySelectorAll('#plist .gbody, #plist .topzone').forEach(z => {
+  document.querySelectorAll('#plist .pinned-zone, #plist .gbody, #plist .topzone').forEach(z => {
     const f = z.querySelector('.pitem');
     if (f) out.push(f.dataset.path);
   });
@@ -22,6 +22,22 @@ function groupStarts() {
 }
 
 function initKeyboard() {
+  let wheelAt = 0, wheelDelta = 0;
+  document.getElementById('plist').addEventListener('wheel', e => {
+    if (topModal() || S.side === 'av' || e.ctrlKey || e.metaKey || e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    const list = visibleProjects();
+    if (!list.length || !e.deltaY) return;
+    e.preventDefault();
+    const now = Date.now();
+    if (now - wheelAt < 180) return;
+    wheelDelta += e.deltaY * (e.deltaMode ? 16 : 1);
+    if (Math.abs(wheelDelta) < 32) return;
+    const direction = wheelDelta > 0 ? 1 : -1;
+    wheelDelta = 0; wheelAt = now;
+    const old = list.indexOf(S.sel);
+    const index = old < 0 ? 0 : Math.max(0, Math.min(list.length-1, old+direction));
+    if (list[index] !== S.sel) selectProject(enc(list[index]));
+  }, { passive: false });
   document.addEventListener('keydown', e => {
     const mod = e.metaKey || e.ctrlKey,
       k = e.key.toLowerCase();
@@ -59,6 +75,10 @@ function initKeyboard() {
       return;
     }
     if (typing || topModal() || mod || e.altKey) return;
+    if (e.key === 'Enter' && !e.repeat && S.side !== 'av' && S.sel && S.proj?.exists &&
+        !document.activeElement?.closest('button,a,summary,[role="button"]')) {
+      e.preventDefault(); launchProject(); return;
+    }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       if (S.side === 'av') return;
       const list = visibleProjects();

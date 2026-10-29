@@ -4,16 +4,17 @@ package ui
 
 // Options for the main window.
 type Options struct {
-	URL      string
-	Title    string
-	Width    int
-	Height   int
-	DataPath string          // WebView2 profile folder (Windows)
-	Quit     <-chan struct{} // close the window when this fires
-	Lite     bool            // лёгкий режим оформления, аппаратное ускорение сохраняется
-	IconID   int             // набор иконок из exe для окна (Windows)
-	IconPNG  []byte          // своя картинка для Дока (macOS), nil — иконка бандла
-	Bundle   string          // путь к FruityHub.app (macOS) — для своей иконки в Finder
+	TrayEnabled func() bool // актуальная настройка Windows, без перезапуска
+	URL         string
+	Title       string
+	Width       int
+	Height      int
+	DataPath    string          // WebView2 profile folder (Windows)
+	Quit        <-chan struct{} // close the window when this fires
+	Lite        bool            // лёгкий режим оформления, аппаратное ускорение сохраняется
+	IconID      int             // набор иконок из exe для окна (Windows)
+	IconPNG     []byte          // своя картинка для Дока (macOS), nil — иконка бандла
+	Bundle      string          // путь к FruityHub.app (macOS) — для своей иконки в Finder
 }
 
 // SetIcon меняет иконку уже открытого окна: id — набор иконок из exe (Windows), png — для Дока и Finder (macOS),

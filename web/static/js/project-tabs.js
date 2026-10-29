@@ -1,7 +1,11 @@
 // Вкладки проекта: «Изменения», «Сэмплы», «История», «Настройки» (метаданные трека, общие правила).
 
+const historyRequests = new Map();
 async function loadHistory() {
   const path = S.sel;
+  if (!path || historyRequests.has(path)) return;
+  historyRequests.set(path, true);
+  try {
   const h = await api('/api/project/history?path=' + enc(path)).catch(() => []);
   if (S.sel !== path) return;
   S.history = h;
@@ -12,7 +16,8 @@ async function loadHistory() {
   S.histFetching = false;
   if (S.sel !== path) return;
   if (h2) S.history = h2;
-  if (S.tab === 'history') renderMain();
+  if (S.tab === 'changes' || S.tab === 'history') renderMain();
+  } finally { historyRequests.delete(path); }
 }
 async function loadMeta() {
   const path = S.sel,
@@ -133,7 +138,7 @@ function renderTab() {
         ch.length
           ? `<table><tr><th>Файл</th><th>Статус</th><th style="text-align:right">Размер</th></tr>${ch.map(c => `<tr><td class="mono">${esc(c.path)}</td><td><span class="tag ${kinds[c.kind]?.[1] || ''}">${kinds[c.kind]?.[0] || c.kind}</span></td><td style="text-align:right" class="muted">${fmtSize(c.size)}</td></tr>`).join('')}</table>`
           : `<div class="okbox" style="margin-top:12px">Локальных изменений нет.</div>`
-      }`;
+      }<section class="project-history"><h3>История версий</h3>${renderHistory()}</section>`;
   }
   if (S.tab === 'talk') return renderTalk();
   if (S.tab === 'samples') {
@@ -145,9 +150,10 @@ function renderTab() {
       missing: ['НЕ НАЙДЕН', 'bad'],
     };
     const unused = (a.audio || []).filter(x => !x.used);
-    return `<h3>Используются в проекте (${a.samples.length})</h3>
+    return `<details ${S.samplesCollapsed ? '' : 'open'} ontoggle="S.samplesCollapsed=!this.open"><summary><h3 style="display:inline">Используются в проекте (${a.samples.length})</h3></summary>
       <div class="muted small">Ищутся в каналах, аудиоклипах и внутри плагинов (Slicex, DirectWave, FPC…). Совпадение по имени файла.</div>
       ${a.samples.length ? `<table><tr><th>Файл</th><th>Статус</th><th>Где лежит</th></tr>${a.samples.map(s => `<tr><td>${esc(s.name)}${s.embedded ? ' <span class="tag" title="найден внутри данных плагина">в плагине</span>' : ''}</td><td><span class="tag ${st[s.status][1]}">${st[s.status][0]}</span></td><td class="mono muted ellip" title="${esc(s.original)}">${esc(s.local || s.original)}</td></tr>`).join('')}</table>` : '<p class="muted">Сэмплов нет.</p>'}
+      </details>
       <div class="row" style="margin-top:10px"><button onclick="runJob('/api/project/prepare',{path:S.sel},{title:'Собрать сэмплы в папку проекта'})">Собрать внешние сэмплы сейчас</button>
       <button onclick="runJob('/api/project/relink',{path:S.sel})">Направить пути в .flp на папку проекта</button><button onclick="lostDialog()" title="Вернуть сэмплы, которые пропали с диска (например, FL удалила сэмплы синтов как «неиспользуемые»)">Вернуть пропавшие…</button></div>
       ${S.hidden === undefined || S.hidden === null ? (loadHidden(), '') : S.hidden.length ? `<div class="okbox small" style="margin-top:10px">Убрано только с этого компьютера (на GitHub и у друзей есть): ${S.hidden.length} — ${S.hidden.slice(0, 4).map(esc).join(', ')}${S.hidden.length > 4 ? '…' : ''} <button class="sm" style="margin-left:6px" onclick="restoreHidden(S.hidden)">Вернуть все</button></div>` : ''}
@@ -167,34 +173,6 @@ function renderTab() {
       }`;
   }
   if (S.tab === 'plugins') return renderPlugins();
-  if (S.tab === 'history') {
-    if (!S.history) return `<p class="muted">Загружаю…</p>`;
-    if (!S.history.length) return `<p class="muted">Коммитов пока нет.</p>`;
-    const other = c =>
-      (c.files || []).filter(f => !/\.flp$/i.test(f) && !f.startsWith('.flsync/') && f !== 'PLUGINS.txt').length;
-    const got = (S.restored || {})[S.sel] || {};
-    const inc = S.history.filter(c => c.incoming).length,
-      firstLocal = S.history.findIndex(c => !c.incoming);
-    return `<div class="muted small" style="margin-bottom:8px"><b>↺ достать копию</b> — старый .flp встанет рядом с текущим, ничего не меняя. <b>⟲ Откатить сюда</b> — весь проект (.flp и аудио) станет как в этой версии; текущее состояние останется в истории, так что откат можно отменить.${S.histFetching ? ' <span class="spin" style="display:inline-block;vertical-align:middle;width:11px;height:11px"></span> проверяю сервер…' : ''}</div>
-    ${inc ? `<div class="row" style="margin:0 0 8px;gap:10px"><span class="tag incoming">⤓ на сервере новое: ${inc}</span><span class="muted small">эти версии ещё не у тебя — они придут после «Получить»</span><span class="spacer"></span><button class="sm primary" onclick="receive()">⤓ Получить</button></div>` : ''}
-    <table><tr><th>Когда</th><th>Кто</th><th>Что</th><th>Файлы</th><th></th></tr>${S.history
-      .map(
-        (
-          c,
-          i
-        ) => `<tr class="${c.incoming ? 'incoming' : ''}"><td class="muted" style="white-space:nowrap">${fmtTime(c.time)}</td><td>${esc(c.author)}</td><td>${esc(c.subject)}</td>
-      <td>${(c.files || [])
-        .filter(f => /\.flp$/i.test(f))
-        .map(f => {
-          const cp = got[c.hash + '|' + f];
-          return `<div class="row" style="gap:6px"><span class="mono">${esc(f)}</span>${cp ? `<button class="sm primary" title="${esc(cp)}" onclick="launchCopy('${enc(cp)}')">▶ Запустить копию</button>` : `<button class="ghost sm" title="Сохранить эту версию рядом копией" onclick="restore('${c.hash}','${enc(f)}')">↺ достать копию</button>`}</div>`;
-        })
-        .join('')}
-      ${other(c) ? `<span class="muted small">+ ${other(c)} файл(ов)</span>` : ''}</td>
-      <td style="white-space:nowrap;text-align:right">${c.incoming ? '<span class="tag incoming" title="Есть на сервере, ещё не получено">на сервере</span>' : i === firstLocal ? '<span class="tag ok" title="Проект сейчас в этой версии (плюс неотправленные правки, если есть)">сейчас</span>' : `<button class="ghost sm" onclick="rollbackTo('${c.hash}')" title="Сделать весь проект таким, как в этой версии">⟲ Откатить сюда</button>`}</td></tr>`
-      )
-      .join('')}</table>`;
-  }
   if (S.tab === 'settings') {
     const sh = p.shared;
     return `<div class="grid2"><div class="card"><h3 style="margin-top:0">Общие правила (одинаковые у вас обоих)</h3>
@@ -219,10 +197,11 @@ function renderTab() {
       <div class="card" id="musf"><h3 style="margin-top:0">Темп, тональность, длительность</h3>
       <div class="muted small">Видны в списке проектов и в шапке проекта, уходят другу с отправкой, записываются в рендеры (BPM и тональность — в теги файла) и в README. Пустое поле — значение берётся из .flp само.</div>
       <div class="grid3" style="grid-template-columns:1fr 1fr 1fr"><div><label>Темп, BPM</label><input data-m="tempo" inputmode="decimal" id="mtempo"></div><div><label>Тональность</label><input data-m="key" list="keylist" placeholder="напр. Am"></div><div><label>Длительность, м:сс</label><input data-m="length" id="mlength" placeholder="напр. 3:12"></div></div>
+      <label>Этап проекта</label><select id="sstage" onchange="saveStatus()">${['', ...STAGES].map(stage => `<option value="${esc(stage)}" ${stage === S.comments?.status?.stage ? 'selected' : ''}>${stage || '— не указан —'}</option>`).join('')}</select>
       <datalist id="keylist">${KEYS.map(k => `<option value="${k}">`).join('')}</datalist>
       <div class="muted small" id="tempoNote" style="margin-top:6px"></div><div class="muted small" id="lengthNote" style="margin-top:4px"></div>
       <div class="row" style="margin-top:10px"><button class="primary" onclick="saveMeta()">Сохранить</button></div></div>
-      <div class="card"><h3 style="margin-top:0">Этот компьютер</h3>
+      <div class="card"><h3 style="margin-top:0">Хранение проекта</h3><div id="psize">${sizeText(p.path)}</div><div class="muted small mono">${esc(p.path)}</div></div><div class="card"><h3 style="margin-top:0">Этот компьютер</h3>
       <label class="switch"><input type="checkbox" ${p.relinkOnReceive ? 'checked' : ''} onchange="api('/api/project/settings',{path:S.sel,relinkOnReceive:this.checked}).then(()=>toast('Сохранено'))"> После получения направлять пути сэмплов в .flp на папку проекта</label>
       <div class="muted small">Резервная копия .flp перед правкой лежит в .flsync-local/backup.</div>
       <label>Сервер (git remote)</label><input id="s_remote" value="${esc(p.remote)}" placeholder="https://github.com/you/track.git">
@@ -230,9 +209,7 @@ function renderTab() {
         ${!p.remote ? `<button class="primary" onclick="createRepoDialog()">Создать репозиторий на GitHub…</button>` : ''}
         ${repoWebURL(p.remote) ? `<button onclick="api('/api/openurl',{url:repoWebURL(S.proj.remote)})">Открыть репозиторий на GitHub ↗</button>` : ''}</div>
       ${!p.remote ? '<div class="muted small">Репозитория у проекта нет (или его создание не дошло до конца) — можно указать адрес существующего или создать новый.</div>' : ''}
-      <div style="margin-top:16px"><button class="ghost" onclick="renameProject()">Переименовать…</button> <button class="ghost" onclick="removeProject()">Убрать проект из списка</button><div class="muted small">«Убрать из списка» не трогает файлы и репозиторий.</div></div>
-      ${p.remote ? `<div style="margin-top:14px"><button class="danger" onclick="deleteRepoDialog()">Удалить репозиторий с GitHub…</button><div class="muted small">Только владелец. Репозиторий исчезнет с GitHub и проект — с сервера FruityHub; файлы на компьютерах останутся.</div></div>` : ''}
-      <div style="margin-top:14px"><button class="danger" onclick="trashProject()">Удалить файлы проекта…</button><div class="muted small">Вся папка проекта уйдёт в Корзину. На GitHub и сервере проект останется.</div></div></div></div>`;
+      </div></div>`;
   }
   return '';
 }
@@ -277,7 +254,7 @@ async function rollbackTo(hash) {
   if (S.sel === path) {
     S.history = null;
     S.analysis = null;
-    if (S.tab === 'history') loadHistory();
+    if (S.tab === 'changes' || S.tab === 'history') loadHistory();
     loadSize(path, true);
   }
   if (!j || j.error || !j.result) return;
@@ -409,4 +386,34 @@ async function saveShared() {
   }
   S.analysis = null;
   loadProject(S.sel);
+}
+
+function renderHistory() {
+    if (!S.history) return `<p class="muted">Загружаю…</p>`;
+    if (!S.history.length) return `<p class="muted">Коммитов пока нет.</p>`;
+    const other = c =>
+      (c.files || []).filter(f => !/\.flp$/i.test(f) && !f.startsWith('.flsync/') && f !== 'PLUGINS.txt').length;
+    const got = (S.restored || {})[S.sel] || {};
+    const inc = S.history.filter(c => c.incoming).length,
+      firstLocal = S.history.findIndex(c => !c.incoming);
+    return `<div class="muted small" style="margin-bottom:8px"><b>↺ достать копию</b> — старый .flp встанет рядом с текущим, ничего не меняя. <b>⟲ Откатить сюда</b> — весь проект (.flp и аудио) станет как в этой версии; текущее состояние останется в истории, так что откат можно отменить.${S.histFetching ? ' <span class="spin" style="display:inline-block;vertical-align:middle;width:11px;height:11px"></span> проверяю сервер…' : ''}</div>
+    ${inc ? `<div class="row" style="margin:0 0 8px;gap:10px"><span class="tag incoming">⤓ на сервере новое: ${inc}</span><span class="muted small">эти версии ещё не у тебя — они придут после «Получить»</span><span class="spacer"></span><button class="sm primary" onclick="receive()">⤓ Получить</button></div>` : ''}
+    <table><tr><th>Когда</th><th>Кто</th><th>Что</th><th>Файлы</th><th></th></tr>${S.history
+      .map(
+        (
+          c,
+          i
+        ) => `<tr class="${c.incoming ? 'incoming' : ''}"><td class="muted" style="white-space:nowrap">${fmtTime(c.time)}</td><td>${esc(c.author)}</td><td>${esc(c.subject)}</td>
+      <td>${(c.files || [])
+        .filter(f => /\.flp$/i.test(f))
+        .map(f => {
+          const cp = got[c.hash + '|' + f];
+          return `<div class="row" style="gap:6px"><span class="mono">${esc(f)}</span>${cp ? `<button class="sm primary" title="${esc(cp)}" onclick="launchCopy('${enc(cp)}')">▶ Запустить копию</button>` : `<button class="ghost sm" title="Сохранить эту версию рядом копией" onclick="restore('${c.hash}','${enc(f)}')">↺ достать копию</button>`}</div>`;
+        })
+        .join('')}
+      ${other(c) ? `<span class="muted small">+ ${other(c)} файл(ов)</span>` : ''}</td>
+      <td style="white-space:nowrap;text-align:right">${c.incoming ? '<span class="tag incoming" title="Есть на сервере, ещё не получено">на сервере</span>' : i === firstLocal ? '<span class="tag ok" title="Проект сейчас в этой версии (плюс неотправленные правки, если есть)">сейчас</span>' : `<button class="ghost sm" onclick="rollbackTo('${c.hash}')" title="Сделать весь проект таким, как в этой версии">⟲ Откатить сюда</button>`}</td></tr>`
+      )
+      .join('')}</table>`;
+
 }

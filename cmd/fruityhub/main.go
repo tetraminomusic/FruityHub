@@ -124,7 +124,8 @@ func main() {
 			ui.SetIcon(app.IconGroup(st), app.AppIconPNG(web.FS, st), st == app.IconTile)
 		}
 		err := ui.Run(ui.Options{URL: url, Title: app.AppName, Width: 1240, Height: 820,
-			DataPath: filepath.Join(app.ConfigDir(), "webview"), Quit: srv.Quit(), Lite: srv.LiteUI(),
+			TrayEnabled: srv.TrayEnabled,
+			DataPath:    filepath.Join(app.ConfigDir(), "webview"), Quit: srv.Quit(), Lite: srv.LiteUI(),
 			IconID: app.IconGroup(style), IconPNG: dock, Bundle: app.AppBundle()})
 		if err == nil {
 			return // window closed → exit

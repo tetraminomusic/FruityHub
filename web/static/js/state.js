@@ -113,7 +113,7 @@ function renderWho() {
   const ok = !S.serverError;
   w.innerHTML = `<span class="dot ${ok ? 'ok' : 'other'}"></span> ${esc(c.userName)}`;
   w.title = ok ? 'Сервер на связи' : 'Сервер недоступен, проверь интернет';
-  w.onclick = () => openSettings();
+  w.onclick = () => openSettings('profile');
 }
 function renderInvites() {
   const el = $('#invites');

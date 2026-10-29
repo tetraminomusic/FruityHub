@@ -39,7 +39,7 @@ function projItem(p) {
     (n.unread ? `<span class="badge" title="новые комментарии">${n.unread}</span>` : '') +
     (n.behind > 0 ? `<span class="badge" title="на сервере новое">⤓</span>` : '');
   return `<div class="pitem ${S.sel === p.path ? 'sel' : ''}" draggable="true" data-path="${esc(p.path)}" title="${esc(p.path)}${p.modified ? '\nизменён ' + esc(fmtTime(p.modified)) : ''}" onclick="selectProject('${enc(p.path)}')">
-    <span class="dot ${cls}${mine ? ' mine' : ''}" title="${esc(tip)}"></span><span class="nn"><span class="n">${esc(p.name)}</span>${p.artist ? `<span class="art">${esc(p.artist)}</span>` : ''}</span>${badges}${p.exists ? '' : '<span class="tag bad">нет папки</span>'}
+    <button class="pin-button ${p.pinned ? 'on' : ''}" title="${p.pinned ? 'Открепить проект' : 'Закрепить проект'}" onclick="event.stopPropagation();togglePin('${enc(p.path)}',true)">${p.pinned ? '★' : '☆'}</button><span class="dot ${cls}${mine ? ' mine' : ''}" title="${esc(tip)}"></span><span class="nn"><span class="n">${esc(p.name)}</span>${p.artist ? `<span class="art">${esc(p.artist)}</span>` : ''}</span>${badges}${p.exists ? '' : '<span class="tag bad">нет папки</span>'}
     <span class="more" onclick="event.stopPropagation();projMenu(event,'${enc(p.path)}')">⋯</span></div>`;
 }
 const KEYS = [
@@ -157,7 +157,9 @@ function groupLen(list) {
 }
 function renderList() {
   renderSortBar();
-  const ps = sortProjects(S.state?.projects || []),
+  const all = sortProjects(S.state?.projects || []),
+ pinned = all.filter(p => p.pinned),
+ ps = all.filter(p => !p.pinned),
     groups = sortGroups(S.state?.groups || [], S.state?.projects || []);
   const ids = new Set(groups.map(g => g.id));
   let h = groups
@@ -167,9 +169,10 @@ function renderList() {
       ${g.collapsed ? '' : `<div class="gbody" data-group="${g.id}">${inG.map(projItem).join('') || '<div class="muted small" style="padding:6px 10px">перетащи сюда проект</div>'}</div>`}`;
     })
     .join('');
+  if (pinned.length) h = `<section class="pinned-zone"><div class="small muted pinned-heading">Закреплённые</div>${pinned.map(projItem).join('')}</section>` + h;
   const top = ps.filter(p => !p.group || !ids.has(p.group));
   h += `<div data-group="" class="topzone" style="min-height:${groups.length ? 24 : 0}px">${top.map(projItem).join('')}</div>`;
-  if (!ps.length)
+  if (!all.length)
     h =
       `<div class="muted small" style="padding:10px">Проектов пока нет. Добавь папку с .flp или прими приглашение друга.</div>` +
       (groups.length ? h : '');
@@ -293,6 +296,7 @@ function projMenu(ev, encPath) {
   const items = groups
     .filter(g => g.id !== cur)
     .map(g => [`Переместить в «${esc(g.name)}»`, () => moveProject(path, g.id)]);
+  items.unshift([(S.state.projects || []).find(p => p.path === path)?.pinned ? 'Открепить проект' : 'Закрепить проект', () => togglePin(path)]);
   if (cur) items.push(['Убрать из папки', () => moveProject(path, '')]);
   items.push([
     '＋ В новую папку…',
@@ -338,4 +342,14 @@ async function selectProject(e) {
   scrollSelIntoView();
   await loadProject(S.sel);
   if (S.tab === 'talk') loadComments(true);
+}
+
+async function togglePin(path, encoded = false) {
+ if (encoded) path = decodeURIComponent(path);
+ const project = (S.state.projects || []).find(p => p.path === path);
+ if (!project) return;
+ try {
+   await api('/api/projects/pin', { path, pinned: !project.pinned });
+   await refreshAll();
+ } catch(e) { fail(e); }
 }

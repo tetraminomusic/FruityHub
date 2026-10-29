@@ -1631,3 +1631,18 @@ tr.prow:hover .pname {
 @media (prefers-reduced-motion: no-preference) {
   html { scroll-behavior: smooth; }
 }
+
+.project-status { padding: 10px 0; font-size: 15px; }
+.danger-text { color: var(--bad); }
+.project-history { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--line, #34343a); }
+.pin-button { padding: 2px 5px; border: 0; background: transparent; color: var(--muted); opacity: .5; }
+.pin-button.on, .pin-button:hover { color: var(--accent); opacity: 1; }
+.pinned-heading { padding: 8px 10px; }
+.pinned-zone { border-bottom: 1px solid var(--line, #34343a); margin-bottom: 8px; }
+.column-sort { white-space: nowrap; padding: 3px; }
+details > summary { cursor: pointer; padding: 10px 0; }
+
+.action-muted, .launch-muted button { opacity: .58; }
+.action-muted:hover, .action-muted:focus-visible,
+.launch-muted button:hover, .launch-muted button:focus-visible { opacity: 1; }
+.stable-actions button { min-width: 140px; }

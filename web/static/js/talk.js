@@ -23,7 +23,7 @@ function renderTalk() {
   let list = c.comments || [];
   if (S.cfilter === 'todo') list = list.filter(x => x.kind === 'todo' && !x.done);
   const todoCnt = (c.comments || []).filter(x => x.kind === 'todo' && !x.done).length;
-  return `<div class="grid2" style="margin-top:12px;grid-template-columns:2fr 1fr">
+  return `<div class="discussion" style="margin-top:12px">
     <div>
       <div class="card" style="margin-top:0">
         <div class="row" style="justify-content:space-between"><div class="seg"><button class="${S.ckind === 'note' ? 'on' : ''}" onclick="S.ckind='note';renderMain()">Заметка</button><button class="${S.ckind === 'todo' ? 'on' : ''}" onclick="S.ckind='todo';renderMain()">Задача</button></div>
@@ -47,11 +47,6 @@ function renderTalk() {
           : `<p class="muted">${S.cfilter === 'todo' ? 'Открытых задач нет' : 'Пока тихо. Напиши, что сейчас с треком и что нужно доделать.'}</p>`
       }
     </div>
-    <div><div class="card" style="margin-top:0"><b>Состояние проекта</b>
-      <label>Этап</label><select id="sstage">${['', ...STAGES].map(s => `<option ${s === st.stage ? 'selected' : ''} value="${esc(s)}">${s || '— не указан —'}</option>`).join('')}</select>
-      <label>Коротко</label><textarea id="stext" placeholder="напр.: «дроп готов, нужен бридж и вокал»">${esc(st.text || '')}</textarea>
-      <div class="row" style="justify-content:space-between;margin-top:8px"><span class="muted small">${st.by ? `обновил ${esc(st.by)}, ${fmtTime(st.time)}` : ''}</span><button onclick="saveStatus()">Сохранить</button></div></div>
-      <div class="muted small">Комментарии и статус уходят на сервер сразу и не трогают файлы проекта — можно писать, даже когда трек открыт в FL.</div></div>
   </div>`;
 }
 async function postComment() {
@@ -89,7 +84,7 @@ async function delComment(id) {
 }
 async function saveStatus() {
   try {
-    await api('/api/project/status', { path: S.sel, stage: $('#sstage').value, text: $('#stext').value });
+    await api('/api/project/status', { path: S.sel, stage: $('#sstage').value, text: '' });
     toast('Статус обновлён');
     loadComments(false);
   } catch (e) {

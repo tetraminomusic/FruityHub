@@ -12,6 +12,7 @@ import (
 
 // LocalProject is a project folder registered in this app instance.
 type LocalProject struct {
+	Pinned          bool     `json:"pinned,omitempty"`
 	Path            string   `json:"path"`
 	RelinkOnReceive bool     `json:"relinkOnReceive"`
 	SeenComments    int64    `json:"seenComments"` // newest comment time the user has seen
@@ -31,6 +32,7 @@ type Group struct {
 
 // Config is the per-machine app configuration (never committed).
 type Config struct {
+	NoTray           bool           `json:"noTray,omitempty"`
 	UserName         string         `json:"userName"` // nick on the server (= in the app)
 	UserID           string         `json:"userId,omitempty"`
 	GitHubLogin      string         `json:"githubLogin,omitempty"`
