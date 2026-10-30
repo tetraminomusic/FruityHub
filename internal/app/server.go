@@ -465,9 +465,13 @@ func (s *Server) summary(path string) ProjectSummary {
 		}
 		ps.Remote = g.Remote()
 		ps.OnServer = s.cfg.Hub().ProjectForRemote(ps.Remote) != nil
-		ps.Branch = g.Branch()
-		ps.Changes, _ = g.Status()
-		ps.Ahead, ps.Behind = g.AheadBehind()
+		if state, err := g.workingState(); err == nil {
+			ps.Branch, ps.Changes, ps.Ahead, ps.Behind = state.Branch, state.Changes, state.Ahead, state.Behind
+		} else {
+			ps.Branch = g.Branch()
+			ps.Changes, _ = g.Status()
+			ps.Ahead, ps.Behind = g.AheadBehind()
+		}
 		if fi, err := os.Stat(filepath.Join(path, ".git", "FETCH_HEAD")); err == nil {
 			ps.LastSync = fi.ModTime().Format("02.01 15:04")
 		}

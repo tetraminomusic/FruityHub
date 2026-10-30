@@ -22,6 +22,8 @@ jobs:
         run: go test ./internal/app -run '^$' -bench '^BenchmarkProject(FLPs|Analyze|MainFLP)$/^Files100$' -benchtime=1x
       - name: UI API latency smoke check
         run: go test ./internal/app -run '^$' -bench '^BenchmarkUILatency$/^(ListCold20|ProjectCold)$' -benchtime=1x
+      - name: Git project opening smoke check
+        run: go test ./internal/app -run '^$' -bench '^BenchmarkGitProjectOpening$/^Warm$' -benchtime=1x
   windows:
     runs-on: windows-latest
     steps:
@@ -29,7 +31,7 @@ jobs:
       - uses: actions/setup-go@v5
         with: { go-version: "1.22" }
       - run: go test ./internal/flp ./internal/ui
-      - run: go test ./internal/app -run 'TestGitCacheTracksExternalChanges|TestQuickStateKeepsIdentityAndProjectList|TestRenderNotifications|TestPinsAndTrayPersist|TestProject|TestUIProjectMetadataAndAnalysis|TestFLPMetadata'
+      - run: go test ./internal/app -run 'TestGit|TestQuickStateKeepsIdentityAndProjectList|TestRenderNotifications|TestPinsAndTrayPersist|TestProject|TestUIProjectMetadataAndAnalysis|TestFLPMetadata'
       - run: go build ./cmd/fruityhub
       - name: FLP benchmark smoke check (generated fixtures)
         run: go test ./internal/flp -run '^$' -bench '^BenchmarkFLP$/^Small$/^(Parse|Info)$' -benchtime=1x
@@ -39,3 +41,5 @@ jobs:
         run: go test ./internal/app -run '^$' -bench '^BenchmarkProject(FLPs|Analyze|MainFLP)$/^Files100$' -benchtime=1x
       - name: UI API latency smoke check
         run: go test ./internal/app -run '^$' -bench '^BenchmarkUILatency$/^(ListCold20|ProjectCold)$' -benchtime=1x
+      - name: Git project opening smoke check
+        run: go test ./internal/app -run '^$' -bench '^BenchmarkGitProjectOpening$/^Warm$' -benchtime=1x

@@ -24,9 +24,17 @@ var gitReads = struct {
 func cachedGitRead(g *Git, args ...string) (string, error) {
 	command := strings.Join(args, "\x00")
 	switch command {
-	case "remote\x00get-url\x00origin", "rev-parse\x00--abbrev-ref\x00HEAD", "symbolic-ref\x00--short\x00HEAD":
+	case "remote\x00get-url\x00origin", "rev-parse\x00--abbrev-ref\x00HEAD", "symbolic-ref\x00--short\x00HEAD", "config\x00--get\x00uzbek.adopted":
 	default:
 		return g.run(nil, false, args...)
+	}
+	if command == "config\x00--get\x00uzbek.adopted" {
+		// Linked worktrees use a .git file and shared configuration elsewhere.
+		// Read this setting fresh when the local config stamp is unavailable.
+		st, err := os.Stat(filepath.Join(g.Dir, ".git"))
+		if err != nil || !st.IsDir() || len(g.Env) != 0 {
+			return g.run(nil, false, args...)
+		}
 	}
 	key := g.Dir + "\x00" + command
 	for _, name := range []string{"HEAD", "config", "packed-refs"} {

@@ -561,27 +561,31 @@ func (g *Git) Status() ([]StatusEntry, error) {
 		if code[0] == 'R' || code[0] == 'C' {
 			i++ // skip original name
 		}
-		e := StatusEntry{Path: path, Code: code}
-		switch {
-		case code == "??":
-			e.Kind = "untracked"
-		case strings.Contains(code, "U") || code == "AA" || code == "DD":
-			e.Kind = "conflict"
-		case strings.Contains(code, "D"):
-			e.Kind = "deleted"
-		case strings.Contains(code, "A"):
-			e.Kind = "added"
-		default:
-			e.Kind = "modified"
-		}
-		if st, err := os.Stat(filepath.Join(g.Dir, path)); err == nil {
-			e.Size = st.Size()
-		}
-		e.IsFLP = strings.EqualFold(filepath.Ext(path), ".flp")
-		e.Hidden = strings.HasPrefix(path, ".flsync/") || path == ".gitignore" || path == ".gitattributes" || path == "PLUGINS.txt"
-		res = append(res, e)
+		res = append(res, g.statusEntry(code, path))
 	}
 	return res, nil
+}
+
+func (g *Git) statusEntry(code, path string) StatusEntry {
+	e := StatusEntry{Path: path, Code: code}
+	switch {
+	case code == "??":
+		e.Kind = "untracked"
+	case strings.Contains(code, "U") || code == "AA" || code == "DD":
+		e.Kind = "conflict"
+	case strings.Contains(code, "D"):
+		e.Kind = "deleted"
+	case strings.Contains(code, "A"):
+		e.Kind = "added"
+	default:
+		e.Kind = "modified"
+	}
+	if st, err := os.Stat(filepath.Join(g.Dir, path)); err == nil {
+		e.Size = st.Size()
+	}
+	e.IsFLP = strings.EqualFold(filepath.Ext(path), ".flp")
+	e.Hidden = strings.HasPrefix(path, ".flsync/") || path == ".gitignore" || path == ".gitattributes" || path == "PLUGINS.txt"
+	return e
 }
 
 // Tracked returns the set of tracked paths (slash separated).

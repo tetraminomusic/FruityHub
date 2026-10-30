@@ -41,13 +41,16 @@ func (s *Server) computeNotes(path string) *ProjectNotes {
 			n.Unread++
 		}
 	}
-	n.Ahead, n.Behind = g.AheadBehind()
+	state, err := g.workingState()
+	if err != nil {
+		state.Changes, _ = g.Status()
+		state.Ahead, state.Behind = g.AheadBehind()
+	}
+	n.Ahead, n.Behind = state.Ahead, state.Behind
 	n.Remote = g.Remote() != ""
-	if st, err := g.Status(); err == nil {
-		for _, e := range st {
-			if !e.Hidden {
-				n.Changed++
-			}
+	for _, e := range state.Changes {
+		if !e.Hidden {
+			n.Changed++
 		}
 	}
 	s.notesMu.Lock()
