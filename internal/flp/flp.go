@@ -26,12 +26,12 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf16"
+	"unicode/utf8"
 )
 
 const (
@@ -294,8 +294,6 @@ func (f *File) encodeText(s string) []byte {
 // AudioExts are file extensions we consider "audio / sample data".
 var AudioExts = []string{".wav", ".mp3", ".flac", ".ogg", ".aif", ".aiff", ".m4a", ".wv", ".rx2", ".sf2", ".rex", ".opus", ".mid", ".midi", ".ds", ".dwp", ".fst", ".zip"}
 
-var audioRe = regexp.MustCompile(`(?i)[^\x00-\x1f"*<>|?]{1,400}\.(wav|mp3|flac|ogg|aif|aiff|m4a|wv|rx2|sf2|rex|opus)`)
-
 // embeddedPaths looks for audio file paths stored inside plugin blobs
 // (Slicex, DirectWave, Fruity Slicer, FPC, and VST/AU states — Pigments, Serum, Kontakt…).
 // Many third-party plugins keep their state compressed (zlib/gzip) or base64-encoded:
@@ -320,7 +318,7 @@ const maxUnpacked = 32 << 20
 func scanBlob(d []byte, depth int, add func([]string)) {
 	// UTF-16LE: drop zero high bytes when the blob looks like UTF-16
 	if bytes.Count(d, []byte{0}) > len(d)/4 {
-		var a []byte
+		a := make([]byte, 0, len(d)/2)
 		for i := 0; i+1 < len(d); i += 2 {
 			if d[i+1] == 0 && d[i] >= 0x20 {
 				a = append(a, d[i])
@@ -354,41 +352,123 @@ func unpackStreams(d []byte) [][]byte {
 		return b
 	}
 	tries := 0
+	// Reuse decoding windows only within this blob. Random plugin data often
+	// contains several false headers; each NewReader otherwise allocates a
+	// fresh flate window. Local readers cannot retain another project's data.
+	var gz *gzip.Reader
+	var zl io.ReadCloser
 	for i := 0; i+2 < len(d) && tries < 64; i++ {
 		switch {
 		case d[i] == 0x1f && d[i+1] == 0x8b && d[i+2] == 8: // gzip
 			tries++
-			if zr, err := gzip.NewReader(bytes.NewReader(d[i:])); err == nil {
-				if b := read(zr); len(b) > 16 {
+			var err error
+			if gz == nil {
+				gz, err = gzip.NewReader(bytes.NewReader(d[i:]))
+			} else {
+				err = gz.Reset(bytes.NewReader(d[i:]))
+			}
+			if err == nil {
+				b := read(gz)
+				gz.Close()
+				if len(b) > 16 {
 					keep(b)
 				}
 			}
 		case d[i] == 0x78 && (d[i+1] == 0x01 || d[i+1] == 0x5e || d[i+1] == 0x9c || d[i+1] == 0xda) && (uint16(d[i])<<8|uint16(d[i+1]))%31 == 0: // zlib
 			tries++
-			if zr, err := zlib.NewReader(bytes.NewReader(d[i:])); err == nil {
-				if b := read(zr); len(b) > 16 {
+			var err error
+			if zl == nil {
+				zl, err = zlib.NewReader(bytes.NewReader(d[i:]))
+			} else {
+				err = zl.(zlib.Resetter).Reset(bytes.NewReader(d[i:]), nil)
+			}
+			if err == nil {
+				b := read(zl)
+				zl.Close()
+				if len(b) > 16 {
 					keep(b)
 				}
 			}
 		}
 	}
 	// base64 (длинные куски из букв, цифр, +/=) — некоторые плагины хранят так состояние в XML
-	for _, m := range b64Re.FindAll(d, 32) {
-		if b, err := base64.StdEncoding.DecodeString(string(bytes.TrimRight(m, "=")) + pad(len(bytes.TrimRight(m, "=")))); err == nil && len(b) > 32 {
-			keep(b)
+	for _, m := range base64Runs(d) {
+		m = bytes.TrimRight(m, "=")
+		b := make([]byte, base64.RawStdEncoding.DecodedLen(len(m)))
+		if n, err := base64.RawStdEncoding.Decode(b, m); err == nil && n > 32 {
+			keep(b[:n])
 		}
 	}
 	return out
 }
 
-var b64Re = regexp.MustCompile(`[A-Za-z0-9+/]{256,}={0,2}`)
+// base64Runs preserves the old regexp's maximal runs, optional two padding
+// bytes and 32-match limit, without running a regexp over every plugin byte.
+func base64Runs(d []byte) [][]byte {
+	var out [][]byte
+	for i := 0; i < len(d) && len(out) < 32; {
+		start := i
+		for i < len(d) && isBase64(d[i]) {
+			i++
+		}
+		if i-start >= 256 {
+			for padding := 0; padding < 2 && i < len(d) && d[i] == '='; padding++ {
+				i++
+			}
+			out = append(out, d[start:i])
+		} else if i < len(d) {
+			i++
+		}
+	}
+	return out
+}
 
-func pad(n int) string { return strings.Repeat("=", (4-n%4)%4) }
+func isBase64(c byte) bool {
+	return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '+' || c == '/'
+}
 
 func findPaths(b []byte) []string {
 	var out []string
-	for _, m := range audioRe.FindAll(b, -1) {
-		s := strings.TrimSpace(string(m))
+	for next, boundary := 0, 0; next < len(b); {
+		dot := bytes.IndexByte(b[next:], '.')
+		if dot < 0 {
+			break
+		}
+		dot += next
+		next = dot + 1
+		end := audioExtensionEnd(b, dot+1)
+		if end == 0 {
+			continue
+		}
+		// The previous expression matched 1..400 Unicode runes before the
+		// extension. Locate the leftmost possible start for this candidate.
+		start, runes := dot, 0
+		for start > boundary && runes < 400 {
+			r, size := utf8.DecodeLastRune(b[boundary:start])
+			if pathDelimiter(r) {
+				break
+			}
+			start -= size
+			runes++
+		}
+		if runes == 0 {
+			continue
+		}
+		// Preserve greedy matching: from this same start choose the last
+		// eligible extension whose dot is within the 400-rune prefix.
+		for pos := dot; pos < len(b) && runes <= 400; runes++ {
+			r, size := utf8.DecodeRune(b[pos:])
+			if pathDelimiter(r) {
+				break
+			}
+			if r == '.' {
+				if candidate := audioExtensionEnd(b, pos+1); candidate != 0 {
+					end = candidate
+				}
+			}
+			pos += size
+		}
+		s := strings.TrimSpace(string(b[start:end]))
 		if strings.ContainsAny(s, `/\`) || len(s) > 4 {
 			// keep only the part that looks like a path or filename
 			if i := strings.LastIndexAny(s, "\x7f"); i >= 0 {
@@ -396,8 +476,47 @@ func findPaths(b []byte) []string {
 			}
 			out = append(out, s)
 		}
+		next, boundary = end, end
 	}
 	return out
+}
+
+func pathDelimiter(r rune) bool {
+	return r < 0x20 || r == '"' || r == '*' || r == '<' || r == '>' || r == '|' || r == '?'
+}
+
+// Keep the original alternative order: .aiff historically matches .aif.
+// Unicode simple folding also allows the long s (ſ) wherever an ASCII s
+// occurs. The byte offsets still refer to the unmodified input.
+func audioExtensionEnd(b []byte, start int) int {
+	for _, ext := range [...]string{"wav", "mp3", "flac", "ogg", "aif", "aiff", "m4a", "wv", "rx2", "sf2", "rex", "opus"} {
+		pos := start
+		matched := true
+		for _, want := range ext {
+			if pos >= len(b) {
+				matched = false
+				break
+			}
+			r, size := rune(b[pos]), 1
+			if r >= utf8.RuneSelf {
+				r, size = utf8.DecodeRune(b[pos:])
+			}
+			if r >= 'A' && r <= 'Z' {
+				r += 'a' - 'A'
+			} else if r == 'ſ' {
+				r = 's'
+			}
+			if r != want {
+				matched = false
+				break
+			}
+			pos += size
+		}
+		if matched {
+			return pos
+		}
+	}
+	return 0
 }
 
 func formatFromPath(p string) string {
