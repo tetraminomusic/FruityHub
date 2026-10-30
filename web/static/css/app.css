@@ -1664,4 +1664,6 @@ details > summary { cursor: pointer; padding: 10px 0; }
 .phead .project-heading h1 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .phead .project-heading .project-artist { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.plugin-download-action { width: 100%; margin-top: 4px; text-align: center; }
+
+
+.phead .project-header-tools .iconbtn, .phead .project-header-tools .pin-button { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 36px; width: 36px; height: 36px; min-width: 36px; padding: 0; line-height: 0; }

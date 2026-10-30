@@ -34,6 +34,8 @@ for (const scenario of [
   assert.ok(receive >= 0 && receive < take && take < send && send < launch, 'action positions changed');
   assert.ok(!html.includes(' disabled'), 'state alone disabled a project action');
   assert.ok(html.includes('card launch'), 'separate launch panel missing');
+  if (scenario.primary === 'send') assert.ok(!html.includes('card launch launch-muted'), 'launch should stay highlighted alongside send');
+  assert.ok(html.includes('<svg width="18" height="18"'), 'pin icon should be an aligned SVG');
 }
 context.S.state.projects = [{ path: '/test', artist: 'Band Name' }];
 context.S.proj = { ...base };

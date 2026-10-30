@@ -1494,4 +1494,8 @@ window.I18N_EN = {
   "После закрытия предупреждения о подготовке снова выделяется доступное действие проекта; новая проблема вернёт предупреждение": "After dismissing the preparation warning the available project action is highlighted again; a new issue brings the warning back",
   "Кнопка скачивания плагина выровнена по центру столбца": "Plugin download button is centered in its column",
   "Имя артиста остаётся под названием песни, звёздочка закрепления выровнена с кнопками на Windows": "The artist stays below the song title, and the pin aligns with the buttons on Windows",
+  "Звёздочка и обновление проекта выровнены в Windows": "Pin and refresh buttons are aligned on Windows",
+  "При неотправленных изменениях выделяются и отправка, и запуск проекта": "Both Send and Launch are highlighted when changes are unsent",
+  "Кнопка скачивания плагина снова слева; в карточке плагина источник выбирается из меню, участники в сети первыми": "Plugin download button is left aligned again; choose a source in the plugin card menu, with online participants first",
+  "Скачать у участника ▾": "Download from participant \u25be",
 };

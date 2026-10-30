@@ -239,9 +239,9 @@ function renderPlugins() {
     if (m.state !== 'ok') {
       const donors = (r.machines || []).filter(x => x.user !== me && x.state === 'ok');
       if (donors.length === 1)
-        h += `<div class="plugin-download-action"><button class="sm" onclick="event.stopPropagation();requestPlugins('${enc(donors[0].user)}',[['${enc(r.name)}','${r.format}','${enc(r.vendor || '')}']])">Скачать у ${esc(donors[0].user)}</button></div>`;
+        h += `<div style="margin-top:4px"><button class="sm" onclick="event.stopPropagation();requestPlugins('${enc(donors[0].user)}',[['${enc(r.name)}','${r.format}','${enc(r.vendor || '')}']])">Скачать у ${esc(donors[0].user)}</button></div>`;
       else if (donors.length > 1)
-        h += `<div class="plugin-download-action"><button class="sm" onclick="event.stopPropagation();openPluginCard('${enc(r.name)}','${r.format}')">Скачать…</button></div>`;
+        h += `<div style="margin-top:4px"><button class="sm" onclick="event.stopPropagation();openPluginCard('${enc(r.name)}','${r.format}')">Скачать…</button></div>`;
     }
     return h;
   };
@@ -391,7 +391,7 @@ function openPluginCard(encName, format) {
         `<div class="muted small">«Проверить» — загружается ли плагин, хватает ли библиотек и папок, нужна ли активация. «Переустановить» — плагин и все его данные придут заново и заменят то, что есть.</div>`
       );
     } else if (others.length) {
-      act.push(`<div class="row">${others.map(o => `<button class="sm primary" data-a="get" data-u="${esc(o.user)}">Скачать у ${esc(o.user)}</button>${osOf(o.user) !== S.state.os ? `<span class="muted small">у него ${esc(osOf(o.user))} — пришлёт версию для твоей системы или установщик</span>` : ''}`).join('')}</div>
+      act.push(`<div class="row"><button class="sm primary" id="donor-menu">Скачать у участника ▾</button></div>
         <label class="switch small"><input type="checkbox" id="lite" ${isLite(name) ? 'checked' : ''}> Без библиотеки пресетов — только сам плагин и то, без чего он не запустится</label>`);
     } else
       act.push(
@@ -410,6 +410,19 @@ function openPluginCard(encName, format) {
     ${reqs.length ? `<h3>Передачи этого плагина</h3>${reqTable(reqs.slice(0, 10))}` : ''}`);
   m.querySelector('.modal').style.width = 'min(820px,94vw)';
   m.querySelector('#x').onclick = () => m.close();
+  const donorButton = m.querySelector('#donor-menu');
+  if (donorButton) donorButton.onclick = async e => {
+    const point = { clientX: e.clientX, clientY: e.clientY };
+    let users = [];
+    try { users = (await api('/api/users')).users || []; } catch (_) {}
+    const online = new Map(users.map(u => [u.nick, !!u.online]));
+    const donors = [...others].sort((a, b) => Number(online.get(b.user)) - Number(online.get(a.user)) || a.user.localeCompare(b.user));
+    if (!m.isConnected) return;
+    popMenu(point, donors.map(o => [
+      `${online.get(o.user) ? '<span class="tag ok">в сети</span> ' : ''}${esc(o.user)}${osOf(o.user) !== S.state.os ? ` <span class="muted small">${esc(osOf(o.user))}</span>` : ''}`,
+      () => { m.close(); requestPlugins(enc(o.user), [[enc(name), format, enc(r.vendor || '')]]); },
+    ]));
+  };
   const lt = m.querySelector('#lite');
   if (lt) lt.onchange = e => setLite(name, e.target.checked);
   const go = fn => () => {
