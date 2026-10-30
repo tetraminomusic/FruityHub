@@ -239,9 +239,9 @@ function renderPlugins() {
     if (m.state !== 'ok') {
       const donors = (r.machines || []).filter(x => x.user !== me && x.state === 'ok');
       if (donors.length === 1)
-        h += `<div style="margin-top:4px"><button class="sm" onclick="event.stopPropagation();requestPlugins('${enc(donors[0].user)}',[['${enc(r.name)}','${r.format}','${enc(r.vendor || '')}']])">Скачать у ${esc(donors[0].user)}</button></div>`;
+        h += `<div class="plugin-download-action"><button class="sm" onclick="event.stopPropagation();requestPlugins('${enc(donors[0].user)}',[['${enc(r.name)}','${r.format}','${enc(r.vendor || '')}']])">Скачать у ${esc(donors[0].user)}</button></div>`;
       else if (donors.length > 1)
-        h += `<div style="margin-top:4px"><button class="sm" onclick="event.stopPropagation();openPluginCard('${enc(r.name)}','${r.format}')">Скачать…</button></div>`;
+        h += `<div class="plugin-download-action"><button class="sm" onclick="event.stopPropagation();openPluginCard('${enc(r.name)}','${r.format}')">Скачать…</button></div>`;
     }
     return h;
   };

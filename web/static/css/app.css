@@ -1650,9 +1650,16 @@ details > summary { cursor: pointer; padding: 10px 0; }
 .project-heading { min-width: 0; }
 .project-artist { color: var(--muted); font-size: 13px; margin-top: 4px; }
 
-.phead > .row { align-items: center; min-height: 62px; }
-.phead .project-heading { display: flex; flex-direction: column; justify-content: center; align-self: center; }
-.phead .project-heading h1 { margin: 0; line-height: 1.12; }
-.phead .project-heading .project-artist { line-height: 1.2; }
+.phead > .row { align-items: center; flex-wrap: nowrap; min-width: 0; }
+
+
+
 .banner { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .phead .pin-button { flex: none; font-size: 22px; line-height: 1; opacity: .8; }
+
+.phead .project-header-tools { display: inline-flex; align-items: center; flex: none; flex-wrap: nowrap; white-space: nowrap; gap: 8px; }
+.phead .project-header-tools .pin-button { display: inline-flex; align-items: center; justify-content: center; align-self: center; width: 32px; height: 32px; padding: 0; vertical-align: middle; line-height: 1; }
+
+.phead > .row > h1 { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.plugin-download-action { width: 100%; margin-top: 4px; text-align: center; }

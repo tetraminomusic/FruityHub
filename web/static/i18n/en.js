@@ -1490,4 +1490,7 @@ window.I18N_EN = {
   "Закрепление перенесено в шапку проекта; под названием виден артист": "Pinning moved to the project header; the artist appears below the title",
   "Предупреждение о недостающих файлах можно скрыть до появления новой проблемы или отключить в настройках": "Missing file warnings can be hidden until a new issue appears or disabled in settings",
   "Источники плагинов собраны в меню, участники в сети показаны первыми; выровнена шапка на Windows": "Plugin sources are in a menu with online participants first; header alignment is fixed on Windows",
+  "Шапка проекта снова компактная: название песни без артиста, звёздочка закрепления выровнена с кнопками на Windows": "Project header is compact again: song title without artist, pin aligned with buttons on Windows",
+  "После закрытия предупреждения о подготовке снова выделяется доступное действие проекта; новая проблема вернёт предупреждение": "After dismissing the preparation warning the available project action is highlighted again; a new issue brings the warning back",
+  "Кнопка скачивания плагина выровнена по центру столбца": "Plugin download button is centered in its column",
 };
