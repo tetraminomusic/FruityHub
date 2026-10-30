@@ -12,6 +12,7 @@ jobs:
       - uses: actions/setup-go@v5
         with: { go-version: "1.22" }
       - run: node scripts/test-ui.js
+      - run: node scripts/test-publish-updates.js
       - run: go vet ./...
       - run: go test ./...
       - name: FLP benchmark smoke check (generated fixtures)

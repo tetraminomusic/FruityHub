@@ -3,6 +3,9 @@
 // (кусками, поэтому фразы с числами и именами тоже переводятся). Появилась новая фраза — добавь её сюда;
 // что не переведено, покажет python3 scripts/i18n_check.py
 window.I18N_EN = {
+  "Ускорен разбор больших FLP-файлов и уменьшен расход памяти": "Faster parsing of large FLP files with lower memory usage",
+  "Список проектов и карточки открываются быстрее благодаря отдельному кешу метаданных": "Project lists and cards open faster with a separate metadata cache",
+  "Сокращены повторные обходы папок и число вызовов Git при открытии проекта": "Fewer repeated folder scans and Git calls when opening a project",
 "(версия": "(version",
 "(галочки уже стоят).": "(the checkboxes are already set).",
 "(друзья увидят, что ты занят) →": "(friends see that you are on it) →",

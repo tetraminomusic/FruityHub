@@ -8,6 +8,7 @@
 #
 # При обычном запуске скрипт ещё и выкладывает на сервер новые версии приложения из dist/ (после ./build.sh):
 # у всех появится плашка «Доступно обновление». Чтобы не выкладывать — добавь --no-update.
+# --updates-only публикует только клиентские пакеты, не меняя и не перезапуская сервер.
 #
 # Сервер по умолчанию — строка вида root@1.2.3.4 (или имя из ~/.ssh/config) в deploy/server.local:
 # он не попадает в git. Пароль, если ключа нет, спросят один раз.
@@ -20,10 +21,11 @@ ROOT="$(dirname "$HERE")"
 ARCHIVE="${ARCHIVE:-$ROOT/dist/uzbek-server.tar.gz}"
 DATA=/var/lib/uzbek-server
 
-MODE=up; RESTORE=""; PUBLISH=1; ARGS=()
+MODE=up; RESTORE=""; PUBLISH=1; UPDATES_ONLY=0; ARGS=()
 for a in "$@"; do
   case "$a" in
     --no-update) PUBLISH=0 ;;
+    --updates-only) UPDATES_ONLY=1 ;;
     -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) ARGS+=("$a") ;;
   esac
@@ -34,6 +36,9 @@ case "${1:-}" in
   restore) MODE=restore; RESTORE="${2:-}"; shift 2 || true
     [[ -f "$RESTORE" ]] || { echo "Укажи файл бэкапа: ./deploy/server-up.sh restore server-backups/….tar.gz root@новый-сервер"; exit 1; } ;;
 esac
+if [[ "$UPDATES_ONLY" == 1 && ( "$MODE" != up || "$PUBLISH" != 1 ) ]]; then
+  echo "--updates-only несовместим с backup, restore и --no-update"; exit 1
+fi
 DEFAULT_TARGET="$(grep -v '^[[:space:]]*#' "$HERE/server.local" 2>/dev/null | head -1 | tr -d '[:space:]' || true)"
 TARGET="${1:-$DEFAULT_TARGET}"
 [[ -n "$TARGET" ]] || { echo "Куда ставить? ./deploy/server-up.sh root@1.2.3.4 — или впиши root@сервер в deploy/server.local"; exit 1; }
@@ -65,6 +70,23 @@ if [[ "$MODE" == backup ]]; then
   tar -tzf "$OUTF" | grep -q 'db.json' || { echo "В архиве нет db.json — на сервере нет данных?"; rm -f "$OUTF"; exit 1; }
   echo "✓ Бэкап: $OUTF ($(du -h "$OUTF" | cut -f1))"
   echo "  Перенос на другой сервер: ./deploy/server-up.sh restore \"$OUTF\" root@НОВЫЙ"
+  exit 0
+fi
+
+# Публикация клиентских пакетов без установки бинарника, изменения настроек и БД.
+if [[ "$UPDATES_ONLY" == 1 ]]; then
+  mkdir -p "$WORK/updates"
+  for f in VERSION NOTES FruityHub.exe FruityHub-mac-AppleSilicon.zip FruityHub-mac-Intel.zip; do
+    [[ -f "$ROOT/dist/$f" ]] || { echo "Нет dist/$f — сначала собери полный комплект обновления"; exit 1; }
+    cp "$ROOT/dist/$f" "$WORK/updates/"
+  done
+  cp "$HERE/publish-updates.sh" "$WORK/"
+  (cd "$WORK" && tar -czf updates.tar.gz updates publish-updates.sh)
+  connect
+  REMOTE_DIR="$(ssh "${SSHOPT[@]}" "$TARGET" 'mktemp -d /tmp/fruityhub-update.XXXXXXXX')"
+  [[ "$REMOTE_DIR" =~ ^/tmp/fruityhub-update\.[a-zA-Z0-9]+$ ]] || { echo "Не удалось создать временную папку сервера"; exit 1; }
+  scp -q "${SSHOPT[@]}" "$WORK/updates.tar.gz" "$TARGET:$REMOTE_DIR/updates.tar.gz"
+  ssh "${SSHOPT[@]}" "$TARGET" "set -e; trap 'rm -rf $REMOTE_DIR' EXIT; tar -xzf $REMOTE_DIR/updates.tar.gz -C $REMOTE_DIR; $SUDO bash $REMOTE_DIR/publish-updates.sh $REMOTE_DIR/updates $DATA/updates"
   exit 0
 fi
 
