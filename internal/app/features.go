@@ -118,8 +118,8 @@ func ResetBackground() {
 // MainFLP — .flp этого проекта в корне папки (если их несколько — главный).
 func (p *Project) MainFLP() string {
 	var root []string
-	for _, rel := range p.FLPs() {
-		if !strings.Contains(rel, "/") && !isCopyName(rel) {
+	for _, rel := range p.rootFLPs() {
+		if !isCopyName(rel) {
 			root = append(root, rel)
 		}
 	}

@@ -207,7 +207,21 @@ func Timestamp(b []byte) (spent time.Duration, created time.Time, ok bool) {
 // Parse decodes raw FLP bytes.
 func Parse(b []byte) (*File, error) {
 	f := &File{}
+	// Count with the same version-aware walker before allocating. Growing an
+	// Event slice repeatedly costs several times its final size on dense FLPs;
+	// blob payloads are skipped by length, so this pass does not copy them.
+	count := 0
 	err := walk(b, f, func(id byte, data []byte) bool {
+		count++
+		return true
+	})
+	if err != nil {
+		return nil, err
+	}
+	if count != 0 {
+		f.Events = make([]Event, 0, count)
+	}
+	err = walk(b, nil, func(id byte, data []byte) bool {
 		f.Events = append(f.Events, Event{ID: id, Data: data})
 		return true
 	})

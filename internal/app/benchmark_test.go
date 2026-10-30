@@ -13,24 +13,31 @@ import (
 
 var benchmarkNamesSink []string
 var benchmarkCountSink int64
+var benchmarkAnalysisSink *Analysis
+var benchmarkNameSink string
+
+func benchmarkProject(b *testing.B, count int) *Project {
+	b.Helper()
+	root := b.TempDir()
+	for i := 0; i < count; i++ {
+		dir := filepath.Join(root, fmt.Sprintf("Audio-%02d", i%20))
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			b.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("sample-%d.wav", i)), []byte{0}, 0600); err != nil {
+			b.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "Generated.flp"), synthFLP("kick.wav"), 0600); err != nil {
+		b.Fatal(err)
+	}
+	return &Project{Dir: root}
+}
 
 func BenchmarkProjectFLPs(b *testing.B) {
 	for _, count := range []int{100, 5000} {
 		b.Run(fmt.Sprintf("Files%d", count), func(b *testing.B) {
-			root := b.TempDir()
-			for i := 0; i < count; i++ {
-				dir := filepath.Join(root, fmt.Sprintf("Audio-%02d", i%20))
-				if err := os.MkdirAll(dir, 0700); err != nil {
-					b.Fatal(err)
-				}
-				if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("sample-%d.wav", i)), []byte{0}, 0600); err != nil {
-					b.Fatal(err)
-				}
-			}
-			if err := os.WriteFile(filepath.Join(root, "Generated.flp"), synthFLP("kick.wav"), 0600); err != nil {
-				b.Fatal(err)
-			}
-			p := &Project{Dir: root}
+			p := benchmarkProject(b, count)
 			if got := p.FLPs(); len(got) != 1 {
 				b.Fatal(got)
 			}
@@ -38,6 +45,50 @@ func BenchmarkProjectFLPs(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				benchmarkNamesSink = p.FLPs()
+			}
+		})
+	}
+}
+
+func BenchmarkProjectAnalyze(b *testing.B) {
+	for _, count := range []int{100, 5000} {
+		b.Run(fmt.Sprintf("Files%d", count), func(b *testing.B) {
+			p := benchmarkProject(b, count)
+			if a := p.Analyze(); len(a.FLPs) != 1 || len(a.Audio) != count {
+				b.Fatal("invalid analysis fixture")
+			}
+			// Measure a warm FLP cache, without asynchronous cache-file writes.
+			flpCacheMu.Lock()
+			if flpSaveTimer != nil {
+				flpSaveTimer.Stop()
+				flpSaveTimer = nil
+			}
+			flpCacheMu.Unlock()
+			b.Cleanup(func() {
+				flpCacheMu.Lock()
+				delete(flpCache, filepath.Join(p.Dir, "Generated.flp"))
+				flpCacheMu.Unlock()
+			})
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				benchmarkAnalysisSink = p.Analyze()
+			}
+		})
+	}
+}
+
+func BenchmarkProjectMainFLP(b *testing.B) {
+	for _, count := range []int{100, 5000} {
+		b.Run(fmt.Sprintf("Files%d", count), func(b *testing.B) {
+			p := benchmarkProject(b, count)
+			if p.MainFLP() != "Generated.flp" {
+				b.Fatal("invalid main FLP fixture")
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				benchmarkNameSink = p.MainFLP()
 			}
 		})
 	}

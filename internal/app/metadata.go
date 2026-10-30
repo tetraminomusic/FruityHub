@@ -136,12 +136,9 @@ func SetCover(dir, src string) error {
 }
 
 func mainFLP(dir string) string {
-	ps := (&Project{Dir: dir}).FLPs()
+	ps := (&Project{Dir: dir}).rootFLPs()
 	best, bestT := "", time.Time{}
 	for _, rel := range ps {
-		if strings.Contains(rel, "/") {
-			continue
-		}
 		p := filepath.Join(dir, rel)
 		if st, err := os.Stat(p); err == nil && st.ModTime().After(bestT) {
 			best, bestT = p, st.ModTime()

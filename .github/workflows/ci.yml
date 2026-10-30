@@ -18,6 +18,8 @@ jobs:
         run: go test ./internal/flp -run '^$' -bench '^BenchmarkFLP$/^Small$/^(Parse|Info)$' -benchtime=1x
       - name: Cache and archive benchmark smoke check
         run: go test ./internal/app -run '^$' -bench '^(BenchmarkFLPCacheHit|BenchmarkArchive)$' -benchtime=1x
+      - name: Project traversal benchmark smoke check
+        run: go test ./internal/app -run '^$' -bench '^BenchmarkProject(FLPs|Analyze|MainFLP)$/^Files100$' -benchtime=1x
   windows:
     runs-on: windows-latest
     steps:
@@ -25,9 +27,11 @@ jobs:
       - uses: actions/setup-go@v5
         with: { go-version: "1.22" }
       - run: go test ./internal/flp ./internal/ui
-      - run: go test ./internal/app -run 'TestGitCacheTracksExternalChanges|TestQuickStateKeepsIdentityAndProjectList|TestRenderNotifications|TestPinsAndTrayPersist'
+      - run: go test ./internal/app -run 'TestGitCacheTracksExternalChanges|TestQuickStateKeepsIdentityAndProjectList|TestRenderNotifications|TestPinsAndTrayPersist|TestProject'
       - run: go build ./cmd/fruityhub
       - name: FLP benchmark smoke check (generated fixtures)
         run: go test ./internal/flp -run '^$' -bench '^BenchmarkFLP$/^Small$/^(Parse|Info)$' -benchtime=1x
       - name: Cache and archive benchmark smoke check
         run: go test ./internal/app -run '^$' -bench '^(BenchmarkFLPCacheHit|BenchmarkArchive)$' -benchtime=1x
+      - name: Project traversal benchmark smoke check
+        run: go test ./internal/app -run '^$' -bench '^BenchmarkProject(FLPs|Analyze|MainFLP)$/^Files100$' -benchtime=1x

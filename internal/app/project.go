@@ -52,8 +52,10 @@ func skipDir(name string) bool {
 	return l == ".git" || l == ".flsync-local" || l == "backup" || l == "node_modules"
 }
 
-// walk lists files relative to the project (slash separated).
-func (p *Project) walk(fn func(rel, abs string, info fs.FileInfo)) {
+// walkEntries visits files without requesting metadata or building relative
+// paths for entries the caller does not need. Directory exclusions are shared
+// with walk and FLPs; directory symlinks are never followed.
+func (p *Project) walkEntries(fn func(abs string, entry fs.DirEntry)) {
 	filepath.WalkDir(p.Dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -64,27 +66,83 @@ func (p *Project) walk(fn func(rel, abs string, info fs.FileInfo)) {
 			}
 			return nil
 		}
+		fn(path, d)
+		return nil
+	})
+}
+
+// walk lists files relative to the project (slash separated).
+func (p *Project) walk(fn func(rel, abs string, info fs.FileInfo)) {
+	p.walkEntries(func(path string, d fs.DirEntry) {
 		rel, _ := filepath.Rel(p.Dir, path)
 		info, err := d.Info()
 		if err != nil {
-			return nil
+			return
 		}
 		fn(filepath.ToSlash(rel), path, info)
-		return nil
 	})
 }
 
 // FLPs returns project files (excluding autosaves / conflict copies are kept).
 func (p *Project) FLPs() []string {
-	var r []string
-	p.walk(func(rel, abs string, _ fs.FileInfo) {
-		l := strings.ToLower(rel)
-		if strings.HasSuffix(l, ".flp") && !strings.Contains(l, "autosave") && !strings.Contains(l, "overwritten") && !strings.HasPrefix(l, ".flsync/") {
-			r = append(r, rel)
+	flps, _ := p.scanProjectFiles(false)
+	return flps
+}
+
+func isProjectFLP(rel string) bool {
+	low := strings.ToLower(rel)
+	return strings.HasSuffix(low, ".flp") && !strings.Contains(low, "autosave") && !strings.Contains(low, "overwritten") && !strings.HasPrefix(low, ".flsync/")
+}
+
+// Main-project selection only considers root files. Do not recursively read
+// sample libraries to discover candidates that would immediately be discarded.
+func (p *Project) rootFLPs() []string {
+	entries, err := os.ReadDir(p.Dir)
+	if err != nil {
+		return nil
+	}
+	var flps []string
+	for _, d := range entries { // os.ReadDir already sorts names, like FLPs.
+		if d.IsDir() || !isProjectFLP(d.Name()) {
+			continue
+		}
+		if _, err := d.Info(); err == nil {
+			flps = append(flps, d.Name())
+		}
+	}
+	return flps
+}
+
+// scanProjectFiles takes a fresh snapshot for one operation, not a persistent
+// cache. Analyze can use the audio entries from the same walk as the FLP list.
+func (p *Project) scanProjectFiles(includeAudio bool) (flps []string, audio []AudioFile) {
+	p.walkEntries(func(abs string, d fs.DirEntry) {
+		isFLP := strings.EqualFold(filepath.Ext(d.Name()), ".flp")
+		isAudio := includeAudio && flp.IsAudio(d.Name())
+		if !isFLP && !isAudio {
+			return
+		}
+		rel, _ := filepath.Rel(p.Dir, abs)
+		rel = filepath.ToSlash(rel)
+		if isFLP {
+			isFLP = isProjectFLP(rel)
+		}
+		if !isFLP && !isAudio {
+			return
+		}
+		info, err := d.Info()
+		if err != nil {
+			return
+		}
+		if isFLP {
+			flps = append(flps, rel)
+		}
+		if isAudio {
+			audio = append(audio, AudioFile{Rel: rel, Size: info.Size()})
 		}
 	})
-	sort.Strings(r)
-	return r
+	sort.Strings(flps)
+	return
 }
 
 // ---------- analysis ----------
@@ -156,7 +214,8 @@ func (p *Project) Analyze() *Analysis {
 	a := &Analysis{Shared: LoadShared(p.Dir), FLPs: []FLPInfo{}, Samples: []SampleRef{}, Audio: []AudioFile{}, Plugins: []flp.Plugin{}}
 	byName := map[string]*SampleRef{}
 	var order []string
-	for _, rel := range p.FLPs() {
+	flps, audio := p.scanProjectFiles(true)
+	for _, rel := range flps {
 		abs := filepath.Join(p.Dir, filepath.FromSlash(rel))
 		fi := FLPInfo{Rel: rel}
 		if st, err := os.Stat(abs); err == nil {
@@ -215,20 +274,21 @@ func (p *Project) Analyze() *Analysis {
 	}
 	// index project audio by name
 	local := map[string]string{}
-	p.walk(func(rel, abs string, info fs.FileInfo) {
-		if !flp.IsAudio(rel) {
-			return
-		}
+	if audio != nil {
+		a.Audio = audio
+	}
+	for i := range a.Audio {
+		af := &a.Audio[i]
+		rel := af.Rel
 		k := strings.ToLower(flp.BaseName(rel))
 		if prev, ok := local[k]; !ok || audioRank(rel) < audioRank(prev) {
 			local[k] = rel
 		}
-		af := AudioFile{Rel: rel, Size: info.Size(), Tracked: tracked[rel]}
+		af.Tracked = tracked[rel]
 		_, af.Used = byName[k]
 		af.Included = matchesInclude(rel, a.Shared.AlwaysInclude)
 		af.Ignored = !af.Used && !af.Included && !af.Tracked && a.Shared.IgnoreUnused
-		a.Audio = append(a.Audio, af)
-	})
+	}
 	sort.Slice(a.Audio, func(i, j int) bool { return a.Audio[i].Rel < a.Audio[j].Rel })
 
 	for _, k := range order {
