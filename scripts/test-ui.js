@@ -35,9 +35,12 @@ for (const scenario of [
   assert.ok(!html.includes(' disabled'), 'state alone disabled a project action');
   assert.ok(html.includes('card launch'), 'separate launch panel missing');
 }
+context.S.state.projects = [{ path: '/test', artist: 'Band Name' }];
 context.S.proj = { ...base };
 context.S.analysis = { analysis: { samples: [{ status: 'missing', name: 'kick.wav' }] }, plugins: [] };
 context.renderMainNow();
+assert.ok(screen.innerHTML.includes('Band Name'));
+assert.ok(screen.innerHTML.includes('project-header-tools'));
 assert.ok(screen.innerHTML.includes('Скрыть до появления новых проблем'));
 context.dismissBox(encodeURIComponent('/test|prepare:' + JSON.stringify(['s:kick.wav'])));
 assert.ok(!screen.innerHTML.includes('Скрыть до появления новых проблем'));

@@ -1493,4 +1493,5 @@ window.I18N_EN = {
   "Шапка проекта снова компактная: название песни без артиста, звёздочка закрепления выровнена с кнопками на Windows": "Project header is compact again: song title without artist, pin aligned with buttons on Windows",
   "После закрытия предупреждения о подготовке снова выделяется доступное действие проекта; новая проблема вернёт предупреждение": "After dismissing the preparation warning the available project action is highlighted again; a new issue brings the warning back",
   "Кнопка скачивания плагина выровнена по центру столбца": "Plugin download button is centered in its column",
+  "Имя артиста остаётся под названием песни, звёздочка закрепления выровнена с кнопками на Windows": "The artist stays below the song title, and the pin aligns with the buttons on Windows",
 };
