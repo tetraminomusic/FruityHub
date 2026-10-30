@@ -16,11 +16,12 @@ import (
 // ---------- .flp ----------
 
 type flpCacheEntry struct {
-	Size  int64    `json:"size"`
-	Mod   int64    `json:"mod"` // unix ns
-	Info  flp.Info `json:"info"`
-	Error string   `json:"error,omitempty"`
-	Used  int64    `json:"used"` // когда последний раз нужен (для чистки)
+	MetadataOnly bool     `json:"metadataOnly,omitempty"`
+	Size         int64    `json:"size"`
+	Mod          int64    `json:"mod"` // unix ns
+	Info         flp.Info `json:"info"`
+	Error        string   `json:"error,omitempty"`
+	Used         int64    `json:"used"` // когда последний раз нужен (для чистки)
 }
 
 var (
@@ -30,7 +31,9 @@ var (
 	flpSaveTimer  *time.Timer
 )
 
-func flpCachePath() string { return filepath.Join(ConfigDir(), "cache", "flp-index-v4.json") }
+// v5 marks metadata-only entries; older binaries must not treat these as full
+// dependency scans when a user runs an earlier application version.
+func flpCachePath() string { return filepath.Join(ConfigDir(), "cache", "flp-index-v5.json") }
 
 func loadFLPCache() {
 	if flpCache != nil {
@@ -45,13 +48,21 @@ func loadFLPCache() {
 
 // parseFLPCached — содержимое .flp из кэша, если файл не менялся (размер и время те же), иначе разбор.
 func parseFLPCached(abs string) (flp.Info, error) {
+	return parseFLPCachedMode(abs, false)
+}
+
+func parseFLPMetadataCached(abs string) (flp.Info, error) {
+	return parseFLPCachedMode(abs, true)
+}
+
+func parseFLPCachedMode(abs string, metadataOnly bool) (flp.Info, error) {
 	st, err := os.Stat(abs)
 	if err != nil {
 		return flp.Info{}, err
 	}
 	flpCacheMu.Lock()
 	loadFLPCache()
-	if e := flpCache[abs]; e != nil && e.Size == st.Size() && e.Mod == st.ModTime().UnixNano() {
+	if e := flpCache[abs]; e != nil && e.Size == st.Size() && e.Mod == st.ModTime().UnixNano() && (metadataOnly || !e.MetadataOnly || e.Error != "") {
 		e.Used = time.Now().Unix()
 		flpCacheMu.Unlock()
 		if e.Error != "" {
@@ -61,13 +72,23 @@ func parseFLPCached(abs string) (flp.Info, error) {
 	}
 	flpCacheMu.Unlock()
 	f, perr := flp.ParseFile(abs)
-	e := &flpCacheEntry{Size: st.Size(), Mod: st.ModTime().UnixNano(), Used: time.Now().Unix()}
+	e := &flpCacheEntry{Size: st.Size(), Mod: st.ModTime().UnixNano(), Used: time.Now().Unix(), MetadataOnly: metadataOnly}
 	if perr != nil {
 		e.Error = perr.Error()
+	} else if metadataOnly {
+		e.Info = f.Metadata()
 	} else {
 		e.Info = f.Info()
 	}
 	flpCacheMu.Lock()
+	// A concurrent full scan must not be replaced by a partial result.
+	if old := flpCache[abs]; metadataOnly && old != nil && !old.MetadataOnly && old.Size == e.Size && old.Mod == e.Mod {
+		flpCacheMu.Unlock()
+		if old.Error != "" {
+			return old.Info, errString(old.Error)
+		}
+		return old.Info, nil
+	}
 	flpCache[abs] = e
 	scheduleFLPCacheSave()
 	flpCacheMu.Unlock()

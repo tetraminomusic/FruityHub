@@ -161,7 +161,7 @@ func (p *Project) FLArtist() string {
 	if rel == "" {
 		return ""
 	}
-	info, err := parseFLPCached(filepath.Join(p.Dir, filepath.FromSlash(rel)))
+	info, err := parseFLPMetadataCached(filepath.Join(p.Dir, filepath.FromSlash(rel)))
 	if err != nil {
 		return ""
 	}
@@ -388,8 +388,8 @@ func (p *Project) FLCompat() FLCompat {
 	if rel == "" {
 		return c
 	}
-	if f, err := flp.ParseFile(filepath.Join(p.Dir, filepath.FromSlash(rel))); err == nil {
-		c.Saved = f.Version()
+	if info, err := parseFLPMetadataCached(filepath.Join(p.Dir, filepath.FromSlash(rel))); err == nil {
+		c.Saved = info.FLVersion
 	}
 	if vs := InstalledFLVersions(); len(vs) > 0 {
 		c.Installed = vs[0]
@@ -577,7 +577,7 @@ func projectMeta(dir string) (int64, string) {
 	readJSON(metaPath(dir), &m)
 	artist := strings.TrimSpace(m.Artist)
 	if artist == "" && bestPath != "" {
-		if info, err := parseFLPCached(bestPath); err == nil {
+		if info, err := parseFLPMetadataCached(bestPath); err == nil {
 			artist = info.Artist
 		}
 	}

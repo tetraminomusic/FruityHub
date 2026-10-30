@@ -60,7 +60,7 @@ func LoadTrackMeta(dir string) TrackMeta {
 	readJSON(metaPath(dir), &m)
 	m.FLPTempo, m.FLPLength, m.FLPLengthBy = "", "", ""
 	if f := mainFLP(dir); f != "" {
-		if info, err := parseFLPCached(f); err == nil {
+		if info, err := parseFLPMetadataCached(f); err == nil {
 			if m.Title == "" {
 				m.Title = info.Title
 			}
@@ -737,7 +737,7 @@ func (p *Project) WriteReadme(a *Analysis) bool {
 		add("Длительность", l)
 	}
 	if f := mainFLP(p.Dir); f != "" {
-		if info, err := parseFLPCached(f); err == nil && info.FLVersion != "" {
+		if info, err := parseFLPMetadataCached(f); err == nil && info.FLVersion != "" {
 			add("FL Studio", info.FLVersion)
 		}
 		add("Проект", filepath.Base(f))
@@ -836,7 +836,7 @@ func trackLengthSec(dir string) int {
 	if best == "" {
 		return 0
 	}
-	if info, err := parseFLPCached(best); err == nil {
+	if info, err := parseFLPMetadataCached(best); err == nil {
 		return int(math.Round(info.Length))
 	}
 	return 0

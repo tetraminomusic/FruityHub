@@ -574,10 +574,16 @@ func parseWrapper(d []byte) (name, vendor, path string) {
 	return
 }
 
-// Info extracts samples, plugins and version.
-func (f *File) Info() Info {
+// Metadata extracts project fields without searching plugin states for samples.
+func (f *File) Metadata() Info {
 	info := Info{FLVersion: f.Version(), Title: f.Title(), Artist: f.Artist(), Tempo: f.Tempo()}
 	info.Length, info.LengthBy = f.LengthSeconds()
+	return info
+}
+
+// Info extracts samples, plugins and version.
+func (f *File) Info() Info {
+	info := f.Metadata()
 	seenS := map[string]bool{}
 	seenE := map[string]bool{}
 	where := "channel"
