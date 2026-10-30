@@ -148,6 +148,14 @@ func TestProjectScanSymlinks(t *testing.T) {
 	if len(a.FLPs) != 2 || a.FLPs[0].Error != "" || a.FLPs[0].Size != st.Size() || a.FLPs[1].Error == "" {
 		t.Fatalf("symlink metadata/errors changed: %+v", a.FLPs)
 	}
+	rootLink := filepath.Join(t.TempDir(), "ProjectLink")
+	if err := os.Symlink(root, rootLink); err != nil {
+		t.Fatal(err)
+	}
+	linked := &Project{Dir: rootLink}
+	if len(linked.FLPs()) != 0 || len(linked.rootFLPs()) != 0 || linked.MainFLP() != "" || mainFLP(rootLink) != "" {
+		t.Fatal("root-only selection followed a project symlink unlike WalkDir")
+	}
 }
 
 func TestProjectRootSelection(t *testing.T) {

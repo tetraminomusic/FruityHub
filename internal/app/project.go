@@ -97,6 +97,12 @@ func isProjectFLP(rel string) bool {
 // Main-project selection only considers root files. Do not recursively read
 // sample libraries to discover candidates that would immediately be discarded.
 func (p *Project) rootFLPs() []string {
+	// Match WalkDir's treatment of a project path that is itself a symlink:
+	// opening a directory with ReadDir alone would follow that link.
+	root, err := os.Lstat(p.Dir)
+	if err != nil || !root.IsDir() {
+		return nil
+	}
 	entries, err := os.ReadDir(p.Dir)
 	if err != nil {
 		return nil
