@@ -5,12 +5,14 @@ const vm = require('node:vm');
 const read = name => fs.readFileSync(`web/static/js/${name}.js`, 'utf8');
 const screen = { innerHTML: '' };
 const context = {
-  S: { state: { platform: 'windows-amd64', projects: [] }, sel: '/test', notes: {}, comments: { comments: [], status: {} } },
+  S: { state: { platform: 'windows-amd64', projects: [], config: {} }, sel: '/test', notes: {}, comments: { comments: [], status: {} } },
   $: () => screen, enc: encodeURIComponent, esc: value => String(value ?? ''), fmtTime: String,
+  localStorage: { data: {}, getItem(k) { return this.data[k] || null; }, setItem(k,v) { this.data[k] = v; } },
   layoutBanners: () => '', dbox: () => '', renderTab: () => '', ICON_REFRESH: '',
 };
 vm.createContext(context);
 vm.runInContext(read('project-actions') + '\n' + read('project') + '\n' + read('i18n'), context);
+context.renderMain = context.renderMainNow;
 const base = { path: '/test', name: 'Test', exists: true, isRepo: true, adopted: true, me: 'me', ahead: 0, behind: 0, changes: [], fl: {} };
 for (const scenario of [
   { primary: 'launch' },
@@ -33,6 +35,18 @@ for (const scenario of [
   assert.ok(!html.includes(' disabled'), 'state alone disabled a project action');
   assert.ok(html.includes('card launch'), 'separate launch panel missing');
 }
+context.S.proj = { ...base };
+context.S.analysis = { analysis: { samples: [{ status: 'missing', name: 'kick.wav' }] }, plugins: [] };
+context.renderMainNow();
+assert.ok(screen.innerHTML.includes('Скрыть до появления новых проблем'));
+context.dismissBox(encodeURIComponent('/test|prepare:' + JSON.stringify(['s:kick.wav'])));
+assert.ok(!screen.innerHTML.includes('Скрыть до появления новых проблем'));
+context.S.analysis.analysis.samples.push({ status: 'missing', name: 'snare.wav' });
+context.renderMainNow();
+assert.ok(screen.innerHTML.includes('Скрыть до появления новых проблем'));
+context.S.state.config.hidePrepareWarnings = true;
+context.renderMainNow();
+assert.ok(!screen.innerHTML.includes('Скрыть до появления новых проблем'));
 assert.equal(context.trText('Ctrl/⌘+S; ⌘/Ctrl + Enter; Cmd+N'), 'Ctrl+S; Ctrl + Enter; Ctrl+N');
 context.S.state.platform = 'darwin-arm64';
 assert.equal(context.trText('Ctrl/⌘+S; Ctrl+C; ⌘/Ctrl + Enter'), '⌘+S; ⌘+C; ⌘ + Enter');

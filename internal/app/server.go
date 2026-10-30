@@ -538,25 +538,26 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 	})
 	api("/api/settings", func(r *http.Request) (any, error) {
 		var req struct {
-			Tray            *bool         `json:"tray"`
-			Token           *string       `json:"token"`
-			ExtraPluginDirs []string      `json:"extraPluginDirs"`
-			Proxy           *string       `json:"proxy"`
-			SortMode        *string       `json:"sortMode"`
-			AutoUpdate      *bool         `json:"autoUpdate"`
-			ErrorReports    *bool         `json:"errorReports"`
-			AutoFetch       *bool         `json:"autoFetchPlugins"`
-			SeenVersion     *string       `json:"seenVersion"`
-			GuideSeen       *bool         `json:"guideSeen"`
-			HideHelp        *bool         `json:"hideHelp"`
-			PeerFetch       *bool         `json:"peerFetch"`
-			LAN             *bool         `json:"lan"`
-			ToastSec        *int          `json:"toastSec"`
-			LFS             []string      `json:"lfsExtensions"`
-			LiteUI          *bool         `json:"liteUi"`
-			Lang            *string       `json:"lang"`
-			Meta            *MetaSettings `json:"meta"`
-			Lite            *struct {
+			Tray                *bool         `json:"tray"`
+			Token               *string       `json:"token"`
+			ExtraPluginDirs     []string      `json:"extraPluginDirs"`
+			Proxy               *string       `json:"proxy"`
+			SortMode            *string       `json:"sortMode"`
+			AutoUpdate          *bool         `json:"autoUpdate"`
+			ErrorReports        *bool         `json:"errorReports"`
+			AutoFetch           *bool         `json:"autoFetchPlugins"`
+			SeenVersion         *string       `json:"seenVersion"`
+			GuideSeen           *bool         `json:"guideSeen"`
+			HidePrepareWarnings *bool         `json:"hidePrepareWarnings"`
+			HideHelp            *bool         `json:"hideHelp"`
+			PeerFetch           *bool         `json:"peerFetch"`
+			LAN                 *bool         `json:"lan"`
+			ToastSec            *int          `json:"toastSec"`
+			LFS                 []string      `json:"lfsExtensions"`
+			LiteUI              *bool         `json:"liteUi"`
+			Lang                *string       `json:"lang"`
+			Meta                *MetaSettings `json:"meta"`
+			Lite                *struct {
 				Plugin string `json:"plugin"`
 				On     bool   `json:"on"`
 			} `json:"lite"`
@@ -595,6 +596,9 @@ func (s *Server) routes(api func(string, func(*http.Request) (any, error))) {
 		if req.LAN != nil {
 			s.cfg.NoLAN = !*req.LAN
 			directOff.Store(s.cfg.NoLAN)
+		}
+		if req.HidePrepareWarnings != nil {
+			s.cfg.HidePrepareWarnings = *req.HidePrepareWarnings
 		}
 		if req.HideHelp != nil {
 			s.cfg.HideHelp = *req.HideHelp

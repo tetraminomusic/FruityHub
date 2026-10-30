@@ -257,12 +257,7 @@ function renderPlugins() {
   return `<div class="muted small" style="margin:10px 0">Список собирается из .flp и записывается в <b>PLUGINS.txt</b> в корне проекта. Каждый участник при отправке публикует, какие плагины (и каких версий) стоят у него.
       ${S.analysis.machines < 2 ? '<br><span style="color:var(--warn)">Пока известен только твой компьютер — данные друга появятся после его первой отправки.</span>' : ''}</div>
     <div class="row"><button onclick="rescan()">Пересканировать мои плагины</button>
-      ${Object.entries(bulk)
-        .map(
-          ([u, list]) =>
-            `<button class="primary" onclick="requestBulk('${enc(u)}')">Скачать у ${esc(u)} всё недостающее (${list.length})</button>`
-        )
-        .join('')}
+      ${Object.keys(bulk).length ? `<button class="primary" onclick="bulkDonorMenu(event)">Скачать недостающие плагины ▾</button>` : ''}
       <a class="small" onclick="openPluginManager('settings')">где я ищу плагины →</a></div>
     ${
       rows.length
@@ -729,4 +724,15 @@ async function openMissing(id) {
       fail(e);
     }
   };
+}
+
+async function bulkDonorMenu(event) {
+  const point = { clientX: event.clientX, clientY: event.clientY };
+  let people = [];
+  try { people = await api('/api/users'); } catch (_) {}
+  const online = new Map((Array.isArray(people) ? people : people.users || []).map(u => [u.nick, !!u.online]));
+  popMenu(point, Object.entries(S.bulk || {}).sort(([a], [b]) => Number(online.get(b)) - Number(online.get(a)) || a.localeCompare(b)).map(([u, list]) => [
+    `${online.get(u) ? '<span class="tag ok">в сети</span> ' : ''}${esc(u)} <span class="muted small">${list.length} плагин(ов)</span>`,
+    () => requestBulk(enc(u)),
+  ]));
 }

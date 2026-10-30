@@ -32,42 +32,43 @@ type Group struct {
 
 // Config is the per-machine app configuration (never committed).
 type Config struct {
-	NoTray           bool           `json:"noTray,omitempty"`
-	UserName         string         `json:"userName"` // nick on the server (= in the app)
-	UserID           string         `json:"userId,omitempty"`
-	GitHubLogin      string         `json:"githubLogin,omitempty"`
-	Server           string         `json:"server,omitempty"`      // server address (empty = built-in)
-	DeviceToken      string         `json:"deviceToken,omitempty"` // this device's key on the server
-	Sharing          string         `json:"sharing,omitempty"`     // who may download plugins from me: off|ask|members|all
-	Token            string         `json:"token,omitempty"`       // GitHub token: projects are the user's own repos
-	Proxy            string         `json:"proxy,omitempty"`       // прокси для GitHub, например http://127.0.0.1:10809 (пусто = авто)
-	ExtraPluginDirs  []string       `json:"extraPluginDirs"`
-	Projects         []LocalProject `json:"projects"`
-	Groups           []Group        `json:"groups,omitempty"`
-	LastParent       string         `json:"lastParent,omitempty"`
-	BgDim            int            `json:"bgDim,omitempty"`    // затемнение фона, % (0 = по умолчанию)
-	DevMode          bool           `json:"devMode,omitempty"`  // режим разработчика: журнал команд, админка сервера
-	AdminKey         string         `json:"adminKey,omitempty"` // ключ администратора сервера
-	SkipUpdate       string         `json:"skipUpdate,omitempty"`
-	AutoUpdate       bool           `json:"autoUpdate,omitempty"`
-	AutoFetchPlugins bool           `json:"autoFetchPlugins,omitempty"` // после скачивания проекта запросить недостающие плагины
-	SeenVersion      string         `json:"seenVersion,omitempty"`      // версия, для которой уже показали «Что нового»
-	GuideSeen        bool           `json:"guideSeen,omitempty"`        // показали знакомство с программой
-	HideHelp         bool           `json:"hideHelp,omitempty"`         // убрать кнопку «?» из шапки
-	LFSExtensions    []string       `json:"lfsExtensions,omitempty"`    // какие файлы уходят в Git LFS у новых проектов (пусто — стандартный список)
-	NoPeerFetch      bool           `json:"noPeerFetch,omitempty"`      // не брать/не отдавать аудио проектов напрямую между участниками
-	NoLAN            bool           `json:"noLan,omitempty"`            // не передавать напрямую по локальной сети (только через сервер)
-	ToastSec         *int           `json:"toastSec,omitempty"`         // сколько секунд держать уведомления (0 — пока не закроют)
-	NoErrorReports   bool           `json:"noErrorReports,omitempty"`   // не отправлять свои ошибки в журнал сервера
-	SortMode         string         `json:"sortMode,omitempty"`         // порядок списка проектов: manual, name, name-desc, modified, modified-asc
-	Lang             string         `json:"lang,omitempty"`
-	OldNicks         []string       `json:"oldNicks,omitempty"`        // мои прежние ники (мои старые комментарии — мои)
-	ProjectRoots     []string       `json:"projectRoots,omitempty"`    // папки, где лежат проекты FL (Настройки → Проекты)
-	InstallDeclined  bool           `json:"installDeclined,omitempty"` // Windows: «запускать без установки» — окно установки больше не показывать
-	IconStyle        string         `json:"iconStyle,omitempty"`       // иконка приложения: "" — без фона, "tile" — на тёмной плитке
-	LiteUI           bool           `json:"liteUi,omitempty"`          // лёгкий режим окна: без фона и размытия, без видеокарты (меньше памяти)             // язык интерфейса: "" — русский, "en" — английский
-	LitePlugins      []string       `json:"litePlugins,omitempty"`     // плагины, у которых не тянуть библиотеку пресетов при передаче
-	Meta             MetaSettings   `json:"meta"`                      // метаданные рендеров и README проектов
+	NoTray              bool           `json:"noTray,omitempty"`
+	UserName            string         `json:"userName"` // nick on the server (= in the app)
+	UserID              string         `json:"userId,omitempty"`
+	GitHubLogin         string         `json:"githubLogin,omitempty"`
+	Server              string         `json:"server,omitempty"`      // server address (empty = built-in)
+	DeviceToken         string         `json:"deviceToken,omitempty"` // this device's key on the server
+	Sharing             string         `json:"sharing,omitempty"`     // who may download plugins from me: off|ask|members|all
+	Token               string         `json:"token,omitempty"`       // GitHub token: projects are the user's own repos
+	Proxy               string         `json:"proxy,omitempty"`       // прокси для GitHub, например http://127.0.0.1:10809 (пусто = авто)
+	ExtraPluginDirs     []string       `json:"extraPluginDirs"`
+	Projects            []LocalProject `json:"projects"`
+	Groups              []Group        `json:"groups,omitempty"`
+	LastParent          string         `json:"lastParent,omitempty"`
+	BgDim               int            `json:"bgDim,omitempty"`    // затемнение фона, % (0 = по умолчанию)
+	DevMode             bool           `json:"devMode,omitempty"`  // режим разработчика: журнал команд, админка сервера
+	AdminKey            string         `json:"adminKey,omitempty"` // ключ администратора сервера
+	SkipUpdate          string         `json:"skipUpdate,omitempty"`
+	AutoUpdate          bool           `json:"autoUpdate,omitempty"`
+	AutoFetchPlugins    bool           `json:"autoFetchPlugins,omitempty"` // после скачивания проекта запросить недостающие плагины
+	SeenVersion         string         `json:"seenVersion,omitempty"`      // версия, для которой уже показали «Что нового»
+	GuideSeen           bool           `json:"guideSeen,omitempty"`        // показали знакомство с программой
+	HidePrepareWarnings bool           `json:"hidePrepareWarnings,omitempty"`
+	HideHelp            bool           `json:"hideHelp,omitempty"`       // убрать кнопку «?» из шапки
+	LFSExtensions       []string       `json:"lfsExtensions,omitempty"`  // какие файлы уходят в Git LFS у новых проектов (пусто — стандартный список)
+	NoPeerFetch         bool           `json:"noPeerFetch,omitempty"`    // не брать/не отдавать аудио проектов напрямую между участниками
+	NoLAN               bool           `json:"noLan,omitempty"`          // не передавать напрямую по локальной сети (только через сервер)
+	ToastSec            *int           `json:"toastSec,omitempty"`       // сколько секунд держать уведомления (0 — пока не закроют)
+	NoErrorReports      bool           `json:"noErrorReports,omitempty"` // не отправлять свои ошибки в журнал сервера
+	SortMode            string         `json:"sortMode,omitempty"`       // порядок списка проектов: manual, name, name-desc, modified, modified-asc
+	Lang                string         `json:"lang,omitempty"`
+	OldNicks            []string       `json:"oldNicks,omitempty"`        // мои прежние ники (мои старые комментарии — мои)
+	ProjectRoots        []string       `json:"projectRoots,omitempty"`    // папки, где лежат проекты FL (Настройки → Проекты)
+	InstallDeclined     bool           `json:"installDeclined,omitempty"` // Windows: «запускать без установки» — окно установки больше не показывать
+	IconStyle           string         `json:"iconStyle,omitempty"`       // иконка приложения: "" — без фона, "tile" — на тёмной плитке
+	LiteUI              bool           `json:"liteUi,omitempty"`          // лёгкий режим окна: без фона и размытия, без видеокарты (меньше памяти)             // язык интерфейса: "" — русский, "en" — английский
+	LitePlugins         []string       `json:"litePlugins,omitempty"`     // плагины, у которых не тянуть библиотеку пресетов при передаче
+	Meta                MetaSettings   `json:"meta"`                      // метаданные рендеров и README проектов
 
 	hub *Hub
 }

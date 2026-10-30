@@ -1646,3 +1646,13 @@ details > summary { cursor: pointer; padding: 10px 0; }
 .action-muted:hover, .action-muted:focus-visible,
 .launch-muted button:hover, .launch-muted button:focus-visible { opacity: 1; }
 .stable-actions button { min-width: 140px; }
+
+.project-heading { min-width: 0; }
+.project-artist { color: var(--muted); font-size: 13px; margin-top: 4px; }
+
+.phead > .row { align-items: center; min-height: 62px; }
+.phead .project-heading { display: flex; flex-direction: column; justify-content: center; align-self: center; }
+.phead .project-heading h1 { margin: 0; line-height: 1.12; }
+.phead .project-heading .project-artist { line-height: 1.2; }
+.banner { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.phead .pin-button { flex: none; font-size: 22px; line-height: 1; opacity: .8; }

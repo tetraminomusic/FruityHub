@@ -1482,4 +1482,12 @@ window.I18N_EN = {
   "С": "Since",
   "В работе у": "Being worked on by",
   "Перед открытием можно взять проект в работу.": "You can claim the project before opening it.",
+  "Проект свободен": "Project is free",
+  "Скрыть до появления новых проблем": "Hide until new issues appear",
+  "Скачать недостающие плагины ▾": "Download missing plugins \u25be",
+  "плагин(ов)": "plugin(s)",
+  "Показывать предупреждения о недостающих файлах и плагинах в проектах": "Show missing file and plugin warnings in projects",
+  "Закрепление перенесено в шапку проекта; под названием виден артист": "Pinning moved to the project header; the artist appears below the title",
+  "Предупреждение о недостающих файлах можно скрыть до появления новой проблемы или отключить в настройках": "Missing file warnings can be hidden until a new issue appears or disabled in settings",
+  "Источники плагинов собраны в меню, участники в сети показаны первыми; выровнена шапка на Windows": "Plugin sources are in a menu with online participants first; header alignment is fixed on Windows",
 };

@@ -168,6 +168,7 @@ async function openSettings(tab) {
       .join('')}</select>
     <div class="muted small">Ошибки висят, пока их не закроешь. На экране не больше трёх сообщений — остальные прокручиваются вниз.</div>
     <h3>Подсказки</h3>
+    <label class="switch"><input type="checkbox" id="prepareWarnings" ${c.hidePrepareWarnings ? '' : 'checked'}> Показывать предупреждения о недостающих файлах и плагинах в проектах</label>
     <label class="switch"><input type="checkbox" id="helpb" ${c.hideHelp ? '' : 'checked'}> Показывать кнопку «?» (знакомство с программой) в шапке</label>
     <div class="muted small">Знакомство всегда можно открыть во вкладке «Профиль». Скрытые крестиком предупреждения в проектах: <a id="undis">показать снова</a>.</div>
     </div>
@@ -244,6 +245,7 @@ async function openSettings(tab) {
     const v = +e.target.value;
     set({ toastSec: v }, () => (S.state.config.toastSec = v));
   };
+  m.querySelector('#prepareWarnings').onchange = e => set({ hidePrepareWarnings: !e.target.checked }, () => { S.state.config.hidePrepareWarnings = !e.target.checked; renderMain(); });
   m.querySelector('#helpb').onchange = async e => {
     try {
       await api('/api/settings', { hideHelp: !e.target.checked });

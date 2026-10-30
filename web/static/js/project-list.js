@@ -39,7 +39,7 @@ function projItem(p) {
     (n.unread ? `<span class="badge" title="новые комментарии">${n.unread}</span>` : '') +
     (n.behind > 0 ? `<span class="badge" title="на сервере новое">⤓</span>` : '');
   return `<div class="pitem ${S.sel === p.path ? 'sel' : ''}" draggable="true" data-path="${esc(p.path)}" title="${esc(p.path)}${p.modified ? '\nизменён ' + esc(fmtTime(p.modified)) : ''}" onclick="selectProject('${enc(p.path)}')">
-    <button class="pin-button ${p.pinned ? 'on' : ''}" title="${p.pinned ? 'Открепить проект' : 'Закрепить проект'}" onclick="event.stopPropagation();togglePin('${enc(p.path)}',true)">${p.pinned ? '★' : '☆'}</button><span class="dot ${cls}${mine ? ' mine' : ''}" title="${esc(tip)}"></span><span class="nn"><span class="n">${esc(p.name)}</span>${p.artist ? `<span class="art">${esc(p.artist)}</span>` : ''}</span>${badges}${p.exists ? '' : '<span class="tag bad">нет папки</span>'}
+    <span class="dot ${cls}${mine ? ' mine' : ''}" title="${esc(tip)}"></span><span class="nn"><span class="n">${esc(p.name)}</span>${p.artist ? `<span class="art">${esc(p.artist)}</span>` : ''}</span>${badges}${p.exists ? '' : '<span class="tag bad">нет папки</span>'}
     <span class="more" onclick="event.stopPropagation();projMenu(event,'${enc(p.path)}')">⋯</span></div>`;
 }
 const KEYS = [
